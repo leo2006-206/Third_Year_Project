@@ -161,54 +161,24 @@ All directions here will be based on Compressed Sparse Row (csr) graph.
 
 ***
 
-1. **Optimising the csr memory encoding**
-
-This is not the key part
-
-We could try different ways to encode the csr graph.
-One example could be storing the node's edge offset range along with node in edge:
-
-$$
-\text{original nodes array}:\set{ \begin{array}{|c|c|c|c|}
-\hline
-0 & 3 & 4 & 5 \\
-\hline
-\end{array}}
-$$
-$$
-\text{original edges array}:\set{ \begin{array}{|c|c|c|c|c|}
-\hline
-1 & 2 & 3 & 2 & 3 \\
-\hline
-\end{array}}
-$$
-$$
-\text{new edges array}:\set{ \begin{array}{|c|c|c|c|c|}
-\hline
-\set{1, 0, 3} & \set{2, 3, 4} & \set{3, 4, 5} & \set{2, 3, 4} & \set{3, 4, 5} \\
-\hline
-\end{array}}
-$$
-
-By duplicating the node's offset range.<br>
-This remove the memory load to `nodes_array[node]` and `nodes_array[node+1]`<br>
-// because the cache line mechanism in modern CPU, this remove 1 memory load.
-
-This closely align to the idea of **External Memory** and **Cache-oblivious**  model.<br>
-[Ref to External Memory wiki](https://en.wikipedia.org/wiki/External_memory_algorithm)<br>
-[Ref to Cache-oblivious wiki](https://en.wikipedia.org/wiki/Cache-oblivious_algorithm)
-
-However, this duplication also pollute the cache line.<br>
-Where if edge don't issue a graph traversal, the duplication is wastful.
-
-***
-
-2. **Integer Compression**
+1. **Integer Compression**
 
 Key part.
 
 We can compression the size of data to improve spatial locality.<br>
 Where the caches can load more element to reduce the number of cache misses.
+
+Say iterating a array will take $O(N)$ operations. <br>
+If we iterate a compressed array.<br>
+It will need $O(N + N)$ operations to iterations. //extra $N$ opeations for decoding<br>
+But this could be faster in real world.<br>
+Because this require less memory loading and when data in CPU,<br>
+the operations is fast.
+
+This closely align to the idea of **External Memory** and **Cache-oblivious**  model.<br>
+[Ref to External Memory wiki](https://en.wikipedia.org/wiki/External_memory_algorithm)<br>
+[Ref to Cache-oblivious wiki](https://en.wikipedia.org/wiki/Cache-oblivious_algorithm)
+
 
 Becasue the csr graph basically is 2 integer array.<br>
 where `nodes_array` is a sorted strictly increasing array with $O(1)$ indexing requirement,<br>
@@ -251,7 +221,7 @@ We could use **SIMDable Variable-length quantity**
 [Ref to nice article by Daniel Lemire, the author of many simd vlq libraries](https://lemire.me/blog/2017/09/27/stream-vbyte-breaking-new-speed-records-for-integer-compression/)
 
 ***
-3. **Graph Reordering**
+2. **Graph Reordering**
 
 Future optional part
 
@@ -262,7 +232,7 @@ Basically reduce the number of cahce miss by reordering/renumbering the graph.
 [Ref to blog Locality Analysis of Graph Reordering Algorithms](https://blogs.qub.ac.uk/dipsa/locality-analysis-of-graph-reordering-algorithms/)
 
 ***
-4. **Cache-awareness graph algorithms**
+3. **Cache-awareness graph algorithms**
 
 Future future optional part
 
