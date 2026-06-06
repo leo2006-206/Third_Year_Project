@@ -158,6 +158,7 @@ We can reduce the latency of graph to load the `g.get_neighbors( current_node )`
 ## Directions to reduce graph loading latency ##
 
 All directions here will be based on Compressed Sparse Row (csr) graph.
+Implement in C++, yeah
 
 ***
 
