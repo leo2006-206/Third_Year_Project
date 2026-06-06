@@ -283,6 +283,7 @@ Keep tracking following metrics:
 
 #### Step 4, anaylse the data ####
 Draw the relationship between different metrics:
-* Compression method : Execution time, Number of instructions, Cache miss rate, Branch miss rate
-* Execution time : Total memory size of graph
-* Total memory size : Cache miss rate
+* `Compression method` vs `Execution time, Total memory size of graph, Number of instructions, Cache miss rate, Branch miss rate`
+* `Execution time` vs `Total memory size of graph`
+* `Total memory size` : `Cache miss rate`
+* ...
