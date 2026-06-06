@@ -113,7 +113,7 @@ The CPU don't know that address `node.next` until `node` is loaded into CPU.<br>
 So force the CPU to wait the currect node to complete.
 
 Additionally, CPU cannot prefetch the `node.next`.<br>
-Because there are no obvious among the `node.next` address,<br>
+Because there are no obvious pattern among the `node.next` address,<br>
 unlike array that have contiguons memory storage.<br>
 This increased the number of cache miss that decline the performance.
 
@@ -163,17 +163,15 @@ All directions here will be based on Compressed Sparse Row (csr) graph.
 
 1. **Integer Compression**
 
-Key part.
-
 We can compression the size of data to improve spatial locality.<br>
-Where the caches can load more element to reduce the number of cache misses.
+Where the caches can load more elements to reduce the number of cache misses.
 
 Say iterating a array will take $O(N)$ operations. <br>
 If we iterate a compressed array.<br>
 It will need $O(N + N)$ operations to iterations. //extra $N$ opeations for decoding<br>
 But this could be faster in real world.<br>
-Because this require less memory loading and when data in CPU,<br>
-the operations is fast.
+Because this require less memory loading, <br>
+also when data in CPU ,the operations are fast.
 
 This closely align to the idea of **External Memory** and **Cache-oblivious**  model.<br>
 [Ref to External Memory wiki](https://en.wikipedia.org/wiki/External_memory_algorithm)<br>
@@ -238,4 +236,53 @@ Future future optional part
 
 [Ref to External_memory_graph_traversal wiki](https://en.wikipedia.org/wiki/External_memory_graph_traversal)
 
-[Ref to paper Cache-Oblivious Priority Queue andGraph Algorithm Applications](https://erikdemaine.org/papers/BufferTrees_STOC2002/paper.pdf)
+[Ref to paper Cache-Oblivious Priority Queue and Graph Algorithm Applications](https://erikdemaine.org/papers/BufferTrees_STOC2002/paper.pdf)
+
+***
+
+## Project Expectation ##
+
+Core question:
+> Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even this could increase the number of operations.
+
+#### Step 1, implementation basic tools: ####
+* Normal csr graph (directed (could be only outgoing or incoming + outgoing), undirected, weighted (directed/ undirected)).
+* Common graph use cases:
+  * Edges iteration
+  * Random graph traversal, `for_loop{g.get_neighbors( random_node )}`
+  * Breadth first search and iteration
+  * Depth first search and iteration
+  * Dijkstra search and iteration
+  * Topological sorting
+  * Other algorithms...
+* Random graph generations with fixed seed for benchmark. // Erdős–Rényi, Watts–Strogatz, Barabási–Albert Model
+* Loading real graph dataset from [Stanford Large Network Dataset Collection](https://snap.stanford.edu/data/) and [Network Repository](https://networkrepository.com/index.php)
+
+#### Step 2, implementation integer compressed csr graphs ####
+* Delta Encoding
+* Normal Variable-length quantity
+* Group Varint
+* SIMD Variable-length quantity family // probably use library
+* Bit vector
+* Elias-Fano Encoding
+* Golomb Coding
+* // Compression could be mixed
+* Other compression
+
+#### Step 3, benchmark and measurement ####
+Run benchmark with fixed seed random graph, or real dataset. <br>
+Run benchmark repeatly with different graph's size, density ... <br>
+Keep tracking following metrics:
+* Execution time
+* Total memory size of testing car graph data
+* Number of instructions
+* Number of cycles
+* Number of memory loading, Cache miss rate (L1, L2, L3, RAM)
+* Number of branch, branch miss rate
+* Size of binary instructions for hot path (the benchmark usecases) //optional
+
+#### Step 4, anaylse the data ####
+Draw the relationship between different metrics:
+* Compression method : Execution time, Number of instructions, Cache miss rate, Branch miss rate
+* Execution time : Total memory size of graph
+* Total memory size : Cache miss rate
