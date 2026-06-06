@@ -243,8 +243,12 @@ Future future optional part
 
 ## Project Expectation ##
 
+Everythings here could be change.
+
 Core question:
-> Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even this could increase the number of operations.
+> Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even decompression could increase the number of operations.
+
+> Could $O(N + N)$ (N decoding + N reading) better than $O(N)$ in practice?
 
 #### Step 1, implementation basic tools: ####
 * Normal csr graph (directed (could be only outgoing or incoming + outgoing), undirected, weighted (directed/ undirected)).
