@@ -243,10 +243,15 @@ Future future optional part
 
 ## Project Expectation ##
 
-Everythings here could be change.
+Everythings here could be change. <br>
+Everythings here will be based on csr graph. <br>
+
+Why csr? <br>
+Because it is generally more faster that graph representations for algorithms.<br>
+The integer compression methods could also apply to other graph representations.
 
 Core question:
-> Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even decompression could increase the number of operations.
+> Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even if decompression could increase the number of operations.
 
 > Could $O(N + N)$ (N decoding + N reading) better than $O(N)$ in practice?
 
