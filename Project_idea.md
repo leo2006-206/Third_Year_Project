@@ -247,7 +247,7 @@ Everythings here will be based on csr graph.
 Implementing in C++, yeah
 
 Why csr? <br>
-Because it is generally more faster that graph representations for algorithms.<br>
+Because it is generally more faster than other graph representations for algorithms.<br>
 The integer compression methods could also apply to other graph representations.
 
 Core question:
@@ -297,3 +297,26 @@ Draw the relationship between different metrics:
 * `Execution time` vs `Total memory size of graph`
 * `Total memory size` : `Cache miss rate`
 * ...
+
+***
+## Comparison to existing csr graph ##
+
+Most existing general purpose graph libraries did not support compression for CSR graph.
+
+Example:
+* [Boost Graph Library CSR](https://www.boost.org/doc/libs/latest/libs/graph/doc/compressed_sparse_row.html)
+* [Scipy cs matrix](https://docs.scipy.org/doc/scipy/reference/sparse.csgraph.html)
+* [JGraphT](https://jgrapht.org/guide/UserOverview#graph-structures)
+
+However, there are special purpose graph libraries support compression for CSR graph. <br>
+Example:
+* [WebGraph Java](https://github.com/vigna/webgraph) //used BV (Boldi-Vigna) compression
+
+`WebGraph` used BV (Boldi-Vigna) compression that specialize for web graph (links between websites).<br>
+However this compression may not work well with general purpose graphs.
+
+This project aiming to experiment efficient compressed CSR graphs for general purpose graphs.<br>
+That could improve the runtime performance and memory footprint.
+
+
+
