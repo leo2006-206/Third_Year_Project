@@ -250,6 +250,9 @@ Why csr? <br>
 Because it is generally more faster than other graph representations for algorithms.<br>
 The integer compression methods could also apply to other graph representations.
 
+key paper:
+  Pibiri, G. E., & Venturini, R. (2019). Techniques for Inverted Index Compression
+
 Core question:
 > Can we apply integer compression to csr graph to improve graph traversal efficiency?<br>Even if decompression could increases the number of operations.
 
