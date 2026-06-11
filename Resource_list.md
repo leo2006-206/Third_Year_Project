@@ -33,4 +33,23 @@ Lossless Compression of Time Series Data: A Comparative Study (Paper, 2025):
 **Key** Techniques for Inverted Index Compression (Paper, 2020):
 * https://arxiv.org/pdf/1908.10598
 
+# Hardware Graph #
 
+In systems research, 
+graph traversal is classified as an **"irregular application."**
+Because graph edges point to random memory locations,
+they defeat the CPU's hardware prefetcher (which expects you to read memory sequentially).
+
+GraphBIG: understanding graph computing in the context of industrial solutions (Paper, 2015):
+* https://dl.acm.org/doi/abs/10.1145/2807591.2807626
+
+SpZip: Architectural Support for Effective Data Compression In Irregular Applications (Paper, 2021):
+* https://www.researchgate.net/publication/353696338_SpZip_Architectural_Support_for_Effective_Data_Compression_In_Irregular_Applications
+
+Speedup Graph Processing by Graph Ordering (Paper, 2015):
+* https://dl.acm.org/doi/10.1145/2882903.2915220
+
+# Compression Methods #
+
+Stream VByte: breaking new speed records for integer compression (Blog, 2018):
+* https://lemire.me/blog/2017/09/27/stream-vbyte-breaking-new-speed-records-for-integer-compression/
