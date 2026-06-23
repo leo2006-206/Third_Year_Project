@@ -57,30 +57,32 @@ typedef struct comp_graph{
 
 ## Compression Schemes  ##
 
-1. Delta Coding:
-
-* Decorrelates the data by storing differences between consecutive values .
-
-2. RLE (Run-Length Encoding):
-* Compresses long consecutive runs of the exact same value (optional, but highly recommended for zeroes).
-* Not for csr graph, bs less or no duplicated value.
-
-3. QuaRs:
-* Reshuffles the remaining jumpy/sparse values to cluster them tightly around zero . (Reduce Average Absolute Deviation)
-
-4. Entropy Coder:
-* A fast integer encoder (like Sprintz, Pcodec, or a custom SIMD bit-packer) that packs the now-tiny integers into binary .
+On purposely chose the new recent Integer Encoders.
+<br>
+Hugely influenced by these 2 compression survey paper:
+* [Inverted Index Compression, 2018 Paper](https://arxiv.org/pdf/1908.10598)
+* [Lossless Compression of Time Series Data, 2025 Paper](https://arxiv.org/abs/2510.07015)
 
 **Compression Methods**:
-* // intermediate transformation
-* Delta Coding
-* QuaRs
-* // encoder
-* bzip2		(General, Huffman coding)
-* Brotli	(General, LZ77)
-* LZ4		(General, LZ77)
-* Sprintz	(Integer, )
-* partitioned Elias-Fano
-* opt_vbyte
-* Stream VByte
+* intermediate transformation
+	* Delta Coding
+		* Key for sorted data
+	* QuaRs
+		* "smaller-numbers-less-bits" principle
+		* reshapes arbitrary distributions into unimodal ones centered around zero
+		* [2025, Paper](https://arxiv.org/abs/2501.12929v1)
+* encoder
+	* Sprintz
+	<br>(IoT Time Series data, SIMD + multi-methods), [2018 Paper](https://arxiv.org/abs/1808.02515)
+	* partitioned Elias-Fano
+	<br>(Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615),
+	* opt_vbyte<br>
+	(Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
+	* Stream VByte<br>
+	(Integer data, SIMD + Variable-Byte), [2018 Paper](https://arxiv.org/abs/1709.08990)
+* optional encoder
+	* bzip2		(General, Dictionary)
+	* Brotli	(General, Dictionary)
+	* LZ4		(General, Dictionary)
+	* ...
 
