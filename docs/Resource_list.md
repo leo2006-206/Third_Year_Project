@@ -51,5 +51,27 @@ Speedup Graph Processing by Graph Ordering (Paper, 2015):
 
 # Compression Methods #
 
+**Compression Methods**:
+* // intermediate transformation
+* Delta Coding
+* QuaRs
+* // encoder
+* Sprintz
+* bzip2
+* Brotli
+* partitioned Elias-Fano
+* opt_vbyte
+* Stream VByte
+
 Stream VByte: breaking new speed records for integer compression (Blog, 2018):
 * https://lemire.me/blog/2017/09/27/stream-vbyte-breaking-new-speed-records-for-integer-compression/
+
+QuaRs: A Transform for Better Lossless Compression of Integers (Paper, 2025):
+* https://arxiv.org/abs/2501.12929v1
+
+Pcodec: Better Compression for Numerical Sequences (Paper, 2025):
+* https://arxiv.org/abs/2502.06112
+
+Sprintz: Time Series Compression for the Internet of Things (Paper, 2018):
+* https://arxiv.org/abs/1808.02515
+
