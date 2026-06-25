@@ -85,11 +85,9 @@ Hugely influenced by these 2 compression survey paper:
 		There are fewer consecutive identical values in the `node_array`<br/>
 		And no consecutive identical values in `sub edge_array`
 * encoder
-	* Sprintz
-	<br/>
+	* Sprintz<br/>
 	(`uint32, uint64`, IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
-	* partitioned Elias-Fano
-	<br/>
+	* partitioned Elias-Fano<br/>
 	(`uint32, uint64`, Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615)
 	* opt_vbyte
 	<br/>
