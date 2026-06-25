@@ -86,17 +86,17 @@ Hugely influenced by these 2 compression survey paper:
 		And no consecutive identical values in `sub edge_array`
 * encoder
 	* Sprintz
-<br/>
-(`uint32, uint64`, IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
+	<br/>
+	(`uint32, uint64`, IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
 	* partitioned Elias-Fano
-<br/>
-(`uint32, uint64`, Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615)
+	<br/>
+	(`uint32, uint64`, Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615)
 	* opt_vbyte
-<br/>
-(`uint32`, Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
+	<br/>
+	(`uint32`, Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
 	* Pcodec
-<br/>
-(`uint32, uint64`, Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
+	<br/>
+	(`uint32, uint64`, Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
 * optional encoder
 	* bzip2		(General, Dictionary)
 	* Brotli	(General, Dictionary)
