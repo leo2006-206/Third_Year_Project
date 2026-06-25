@@ -2,7 +2,9 @@
 
 Experimental project
 
-title: **The Microarchitectural Impact of Modern Integer Compression on Static Graph Traversal**
+**Beyond the Worst-Case Analysis of Algorithms.**
+
+**The Microarchitectural Impact of Modern Integer Compression on Static Graph Traversal**
 
 ## Compressed Sparse Row Graph (CSR) ##
 
