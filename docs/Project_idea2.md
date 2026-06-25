@@ -79,7 +79,7 @@ Hugely influenced by these 2 compression survey paper:
 		* Reshapes arbitrary distributions into unimodal ones centered around zero
 		* Power-law in social networks making distribution-reshaping highly relevant
 		* Require the entire block of data to recover<br/>
-		Unable to decode and use on fly (Increase latency)
+		Unable to decode and use on fly (reduce latency)
 		* [2025, Paper](https://arxiv.org/abs/2501.12929v1)
 	* Blocking
 		* Partitioning array into block of array
