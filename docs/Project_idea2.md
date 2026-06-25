@@ -15,7 +15,7 @@ Where `node_array[ node_x ]` return the starting position of `node_x`'s edges.<b
 Integer values can be duplicated.
 
 `edge_array` is a array of integer array.<br>
-Integer values cannot be duplicated.<br>
+Integer values cannot be duplicated within subarray.<br>
 Sort the sub-array to enable binary-search and improve compression ratio.
 
 Use `uint64_t` for `node_array`
@@ -77,19 +77,28 @@ Hugely influenced by these 2 compression survey paper:
 		* "smaller-numbers-less-bits" principle
 		* reshapes arbitrary distributions into unimodal ones centered around zero
 		* [2025, Paper](https://arxiv.org/abs/2501.12929v1)
+	* Blocking
+		* Partition of array into block of array
+		* Enable indexing (for `node_array`)
+	* Run-length encoding
+		* Because the property of CSR graph<br>
+		There are fewer consecutive identical values in the `node_array`<br>
+		And no consecutive identical values in `sub edge_array`
 * encoder
 	* Sprintz
-	<br>(IoT Time Series data, SIMD + multi-methods), [2018 Paper](https://arxiv.org/abs/1808.02515)
+	<br>(IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
 	* partitioned Elias-Fano
 	<br>(Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615),
 	* opt_vbyte<br>
 	(Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
-	* Stream VByte<br>
-	(Integer data, SIMD + Variable-Byte), [2018 Paper](https://arxiv.org/abs/1709.08990)
+	* Pcodec<br>
+	(Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
 * optional encoder
 	* bzip2		(General, Dictionary)
 	* Brotli	(General, Dictionary)
 	* LZ4		(General, Dictionary)
+	* Stream VByte<br>
+	(Integer data, SIMD + Variable-Byte), [2018 Paper](https://arxiv.org/abs/1709.08990)
 	* ...
 
 ## Graph Dataset ##
@@ -108,7 +117,7 @@ My Current CPU Spec (`lscpu`):
 * scalar-memory ISA: erms, fsrm, movdir64b, clflushopt, clwb
 
 Total memory footprint in bytes 
-$\approx {(|V| * 8) + (|E| * 4)}$
+$\approx {(|V| \times 8) + (|E| \times 4)}$
 <br>
 `sizeof(uint64_t)` == 8, `sizeof(uint32_t)` == 4
 
@@ -133,3 +142,65 @@ But this could also be a point
 
 * Ex-Large: [Twitter follower network](https://snap.stanford.edu/data/twitter-2010.html)
 	* (|V|(41652230) * 8 + |E|(1468364884) * 4) = 6206677376 = 5.7 GiB
+
+## Experiment ##
+
+## Stage 1 ##
+
+Understand the baseline compression behaviour for different compression methods.
+
+**Experiment Setup**:
+<br>
+Given a sorted increasing `node_array` from one of the dataset.
+<br>
+Using `node_array` from dataset capture graph property.
+<br>
+Perform 2 tasks:
+1. Encode the given `node_array` into a `comp_array`
+2. Decode the given `comp_array` and accumulate a sum from the array<br>Depending on the method, prefer to decode and accumulate on fly
+
+<br>
+
+Measure the following figure:
+1. Encoding array
+	* Compression ratio
+	* Execution time
+	* Throughput
+2. Accumulating from decoded array
+	* Execution time
+	* Throughput
+	* Number of instructions
+	* Number of cycles
+	* Instructions Per Cycle (IPC) //computed
+	* Number of cache load and miss rate (L1 and L3, L2 optional)
+	* Number of branch and miss rate
+
+<br>
+
+**Compression Schemes**:
+1. Data Transformation:
+* Original raw integer
+* Delta Coding
+* QuaRs
+* Delta Coding + QuaRs
+
+2. Encoder:
+* No compression
+* Sprintz
+* partitioned Elias-Fano
+* opt_vbyte
+* Pcodec
+
+Total number of environment = 4 * 5  = 20
+
+**Data Visualisation**:
+1. Encoding array
+* 20 environment * 3 figure table
+* 20 environment * 3 figure percentage table<br>Normalised based on (Original raw integer + No compression)
+2. Accumulating from decoded array
+* 20 environment * 7 figure table
+* 20 environment * 7 figure percentage table<br>Normalised based on (Original raw integer + No compression)
+3. Combined result
+* 2D graph
+	* x = Compression ratio
+	* y = Normalised decoding throughput
