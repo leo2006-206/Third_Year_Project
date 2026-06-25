@@ -81,18 +81,22 @@ Hugely influenced by these 2 compression survey paper:
 		* Partition of array into block of array
 		* Enable indexing (for `node_array`)
 	* Run-length encoding
-		* Because the property of CSR graph<br>
+		* Cancelled because the property of CSR graph<br>
 		There are fewer consecutive identical values in the `node_array`<br>
 		And no consecutive identical values in `sub edge_array`
 * encoder
 	* Sprintz
-	<br>(IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
+	<br>
+	(`uint32, uint64`, IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
 	* partitioned Elias-Fano
-	<br>(Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615),
-	* opt_vbyte<br>
-	(Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
-	* Pcodec<br>
-	(Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
+	<br>
+	(`uint32, uint64`, Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615),
+	* opt_vbyte
+	<br>
+	(`uint32`, Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
+	* Pcodec
+	<br>
+	(`uint32, uint64`, Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
 * optional encoder
 	* bzip2		(General, Dictionary)
 	* Brotli	(General, Dictionary)
@@ -164,6 +168,7 @@ Perform 2 tasks:
 Measure the following figure:
 1. Encoding array
 	* Compression ratio
+	* // Optional
 	* Execution time
 	* Throughput
 2. Accumulating from decoded array
@@ -179,9 +184,9 @@ Measure the following figure:
 
 **Compression Schemes**:
 1. Data Transformation:
-* Original raw integer
-* Delta Coding
+* Original integer
 * QuaRs
+* Delta Coding
 * Delta Coding + QuaRs
 
 2. Encoder:
@@ -195,12 +200,36 @@ Total number of environment = 4 * 5  = 20
 
 **Data Visualisation**:
 1. Encoding array
-* 20 environment * 3 figure table
-* 20 environment * 3 figure percentage table<br>Normalised based on (Original raw integer + No compression)
+* 20 environment * 1 (Compression ratio) figure table
+<br>
+Each entry contain a raw value and (+/- percentage)
+<br>
+Percentage normalised based on (Original raw integer + No compression)
+
+* 2D graph
+	* x = environment (Data Transformation + Encoder)
+	* y = Compression ratio
+	* x will first ordered by Encoder, then Data Transformation
+	<br>
+	Like this:
+		* Original integer = O, QuaRs = Q, Delta = D
+		* No compression = NC, Sprintz = SPZ...
+		* x = [NC O, NC Q, NC D, NC D + Q, SPZ O, SPZ Q, SPZ D, SPZ D + Q, ...]
+	* Draw a line within same Encoder,
+	<br>
+	This emphasize the difference of Data Transformation with Encoder.
+
+Inspire by
+![Inspire by](docs_image/experiment_stage1_ex1.png)
+
 2. Accumulating from decoded array
 * 20 environment * 7 figure table
-* 20 environment * 7 figure percentage table<br>Normalised based on (Original raw integer + No compression)
+<br>
+Each entry contain a raw value and (+/- percentage)
+<br>
+Percentage normalised based on (Original raw integer + No compression)
 3. Combined result
 * 2D graph
 	* x = Compression ratio
 	* y = Normalised decoding throughput
+	* point = environment (Data Transformation + Encoder)
