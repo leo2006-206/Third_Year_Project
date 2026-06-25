@@ -2,7 +2,7 @@
 
 Experimental project
 
-title: **How different compression methods impact graph traversal efficiency differently on the CPU hardware leve**
+title: **The Microarchitectural Impact of Modern Integer Compression on Static Graph Traversal**
 
 ## Compressed Sparse Row Graph (CSR) ##
 
@@ -72,13 +72,19 @@ Hugely influenced by these 2 compression survey paper:
 * intermediate transformation
 	* Delta Coding
 		* Key for sorted data
+		* Only require the next integer<br/>
+		able to decode and use on fly
 	* QuaRs
 		* "smaller-numbers-less-bits" principle
-		* reshapes arbitrary distributions into unimodal ones centered around zero
+		* Reshapes arbitrary distributions into unimodal ones centered around zero
+		* Power-law in social networks making distribution-reshaping highly relevant
+		* Require the entire block of data to recover<br/>
+		Unable to decode and use on fly (Increase latency)
 		* [2025, Paper](https://arxiv.org/abs/2501.12929v1)
 	* Blocking
-		* Partition of array into block of array
-		* Enable indexing (for `node_array`)
+		* Partitioning array into block of array
+		* Enable indexing with Delta Coding (for `node_array`)
+		* Also divided block could enable on fly decoding for QuaRs
 	* Run-length encoding
 		* Cancelled because the property of CSR graph<br/>
 		There are fewer consecutive identical values in the `node_array`<br/>
@@ -181,8 +187,10 @@ Measure the following figure:
 1. Data Transformation:
 * Original integer
 * QuaRs
+* Blocking + QuaRs
 * Delta Coding
 * Delta Coding + QuaRs
+* Blocking + Delta Coding + QuaRs
 
 2. Encoder:
 * No compression
@@ -191,13 +199,13 @@ Measure the following figure:
 * opt_vbyte
 * Pcodec
 
-Total number of environment = 4 * 5  = 20
+Total number of environment = 6 * 5  = 30
 
 <br/>
 
 **Data Visualisation**:
 1. Encoding array
-* 20 environment * 1 (Compression ratio) figure table<br/>
+* 6 Data Transformation * 5 Encoder figure table or heatmap<br/>
 Each entry contain the Compression ratio and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
 
@@ -219,27 +227,33 @@ Inspired by
 ![Inspire by](/docs/docs_image/experiment_stage1_2dgraph.png)
 
 2. Accumulating from decoded array
-* 20 environment * 7 figure table<br/>
+* 30 environment * 7 figure table<br/>
 Each entry contain a raw value and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
+
+* Maybe grouped bar chart with normalised data.
+
 3. Combined result
 * 2D graph
 	* x = Compression ratio
 	* y = Normalised decoding throughput
 	* point = environment (Data Transformation + Encoder)
+	* Draw a line connecting the dots that form the upper-right boundary (Pareto frontier)
 
 <br/>
 
 **Initial Expectation**:
 
-Data Transformation: (1 = Best, 4 = Worst)
+Data Transformation: (1 = Best, 6 = Worst)
 
 |Rank|Compression Ratio|Decoding Efficiency|
 |:-:|:-:|:-:|
-|1|Delta Coding + QuaRs|Original integer|
-|2|Delta Coding| Delta Coding|
-|3|QuaRs | QuaRs|
-|4|Original integer| Delta Coding + QuaRs|
+|1|Blocking + Delta Coding + QuaRs| Original integer|
+|2|Delta Coding + QuaRs|Delta Coding|
+|3|Delta Coding| Blocking + QuaRs|
+|4|QuaRs | QuaRs|
+|5|Blocking + QuaRs| Delta Coding + QuaRs|
+|6|Original integer| Blocking + Delta Coding + QuaRs|
 
 Encoder: (1 = Best, 5 = Worst)
 
@@ -250,3 +264,22 @@ Encoder: (1 = Best, 5 = Worst)
 |3|Sprintz| opt_vbyte|
 |4|opt_vbyte| Sprintz|
 |5|No compression|Pcodec|
+
+## Stage 2 ##
+
+Using the result from **Stage 1** and apply to `edge_array`.
+
+Benchmark with actual graph usecases (algorithms).
+
+## Stage 3 ##
+
+Using the result from **Stage 1** and apply to `node_array`.
+
+Benchmark with actual graph usecases (algorithms).
+
+## Stage 4 ##
+
+Using the result from **Stage 2 & 3**. <br/>
+Apply to both `node_array` and `edge_array`.
+
+Benchmark with actual graph usecases (algorithms).
