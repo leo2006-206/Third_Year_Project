@@ -7,23 +7,23 @@ title: **How different compression methods impact graph traversal efficiency dif
 ## Compressed Sparse Row Graph (CSR) ##
 
 Currently thinking only focus on **unweighted directed graph**
-<br>
+<br/>
 That for each node, only storing the **outgoing edges**
 
-`node_array` is a strictly equal or increasing integer array.<br>
-Where `node_array[ node_x ]` return the starting position of `node_x`'s edges.<br>
+`node_array` is a strictly equal or increasing integer array.<br/>
+Where `node_array[ node_x ]` return the starting position of `node_x`'s edges.<br/>
 Integer values can be duplicated.
 
-`edge_array` is a array of integer array.<br>
-Integer values cannot be duplicated within subarray.<br>
+`edge_array` is a array of integer array.<br/>
+Integer values cannot be duplicated within subarray.<br/>
 Sort the sub-array to enable binary-search and improve compression ratio.
 
 Use `uint64_t` for `node_array`
-<br>
+<br/>
 Use `uint32_t` for `edge_array`
 
 Assuming $|V| \le {2 ^ {32} - 1}$
-<br>
+<br/>
 Assuming $|E| \ge {2 ^ {32} - 1}$
 
 ```c
@@ -63,7 +63,7 @@ typedef struct comp_graph{
 ## Compression Schemes  ##
 
 On purposely chose the new recent Integer Encoders.
-<br>
+<br/>
 Hugely influenced by these 2 compression survey paper:
 * [Inverted Index Compression, 2018 Paper](https://arxiv.org/pdf/1908.10598)
 * [Lossless Compression of Time Series Data, 2025 Paper](https://arxiv.org/abs/2510.07015)
@@ -81,27 +81,27 @@ Hugely influenced by these 2 compression survey paper:
 		* Partition of array into block of array
 		* Enable indexing (for `node_array`)
 	* Run-length encoding
-		* Cancelled because the property of CSR graph<br>
-		There are fewer consecutive identical values in the `node_array`<br>
+		* Cancelled because the property of CSR graph<br/>
+		There are fewer consecutive identical values in the `node_array`<br/>
 		And no consecutive identical values in `sub edge_array`
 * encoder
 	* Sprintz
-<br>
+<br/>
 (`uint32, uint64`, IoT Time Series data,  forecasting encoding + delta coding + run-length encoding + bit-packing), [2018 Paper](https://arxiv.org/abs/1808.02515)
 	* partitioned Elias-Fano
-<br>
+<br/>
 (`uint32, uint64`, Integer data, partition + Elias-Fano), [2014 Paper](https://dl.acm.org/doi/10.1145/2600428.2609615)
 	* opt_vbyte
-<br>
+<br/>
 (`uint32`, Integer data, partition + SIMD + Variable-Byte), [2020 Paper](https://ieeexplore.ieee.org/document/8691421)
 	* Pcodec
-<br>
+<br/>
 (`uint32, uint64`, Integer Float data, Statistical + Binning), [2025 Paper](https://arxiv.org/abs/2502.06112)
 * optional encoder
 	* bzip2		(General, Dictionary)
 	* Brotli	(General, Dictionary)
 	* LZ4		(General, Dictionary)
-	* Stream VByte<br>
+	* Stream VByte<br/>
 	(Integer data, SIMD + Variable-Byte), [2018 Paper](https://arxiv.org/abs/1709.08990)
 	* ...
 
@@ -122,15 +122,15 @@ My Current CPU Spec (`lscpu`):
 
 Total memory footprint in bytes 
 $\approx {(|V| \times 8) + (|E| \times 4)}$
-<br>
+<br/>
 `sizeof(uint64_t)` == 8, `sizeof(uint32_t)` == 4
 
 Chose dataset size > L2 size on purposely.
-<br>
+<br/>
 If all in cache, the uncompressed version likely to be faster
-<br>
+<br/>
 But this could also be a point
-<br>
+<br/>
 "where small graph is faster without compression"
 
 **Dataset**:
@@ -154,16 +154,16 @@ But this could also be a point
 Understand the baseline compression behaviour for different compression methods.
 
 **Experiment Setup**:
-<br>
+<br/>
 Given a sorted increasing `node_array` from one of the dataset.
-<br>
+<br/>
 Using `node_array` from dataset capture graph property.
-<br>
+<br/>
 Perform 2 tasks:
 1. Encode the given `node_array` into a `comp_array`
-2. Decode the given `comp_array` and accumulate a sum from the array<br>Depending on the method, prefer to decode and accumulate on fly
+2. Decode the given `comp_array` and accumulate a sum from the array<br/>Depending on the method, prefer to decode and accumulate on fly
 
-<br>
+<br/>
 
 Measure the following figure:
 1. Encoding array
@@ -180,7 +180,7 @@ Measure the following figure:
 	* Number of cache load and miss rate (L1 and L3, L2 optional)
 	* Number of branch and miss rate
 
-<br>
+<br/>
 
 **Compression Schemes**:
 1. Data Transformation:
@@ -201,22 +201,22 @@ Total number of environment = 4 * 5  = 20
 **Data Visualisation**:
 1. Encoding array
 * 20 environment * 1 (Compression ratio) figure table
-<br>
+<br/>
 Each entry contain a raw value and (+/- percentage)
-<br>
+<br/>
 Percentage normalised based on (Original raw integer + No compression)
 
 * 2D graph
 	* x = environment (Data Transformation + Encoder)
 	* y = Compression ratio
 	* x will first ordered by Encoder, then Data Transformation
-	<br>
+	<br/>
 	Like this:
       * Original integer = O, QuaRs = Q, Delta = D
 	  * No compression = NC, Sprintz = SPZ...
 	  * x = [NC O, NC Q, NC D, NC D + Q, SPZ O, SPZ Q, SPZ D, SPZ D + Q, ...]
 	* Draw a line within same Encoder,
-	<br>
+	<br/>
 	This emphasize the difference of Data Transformation with Encoder.
 
 Inspire by
@@ -224,9 +224,9 @@ Inspire by
 
 2. Accumulating from decoded array
 * 20 environment * 7 figure table
-<br>
+<br/>
 Each entry contain a raw value and (+/- percentage)
-<br>
+<br/>
 Percentage normalised based on (Original raw integer + No compression)
 3. Combined result
 * 2D graph
