@@ -193,11 +193,16 @@ Measure the following figure:
 
 Total number of environment = 4 * 5  = 20
 
+<br/>
+
 **Data Visualisation**:
 1. Encoding array
 * 20 environment * 1 (Compression ratio) figure table<br/>
-Each entry contain a raw value and (+/- percentage)<br/>
+Each entry contain the Compression ratio and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
+
+Inspired by
+![alt text](/docs/docs_image/experiment_stage1_table.png)
 
 * 2D graph
 	* x = environment (Data Transformation + Encoder)
@@ -210,8 +215,8 @@ Percentage normalised based on (Original raw integer + No compression)
 	* Draw a line within same Encoder,<br/>
 	This emphasize the difference of Data Transformation with Encoder.
 
-Inspire by
-![Inspire by](docs_image/experiment_stage1_ex1.png)
+Inspired by
+![Inspire by](/docs/docs_image/experiment_stage1_2dgraph.png)
 
 2. Accumulating from decoded array
 * 20 environment * 7 figure table<br/>
@@ -222,3 +227,26 @@ Percentage normalised based on (Original raw integer + No compression)
 	* x = Compression ratio
 	* y = Normalised decoding throughput
 	* point = environment (Data Transformation + Encoder)
+
+<br/>
+
+**Initial Expectation**:
+
+Data Transformation: (1 = Best, 4 = Worst)
+
+|Rank|Compression Ratio|Decoding Efficiency|
+|:-:|:-:|:-:|
+|1|Delta Coding + QuaRs|Original integer|
+|2|Delta Coding| Delta Coding|
+|3|QuaRs | QuaRs|
+|4|Original integer| Delta Coding + QuaRs|
+
+Encoder: (1 = Best, 5 = Worst)
+
+|Rank|Compression Ratio|Decoding Efficiency|
+|:-:|:-:|:-:|
+|1|Pcodec|No compression|
+|2|partitioned Elias-Fano|partitioned Elias-Fano|
+|3|Sprintz| opt_vbyte|
+|4|opt_vbyte| Sprintz|
+|5|No compression|Pcodec|
