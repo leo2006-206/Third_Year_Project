@@ -6,11 +6,10 @@ title: **How different compression methods impact graph traversal efficiency dif
 
 ## Compressed Sparse Row Graph (CSR) ##
 
-Currently thinking only focus on **unweighted directed graph**
-<br/>
+Currently thinking only focus on **unweighted directed graph**<br/>
 That for each node, only storing the **outgoing edges**
 
-`node_array` is a strictly equal or increasing integer array.<br/>
+`node_array` is a strictly equal or increasing integer array<br/>
 Where `node_array[ node_x ]` return the starting position of `node_x`'s edges.<br/>
 Integer values can be duplicated.
 
@@ -196,10 +195,8 @@ Total number of environment = 4 * 5  = 20
 
 **Data Visualisation**:
 1. Encoding array
-* 20 environment * 1 (Compression ratio) figure table
-<br/>
-Each entry contain a raw value and (+/- percentage)
-<br/>
+* 20 environment * 1 (Compression ratio) figure table<br/>
+Each entry contain a raw value and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
 
 * 2D graph
@@ -217,10 +214,8 @@ Inspire by
 ![Inspire by](docs_image/experiment_stage1_ex1.png)
 
 2. Accumulating from decoded array
-* 20 environment * 7 figure table
-<br/>
-Each entry contain a raw value and (+/- percentage)
-<br/>
+* 20 environment * 7 figure table<br/>
+Each entry contain a raw value and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
 3. Combined result
 * 2D graph
