@@ -168,6 +168,8 @@ Perform 2 tasks:
 
 <br/>
 
+**Measurement:**
+
 Measure the following figure:
 1. Encoding array
 	* Compression ratio
@@ -250,12 +252,12 @@ Data Transformation: (1 = Best, 6 = Worst)
 
 |Rank|Compression Ratio|Decoding Efficiency|
 |:-:|:-:|:-:|
-|1|Blocking + Delta Coding + QuaRs| Original integer|
-|2|Delta Coding + QuaRs|Delta Coding|
+|1|Delta Coding + QuaRs| Original integer|
+|2|Blocking + Delta Coding + QuaRs|Delta Coding|
 |3|Delta Coding| Blocking + QuaRs|
 |4|QuaRs | QuaRs|
-|5|Blocking + QuaRs| Delta Coding + QuaRs|
-|6|Original integer| Blocking + Delta Coding + QuaRs|
+|5|Blocking + QuaRs| Blocking + Delta Coding + QuaRs|
+|6|Original integer|Delta Coding + QuaRs |
 
 Encoder: (1 = Best, 5 = Worst)
 
@@ -272,6 +274,109 @@ Encoder: (1 = Best, 5 = Worst)
 Using the result from **Stage 1** and apply to `edge_array`.
 
 Benchmark with actual graph usecases (algorithms).
+
+<br/>
+
+**Experiment Setup**:
+
+**Task 1:**
+
+For each dataset, <br/>
+Compress the original CSR graph into edge compressed graph<br/>using the given Data Transformation + Encoder.
+
+**Task 2:**
+
+For each edge compressed graph, <br/>
+Benchmark with 4 graph usecases:
+1.	Given a pre-generated fixed seed random node sequence.<br/>
+	The length of sequence equal to the number of nodes in the dataset.<br/>
+	The sequence will be identical for the same dataset.<br/>
+	The program will iterate through the random sequence.<br/>
+	For each node ID in the sequence, it must fetch and fully decode its outgoing edge list.
+
+2.	Given 3 fixed source node (Min, Average, Max Out-Degree),<br/>
+	The source node will be same for the same dataset.<br/>
+	The program will iterate all nodes in Depth First Search order from the source node.
+	To disconnected components, <br/>
+	the BFS/DFS algorithms will restart to ensure $N$ nodes are traversed.
+
+	The oniginal idea to find the source with Min, Average, Max `memory_traversal_distance` (see below). <br/>
+	However this would require to run the searching for all nodes in dataset.<br/>
+	That could be time inefficient.<br/>
+	So used Min, Average, Max Out-Degree approximate the effect.
+
+
+3.	Same as task 2, but Breadth First Search
+
+
+4.	The graph need to execute with the Triangle counting algorithm.
+
+<br/>
+
+**Measurement:**
+
+On top of each usecases,<br/>
+the program also need to record the average and std of `memory_traversal_distance`,<br/>
+where used to quantify the spatial locality during graph traversal.
+
+When the CPU reads a single node's edge array,<br/>
+it performs a linear memory scan.<br/>
+Hardware prefetchers easily predict this and hide the memory latency.<br/> 
+However, when the traversal algorithm completes with the current node and requests the next node, <br/>
+the CPU must jump to a completely new, unpredictable memory address.
+
+Similar to the graph bandwidth concept. [Wiki Link](https://en.wikipedia.org/wiki/Graph_bandwidth)
+
+A larger `memory_traversal_distance` could correlated with a higher probability of L3 cache misses, forced RAM accesses, and pipeline stalls.
+
+It computed by the absolute byte distance between<br/>
+the very last byte of data read for the current node's edges,<br/>
+and the very first byte of data required for the next node's edges.
+
+Like this:
+
+`memory_traversal_distance = | addr_start_next - addr_end_curr |`
+
+`addr_end_curr` is the memory address of the last byte read<br/>
+while decoding the edge array for the node at step $t$
+
+`addr_start_next` is the memory address of the first byte read <br/>
+when beginning to decode the edge array for the node at step $t+1$.
+
+Measure the following figure:
+1. Encoding CSR compressed edge graph
+	* Compression ratio
+	* // Optional
+	* Execution time
+	* Throughput
+2. Each usecases
+	* Execution time
+	* Throughput
+	* Number of instructions
+	* Number of cycles
+	* Instructions Per Cycle (IPC) //computed
+	* Number of cache load and miss rate (L1 and L3, L2 optional)
+	* Number of branch and miss rate
+	* Average and std of `memory_traversal_distance`
+
+<br/>
+
+**Compression Schemes**:
+1. Data Transformation:
+* Original integer
+* Delta Coding
+* Blocking + Delta Coding + QuaRs
+
+2. Encoder:
+* No compression
+* Sprintz
+* partitioned Elias-Fano
+* opt_vbyte
+* Pcodec
+
+Total number of environment = 4 * 5  = 20
+
+
 
 ## Stage 3 ##
 
