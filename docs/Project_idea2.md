@@ -292,24 +292,26 @@ Benchmark with 4 graph usecases:
 	The length of sequence equal to the number of nodes in the dataset.<br/>
 	The sequence will be identical for the same dataset.<br/>
 	The program will iterate through the random sequence.<br/>
-	For each node ID in the sequence, it must fetch and fully decode its outgoing edge list.
+	For each node ID in the sequence, <br/>
+	it must fetch and fully decode its outgoing edge list.
 
 2.	Given 3 fixed source node (Min, Average, Max Out-Degree),<br/>
 	The source node will be same for the same dataset.<br/>
-	The program will iterate all nodes in Depth First Search order from the source node.
-	To disconnected components, <br/>
-	the BFS/DFS algorithms will restart to ensure $N$ nodes are traversed.
+	The program will iterate all nodes in Depth First Search order from the source node.<br/>
+	To handle disconnected components, <br/>
+	the BFS/DFS algorithms will be restarted with unvisited node<br/>
+	to ensure $N$ nodes are traversed.
 
-	The oniginal idea to find the source with Min, Average, Max `memory_traversal_distance` (see below). <br/>
+	The oniginal idea to find the sources with Min, Average, Max `memory_traversal_distance` (see below). <br/>
 	However this would require to run the searching for all nodes in dataset.<br/>
 	That could be time inefficient.<br/>
 	So used Min, Average, Max Out-Degree approximate the effect.
 
 
-3.	Same as task 2, but Breadth First Search
+3.	Same as task 2, but Breadth First Search.
 
 
-4.	The graph need to execute with the Triangle counting algorithm.
+4.	The graph will execute with the Triangle counting algorithm.
 
 <br/>
 
@@ -327,7 +329,7 @@ the CPU must jump to a completely new, unpredictable memory address.
 
 Similar to the graph bandwidth concept. [Wiki Link](https://en.wikipedia.org/wiki/Graph_bandwidth)
 
-A larger `memory_traversal_distance` could correlated with a higher probability of L3 cache misses, forced RAM accesses, and pipeline stalls.
+A larger `memory_traversal_distance` could correlated with a higher probability of L3 cache misses, forced RAM accesses, and CPU pipeline stalls.
 
 It computed by the absolute byte distance between<br/>
 the very last byte of data read for the current node's edges,<br/>
@@ -374,7 +376,7 @@ Measure the following figure:
 * opt_vbyte
 * Pcodec
 
-Total number of environment = 4 * 5  = 20
+Total number of environment = 3 * 5  = 5
 
 
 
