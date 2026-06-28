@@ -208,7 +208,16 @@ Total number of environment = 6 * 5  = 30
 <br/>
 
 **Data Visualisation**:
-1. Encoding array
+
+Number of environment = 30
+
+Number of dataset = 1
+
+Task 1, number of result = 30
+
+Task 2, number of result = 30
+
+1. Encoding array:
 * 6 Data Transformation * 5 Encoder figure table or heatmap<br/>
 Each entry contain the Compression ratio and (+/- percentage)<br/>
 Percentage normalised based on (Original raw integer + No compression)
@@ -216,7 +225,7 @@ Percentage normalised based on (Original raw integer + No compression)
 Inspired by
 ![alt text](/docs/docs_image/experiment_stage1_table.png)
 
-* 2D graph
+* 2D graph:
 	* x = environment (Data Transformation + Encoder)
 	* y = Compression ratio
 	* x will first ordered by Encoder, then Data Transformation<br/>
@@ -238,7 +247,7 @@ Percentage normalised based on (Original raw integer + No compression)
 * Maybe grouped bar chart with normalised data.
 
 3. Combined result
-* 2D graph
+* 2D graph, Scatter Plots
 	* x = Compression ratio
 	* y = Normalised decoding throughput
 	* point = environment (Data Transformation + Encoder)
@@ -299,7 +308,7 @@ Benchmark with 4 graph usecases:
 	The source node will be same for the same dataset.<br/>
 	The program will iterate all nodes in Depth First Search order from the source node.<br/>
 	To handle disconnected components, <br/>
-	the BFS/DFS algorithms will be restarted with unvisited node<br/>
+	the algorithms will be restarted with unvisited node<br/>
 	to ensure $N$ nodes are traversed.
 
 	The oniginal idea to find the sources with Min, Average, Max `memory_traversal_distance` (see below). <br/>
@@ -312,6 +321,19 @@ Benchmark with 4 graph usecases:
 
 
 4.	The graph will execute with the Triangle counting algorithm.
+
+In total, 1 + 3 + 3 + 1 = 8 usecases:
+
+|Number|Usecase|Input|
+|:-:|:-:|:-:|
+|1|Random traversal|Fixed pre-generated random sequence|
+|2|DFS iteration|Min out-degree source node|
+|3|DFS iteration|Average out-degree source node|
+|4|DFS iteration|Max out-degree source node|
+|5|BFS iteration|Min out-degree source node|
+|6|BFS iteration|Average out-degree source node|
+|7|BFS iteration|Max out-degree source node|
+|8|Triangle counting|Graph dataset|
 
 <br/>
 
@@ -376,9 +398,79 @@ Measure the following figure:
 * opt_vbyte
 * Pcodec
 
-Total number of environment = 3 * 5  = 5
+Total number of environment = 3 * 5  = 15
 
+<br/>
 
+**Data Visualisation**:
+
+Number of environment = 15
+
+Number of dataset = 4
+
+Number of usecase = 8
+
+Task 1, number of result = 4 * 15 = 60
+
+Task 2, number of result = 60 * 8 = 480
+
+1. Encoding `edge_array` compressed graph:
+* 3 Data Transformation * 5 Encoder figure table or heatmap<br/>
+Each entry contain the Compression ratio and (+/- percentage)<br/>
+Percentage normalised based on (Original raw integer + No compression)<br/>
+For all 4 dataset, that 4 tables
+
+2. Benchmarking 8 usecases with `edge_array` compressed graph:
+
+* 2D graph, Scatter Plots
+    * X = Compression Ratio
+    * Y = Throughput or Execution time
+    * Points =  15 environments (averaged across the 8 usecases)
+	* Draw a line connecting the dots that form the upper-right boundary (Pareto frontier)
+    * In total, 4 scatter plots, one for each dataset.
+
+* 2D Tables or Heatmaps
+    * Y = 15 environments (3 Data Transformations * 5 Encoders)
+    * X = 8 Usecases (Random, DFS/BFS variations, Triangle counting)
+    * Entry = Relative speedup/slowdown (+/- percentage)<br/>
+    * Percentage normalised based on baseline (Original raw integer + No compression).<br/>
+    * In total 4 table, (one for each dataset)
+
+* Grouped Bar Charts
+    * Focus on isolated extreme usecases (e.g., Max out-degree BFS vs Random traversal).
+    * X = Top performing environments vs Baseline
+    * Y = Normalised hardware performance counters (IPC, Number of instructions, L1/L3 Cache miss rates, Branch miss rates).<br/>
+* 2D Graph
+    * Graph A: Memory Distance vs. Compression Ratio
+        * X = Compression Ratio
+        * Y = Average `memory_traversal_distance`
+        * Showing how CR impact the `memory_traversal_distance`.
+    * Graph B: Memory Distance vs. Cache Performance
+        * X = Average `memory_traversal_distance`
+        * Y = Cache load and miss rate
+        * Showing how `memory_traversal_distance` impact caching.
+
+<br/>
+
+**Initial Expectation**:
+
+Data Transformation: (1 = Best, 3 = Worst)
+
+|Rank|Compression Ratio|Traversal Efficiency|
+|:-:|:-:|:-:|
+|1|Blocking + Delta Coding + QuaRs|Delta Coding|
+|2|Delta Coding|Original integer|
+|3|Original integer|Blocking + Delta Coding + QuaRs|
+
+Encoder: (1 = Best, 5 = Worst)
+
+|Rank|Compression Ratio|Traversal Efficiency|
+|:-:|:-:|:-:|
+|1|Pcodec|partitioned Elias-Fano|
+|2|partitioned Elias-Fano|opt_vbyte|
+|3|Sprintz| Sprintz|
+|4|opt_vbyte| No compression|
+|5|No compression|Pcodec|
 
 ## Stage 3 ##
 
