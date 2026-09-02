@@ -34,8 +34,8 @@ Key:
 * //Or other things
 
 ## Metrics ##
-* Server utilisation
-* Client-perceived latency
+* key -> Server utilisation
+* key -> Client-perceived latency
 * Throughput
 * 95th-percentile latency
 * Queue time
@@ -54,7 +54,24 @@ Key:
 
 Setting on the existing system from the paper
 
-Implement a basic user app if needed, dispaly basic timing
+Deploying the system with real domains:
+* docker container, for adjusting container resources
+* cloudflare tunnel, for real networking with https
+* network emulator, for more realistic networking conditions
+
+Planning URLs include:
+* `obm_main_server`, for the main obm server
+* `obm_offload_server_1`, for offloading server 1
+* `obm_offload_server_2`, for offloading server 2
+* `obm_client` == `obm_main_server`, for user interface
+
+Usage:
+* `main server`, store the assets, also be the load-balancing server to select offloading server
+* `offloading server`, computing server to offload rendering for user
+* `client`, user interface to select video and display video, user should only use this URL
+
+Detail:
+* `offloading server` actually is a rust server process with a dana offload process, where rust handle request and dana rendering the segments. They communicating over localhost http.
 
 ***
 
