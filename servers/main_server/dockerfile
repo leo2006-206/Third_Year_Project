@@ -1,0 +1,39 @@
+# ==============================================================================
+# Dockerfile for OBM Main Server (Stage 1 - Dana Web Server)
+# ==============================================================================
+FROM ubuntu:22.04
+
+# Prevent interactive dialogs during apt installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential runtime dependencies for Dana and networking tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    libgl1 \
+    libglu1-mesa \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Dana environment variables
+ENV DANA_HOME=/opt/dana
+ENV PATH="${PATH}:${DANA_HOME}"
+
+# Copy the Dana runtime engine and components from the shared staging directory
+WORKDIR /opt/dana
+COPY servers/dana_runtime_copy/ /opt/dana/
+
+# Ensure executable permissions on the Dana runtime binary
+RUN chmod +x /opt/dana/dana 2>/dev/null || true
+
+# Set working directory to the OBM application root
+WORKDIR /app/obm
+
+# Copy pre-compiled OBM application, assets, shows, WASM player, and configs
+COPY obm/ /app/obm/
+
+# Expose Dana Web Server port
+EXPOSE 7000
+
+# Run the Dana Web Server (ws.core) on port 7000 interactively in the foreground
+CMD ["dana", "ws.core", "-p", "7000"]
