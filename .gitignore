@@ -1,4 +1,4 @@
 docs_resource/*
 # *.sh
 servers/dana_runtime_copy
-obm/*
+obm
