@@ -1,5 +1,6 @@
 docs_resource/*
 # *.sh
 servers/dana_runtime_copy
+*/target/*
 local_host.txt
 obm

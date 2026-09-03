@@ -1,5 +1,5 @@
 # ==============================================================================
-# Dockerfile for OBM Main Server (Stage 1 - Dana Web Server)
+# Dockerfile for OBM Main Server (Stage 2 - Rust Server & Dana Web Server)
 # ==============================================================================
 FROM ubuntu:22.04
 
@@ -21,19 +21,35 @@ ENV PATH="${PATH}:${DANA_HOME}"
 
 # Copy the Dana runtime engine and components from the shared staging directory
 WORKDIR /opt/dana
-COPY servers/dana_runtime_copy/ /opt/dana/
-
-# Ensure executable permissions on the Dana runtime binary
-RUN chmod +x /opt/dana/dana 2>/dev/null || true
+COPY --chmod=755 servers/dana_runtime_copy/ /opt/dana/
 
 # Set working directory to the OBM application root
 WORKDIR /app/obm
 
-# Copy pre-compiled OBM application, assets, shows, WASM player, and configs
-COPY obm/ /app/obm/
+# 1. Copy large media assets first (cached permanently: ~2GB)
+COPY obm/assets/ /app/obm/assets/
 
-# Expose Dana Web Server port
+# 2. Copy the rest of the OBM application, shows, WASM player, and configs (fast: ~35MB)
+COPY obm/components/ /app/obm/components/
+COPY obm/media/ /app/obm/media/
+COPY obm/resources/ /app/obm/resources/
+COPY obm/resources-ext/ /app/obm/resources-ext/
+COPY obm/shows/ /app/obm/shows/
+COPY obm/std_ui/ /app/obm/std_ui/
+COPY obm/swc/ /app/obm/swc/
+COPY obm/tools/ /app/obm/tools/
+COPY obm/ws/ /app/obm/ws/
+COPY obm/*.* obm/Makefile /app/obm/
+
+# 3. Copy pre-compiled Rust main_server binary (only this ~3MB layer updates on Rust changes)
+COPY --chmod=755 obm_servers/target/release/main_server /usr/local/bin/main_server
+
+# 4. Copy entrypoint script to run Dana (port 8000) and Rust (port 7000)
+COPY --chmod=755 servers/main_server/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Expose ports: 7000 (Rust Main Server) and 8000 (Dana Web Server)
 EXPOSE 7000
+EXPOSE 8000
 
-# Run the Dana Web Server (ws.core) on port 7000 interactively in the foreground
-CMD ["dana", "ws.core", "-p", "7000"]
+# Run entrypoint script
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

@@ -1,0 +1,22 @@
+# Git directories
+.git
+**/.git
+
+# Documentation and planning
+docs
+docs_resource
+.old
+.ai
+
+# Scripts & configs not needed in container
+local_host.txt
+set_ssh.sh
+
+# Rust build intermediates (only obm_servers/target/release/main_server is needed)
+obm_servers/src
+obm_servers/target/debug
+obm_servers/target/release/build
+obm_servers/target/release/deps
+obm_servers/target/release/incremental
+obm_servers/target/release/*.d
+obm_servers/target/release/*.rlib
