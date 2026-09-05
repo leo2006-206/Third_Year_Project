@@ -1,0 +1,49 @@
+# ==============================================================================
+# Dockerfile for Original OBM Main Server (Original Dana Web Server on Port 7000)
+# ==============================================================================
+FROM ubuntu:22.04
+
+# Prevent interactive dialogs during apt installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential runtime dependencies for Dana and networking tools
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    libgl1 \
+    libglu1-mesa \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Dana environment variables
+ENV DANA_HOME=/opt/dana
+ENV PATH="${PATH}:${DANA_HOME}"
+
+# Copy the Dana runtime engine and components from the shared staging directory
+WORKDIR /opt/dana
+COPY --chmod=755 servers_container/dana_runtime_copy/ /opt/dana/
+
+# Set working directory to the OBM application root
+WORKDIR /app/obm
+
+# 1. Copy large media assets first (cached permanently: ~2GB)
+COPY obm/assets/ /app/obm/assets/
+
+# 2. Copy the rest of the OBM application, shows, WASM player, and configs (fast: ~35MB)
+COPY obm/components/ /app/obm/components/
+COPY obm/media/ /app/obm/media/
+COPY obm/resources/ /app/obm/resources/
+COPY obm/resources-ext/ /app/obm/resources-ext/
+COPY obm/shows/ /app/obm/shows/
+COPY obm/std_ui/ /app/obm/std_ui/
+COPY obm/swc/ /app/obm/swc/
+COPY obm/tools/ /app/obm/tools/
+COPY obm/ws/ /app/obm/ws/
+COPY obm/*.* obm/Makefile /app/obm/
+
+# Expose Port 7000 for original Dana Web Server
+EXPOSE 7000
+
+# Start original Dana web server on port 7000
+ENTRYPOINT ["dana", "ws.core", "-p", "7000"]
+

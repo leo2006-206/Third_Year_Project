@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OBM Testing Page</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="header-container">
+        <div class="header-title">
+            <h1>OBM Testing Page</h1>
+        </div>
+        <div class="header-controls">
+            <label class="toggle-switch-wrapper header-toggle" for="headless-toggle">
+                <span class="toggle-switch-label">Disable Video Display (Bot Mode)</span>
+                <input type="checkbox" id="headless-toggle">
+            </label>
+        </div>
+    </div>
+
+    <div class="main-grid">
+        <!-- Left: Video Canvas Area & Live Metrics -->
+        <div class="left-column">
+            <div class="panel" style="margin-bottom: 20px;">
+                <div class="panel-header">
+                    <span>Live Video Display</span>
+                    <span id="player-status" style="font-size: 0.8rem; color: var(--accent-green);">Ready</span>
+                </div>
+                <div class="video-wrapper">
+                    <!-- Dana WebAssembly Canvas -->
+                    <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+                    
+                    <!-- Headless Placeholder when Display is Toggled Off -->
+                    <div class="headless-placeholder" id="headless-placeholder">
+                        <h3>Headless Bot Mode Active</h3>
+                        <p>Video canvas rendering is disabled to minimize client CPU load during high-throughput benchmarking.</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Metrics Summary Bar -->
+            <div class="metrics-summary-bar">
+                <div class="metric-card">
+                    <div class="metric-card-title">Segments Processed</div>
+                    <div class="metric-card-value" id="metric-segments">0</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-title">Avg Perceived Latency</div>
+                    <div class="metric-card-value" id="metric-avg-latency">0 ms</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-title">Total Transfer</div>
+                    <div class="metric-card-value" id="metric-transfer">0.00 MB</div>
+                </div>
+                <div class="metric-card">
+                    <div class="metric-card-title">Buffer Stalls</div>
+                    <div class="metric-card-value" id="metric-stalls">0</div>
+                </div>
+            </div>
+
+            <!-- Recent Requests Table -->
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Recent Segment Requests</span>
+                    <div style="display: flex; gap: 8px;">
+                        <button class="btn btn-primary" id="benchmark-btn" style="padding: 4px 10px; font-size: 0.75rem;">Start Benchmark</button>
+                        <button class="btn btn-secondary" id="download-csv-btn" style="padding: 4px 10px; font-size: 0.75rem;">Download CSV</button>
+                    </div>
+                </div>
+                <div class="table-wrapper">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>Segment</th>
+                                <th>Latency</th>
+                                <th>Size</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="metrics-table-body">
+                            <!-- Populated dynamically -->
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right: Human & Bot Testing Controls -->
+        <div class="right-column">
+            <div class="panel">
+                <div class="panel-header">
+                    <span>Experiment Configuration</span>
+                </div>
+
+                <!-- Show Selector Dropdown -->
+                <div class="form-group">
+                    <label class="form-label" for="show-select">Select Video Show</label>
+                    <select class="form-control" id="show-select">
+                        <!-- Populated dynamically from show_options.json -->
+                    </select>
+                </div>
+
+                <!-- Offload Mode Dropdown -->
+                <div class="form-group">
+                    <label class="form-label" for="offload-mode-select">Offload Strategy</label>
+                    <select class="form-control" id="offload-mode-select">
+                        <option value="full" selected>Full Offload (All Layers)</option>
+                        <option value="partial">Partial Offload</option>
+                        <option value="non_offload">Non-Offload (Client Compositing)</option>
+                    </select>
+                </div>
+
+                <!-- Partial Offload Layer Count (2 to Max Layers) -->
+                <div class="form-group" id="partial-layers-group" style="display: none;">
+                    <label class="form-label" for="partial-layers-select">Partial Offload Layer Count</label>
+                    <select class="form-control" id="partial-layers-select">
+                        <!-- Populated dynamically from 2 to max layers -->
+                    </select>
+                </div>
+
+                <div class="panel-header" style="margin-top: 16px;">
+                    <span>Active Layer Options</span>
+                </div>
+
+                <!-- Dynamic Layer Dropdowns -->
+                <div class="layer-grid" id="layer-options-container">
+                    <!-- Populated dynamically based on chosen show -->
+                </div>
+
+                <!-- Action Buttons -->
+                <div class="button-row">
+                    <button class="btn btn-primary" id="apply-btn">Apply Changes</button>
+                </div>
+
+                <!-- Active Offload URL Preview -->
+                <div style="margin-top: 16px;">
+                    <span class="form-label">Generated Request URL</span>
+                    <div class="url-preview-box" id="url-preview">
+                        /offload/show/...
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Dana WebAssembly Integration -->
+    <script>
+        // Setup Module object for Dana WASM Runtime
+        var Module = {
+            canvas: (function() {
+                var c = document.getElementById('canvas');
+                c.addEventListener("webglcontextlost", function(e) {
+                    alert("WebGL context lost. Please reload.");
+                    e.preventDefault();
+                }, false);
+                return c;
+            })(),
+            arguments: ['-dh', '.', 'App.o', '/', 'shows/f1_full.json']
+        };
+    </script>
+    <!-- Core Dana WASM files (served from OBM root) -->
+    <script src="/file_system.js"></script>
+    <script async src="/dana.js"></script>
+
+    <!-- Evaluation Page Logic -->
+    <script src="app.js"></script>
+</body>
+</html>
+

@@ -1,0 +1,660 @@
+{
+  "shows": [
+    {
+      "id": "f1.json",
+      "title": "f1.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 2100,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "race",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 4,
+          "layers": [
+            {
+              "name": "race",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "track",
+              "options": [
+                "off",
+                "track"
+              ],
+              "default": "track"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Martin",
+                "Smith",
+                "Schmidt",
+                "Garcia"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "race",
+          "style": "portrait",
+          "default": false,
+          "total_layers": 6,
+          "layers": [
+            {
+              "name": "race",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "race-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "driver-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "track",
+              "options": [
+                "off",
+                "track"
+              ],
+              "default": "track"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Garcia",
+                "Martin"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "track",
+          "style": "landscape",
+          "default": false,
+          "total_layers": 3,
+          "layers": [
+            {
+              "name": "track",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Martin",
+                "Smith",
+                "Schmidt",
+                "Garcia"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "driver",
+          "style": "landscape",
+          "default": false,
+          "total_layers": 2,
+          "layers": [
+            {
+              "name": "driver",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "race",
+              "options": [
+                "Off",
+                "Race"
+              ],
+              "default": "Race"
+            }
+          ]
+        },
+        {
+          "name": "driver",
+          "style": "portrait",
+          "default": false,
+          "total_layers": 4,
+          "layers": [
+            {
+              "name": "driver",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "driver-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "race",
+              "options": [
+                "Off",
+                "Race"
+              ],
+              "default": "Race"
+            },
+            {
+              "name": "race-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "f1_full.json",
+      "title": "f1_full.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 2100,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "race",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 4,
+          "layers": [
+            {
+              "name": "race",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "track",
+              "options": [
+                "off",
+                "track"
+              ],
+              "default": "track"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Martin",
+                "Smith",
+                "Schmidt",
+                "Garcia"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "race",
+          "style": "portrait",
+          "default": false,
+          "total_layers": 6,
+          "layers": [
+            {
+              "name": "race",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "race-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "driver-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "track",
+              "options": [
+                "off",
+                "track"
+              ],
+              "default": "track"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Garcia",
+                "Martin"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "track",
+          "style": "landscape",
+          "default": false,
+          "total_layers": 3,
+          "layers": [
+            {
+              "name": "track",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "drivers",
+              "options": [
+                "Sam",
+                "Alex",
+                "Rossi",
+                "Martin",
+                "Smith",
+                "Schmidt",
+                "Garcia"
+              ],
+              "default": "Sam"
+            },
+            {
+              "name": "driver",
+              "options": [
+                "Off",
+                "Sam"
+              ],
+              "default": "Sam"
+            }
+          ]
+        },
+        {
+          "name": "driver",
+          "style": "landscape",
+          "default": false,
+          "total_layers": 2,
+          "layers": [
+            {
+              "name": "driver",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "race",
+              "options": [
+                "Off",
+                "Race"
+              ],
+              "default": "Race"
+            }
+          ]
+        },
+        {
+          "name": "driver",
+          "style": "portrait",
+          "default": false,
+          "total_layers": 4,
+          "layers": [
+            {
+              "name": "driver",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "driver-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            },
+            {
+              "name": "race",
+              "options": [
+                "Off",
+                "Race"
+              ],
+              "default": "Race"
+            },
+            {
+              "name": "race-frame",
+              "options": [
+                "frame-default"
+              ],
+              "default": "frame-default"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "forecast.json",
+      "title": "forecast.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 2075,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "core",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 5,
+          "layers": [
+            {
+              "name": "map",
+              "options": [
+                "map_colour",
+                "map_sketch"
+              ],
+              "default": "map_colour"
+            },
+            {
+              "name": "weather",
+              "options": [
+                "Meteorological",
+                "Weather Icons"
+              ],
+              "default": "Meteorological"
+            },
+            {
+              "name": "presenter",
+              "options": [
+                "hearing",
+                "BSL"
+              ],
+              "default": "hearing"
+            },
+            {
+              "name": "presenter_chroma",
+              "options": [
+                "chroma"
+              ],
+              "default": "chroma"
+            },
+            {
+              "name": "time",
+              "options": [
+                "time"
+              ],
+              "default": "time"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "forest720.json",
+      "title": "forest720.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 600,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "core",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 7,
+          "layers": [
+            {
+              "name": "background",
+              "options": [
+                "background_default"
+              ],
+              "default": "background_default"
+            },
+            {
+              "name": "creature",
+              "options": [
+                "creature_default"
+              ],
+              "default": "creature_default"
+            },
+            {
+              "name": "video_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            },
+            {
+              "name": "bird",
+              "options": [
+                "bird_default"
+              ],
+              "default": "bird_default"
+            },
+            {
+              "name": "video_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            },
+            {
+              "name": "near_forest",
+              "options": [
+                "bird_default"
+              ],
+              "default": "bird_default"
+            },
+            {
+              "name": "video_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "forest720_leaves.json",
+      "title": "forest720_leaves.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 600,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "core",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 9,
+          "layers": [
+            {
+              "name": "background",
+              "options": [
+                "background_default"
+              ],
+              "default": "background_default"
+            },
+            {
+              "name": "creature",
+              "options": [
+                "creature_default"
+              ],
+              "default": "creature_default"
+            },
+            {
+              "name": "creature_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            },
+            {
+              "name": "bird",
+              "options": [
+                "bird_default"
+              ],
+              "default": "bird_default"
+            },
+            {
+              "name": "bird_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            },
+            {
+              "name": "near_forest",
+              "options": [
+                "near_default"
+              ],
+              "default": "near_default"
+            },
+            {
+              "name": "near_alpha",
+              "options": [
+                "alpha"
+              ],
+              "default": "alpha"
+            },
+            {
+              "name": "leaves",
+              "options": [
+                "leaves_default"
+              ],
+              "default": "leaves_default"
+            },
+            {
+              "name": "leaves_alpha",
+              "options": [
+                "Off",
+                "alpha"
+              ],
+              "default": "alpha"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "spiders.json",
+      "title": "spiders.json",
+      "width": 1280,
+      "height": 720,
+      "fps": 25,
+      "length_frames": 1300,
+      "segment_length_sec": 10,
+      "variants": [
+        {
+          "name": "main",
+          "style": "landscape",
+          "default": true,
+          "total_layers": 2,
+          "layers": [
+            {
+              "name": "main",
+              "options": [
+                "race"
+              ],
+              "default": "race"
+            },
+            {
+              "name": "spider_blocker",
+              "options": [
+                "Off",
+                "nospiders"
+              ],
+              "default": "nospiders"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
