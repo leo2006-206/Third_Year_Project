@@ -63,15 +63,21 @@ Planning URLs include:
 * `obm_main_server`, for the main obm server
 * `obm_offload_server_1`, for offloading server 1
 * `obm_offload_server_2`, for offloading server 2
-* `obm_client` == `obm_main_server`, for user interface
+* `obm_client`, for user interface
 
 Usage:
 * `main server`, store the assets, also be the load-balancing server to select offloading server
 * `offloading server`, computing server to offload rendering for user
-* `client`, user interface to select video and display video, user should only use this URL
+* `client`, new user interface to select video with options and display video, user should only use this URL
 
 Detail:
 * `offloading server` actually is a rust server process with a dana offload process, where rust handle request and dana rendering the segments. They communicating over localhost http.
+* `evaluation client (client_testing)`: A lightweight, static HTML/JS test harness served directly by the Rust server for both human and automated bot evaluation:
+  * Reads `show_options.json` listing all available shows, variants, and layer options.
+  * Standard dropdown selectors (`<select>`) allowing users and bots to switch video shows and layer options dynamically.
+  * Headless toggle switch to disable video decoding/canvas display for lightweight, high-concurrency bot benchmarks.
+  * Metric recording & CSV export: tracks request dispatch time, network latency, and for non-offload mode, records the exact timestamp of each layer element received versus the timestamp when the client finishes rendering the segment/frame.
+  * *(TODO: In-browser automation mode for scheduled/randomized option switching)*.
 
 ***
 

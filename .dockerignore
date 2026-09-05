@@ -12,11 +12,11 @@ docs_resource
 local_host.txt
 set_ssh.sh
 
-# Rust build intermediates (only obm_servers/target/release/main_server is needed)
-obm_servers/src
-obm_servers/target/debug
-obm_servers/target/release/build
-obm_servers/target/release/deps
-obm_servers/target/release/incremental
-obm_servers/target/release/*.d
-obm_servers/target/release/*.rlib
+# Rust build intermediates (only servers_rust/target/release/main_server is needed)
+servers_rust/src
+servers_rust/target/debug
+servers_rust/target/release/build
+servers_rust/target/release/deps
+servers_rust/target/release/incremental
+servers_rust/target/release/*.d
+servers_rust/target/release/*.rlib
