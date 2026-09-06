@@ -6,7 +6,8 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::server_util as ser_util;
+use servers_rust::util;
+use servers_rust::util_http as http;
 
 async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
@@ -18,7 +19,7 @@ async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
 
     let req_str = String::from_utf8_lossy(&buffer[..n]);
 
-    let Some((method, path)) = ser_util::parse_method_path(&req_str) else {
+    let Some((method, path)) = http::parse_method_path(&req_str) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
@@ -28,15 +29,26 @@ async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     if path.starts_with("/assets") {
         todo!()
     } else if path.starts_with("/offload") {
-        println!("received offload = {}", path);
-        Ok(())
+        serve_offload(&mut client_stream, path).await
     } else {
         serve_web_page(&mut client_stream, path).await
     }
 }
 
+async fn serve_offload(_client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
+    use http::request_get;
+
+    const OFFLOAD_URL: [&str; 1] = ["https://obm_offload_1.leowong.space/"];
+
+    let mut offload_steam = TcpStream::connect(OFFLOAD_URL[0]).await?;
+
+    let local_url = util::local_url().expect("local URL must set up");
+
+    request_get(&mut offload_steam, path, local_url).await
+}
+
 async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
-    use ser_util::{tcp_send_404, tcp_send_bytes, tcp_send_ok_utf8};
+    use http::{response_404, response_bytes, response_ok_utf8};
 
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
     const APP_JS: &str = include_str!("../testing_webpage/app.js");
@@ -48,27 +60,29 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
     const DANA_WASM: &[u8] = include_bytes!("../../../obm/dana.wasm");
 
     if path == "/" || path == "/client_testing" || path == "/client_testing/index.html" {
-        tcp_send_ok_utf8(client_stream, "text/html", INDEX_HTML).await?;
+        response_ok_utf8(client_stream, "text/html", INDEX_HTML).await?;
     } else if path == "/app.js" {
-        tcp_send_ok_utf8(client_stream, "application/javascript", APP_JS).await?;
+        response_ok_utf8(client_stream, "application/javascript", APP_JS).await?;
     } else if path == "/style.css" {
-        tcp_send_ok_utf8(client_stream, "text/css", STYLE_CSS).await?;
+        response_ok_utf8(client_stream, "text/css", STYLE_CSS).await?;
     } else if path == "/show_options.json" {
-        tcp_send_ok_utf8(client_stream, "application/json", SHOW_OPTIONS).await?;
+        response_ok_utf8(client_stream, "application/json", SHOW_OPTIONS).await?;
     } else if path == "/dana.js" {
-        tcp_send_ok_utf8(client_stream, "application/javascript", DANA_JS).await?;
+        response_ok_utf8(client_stream, "application/javascript", DANA_JS).await?;
     } else if path == "/file_system.js" {
-        tcp_send_ok_utf8(client_stream, "application/javascript", FILE_SYSTEM_JS).await?;
+        response_ok_utf8(client_stream, "application/javascript", FILE_SYSTEM_JS).await?;
     } else if path == "/dana.wasm" {
-        tcp_send_bytes(client_stream, "application/wasm", DANA_WASM).await?;
+        response_bytes(client_stream, "application/wasm", DANA_WASM).await?;
     } else {
-        tcp_send_404(client_stream).await?;
+        response_404(client_stream).await?;
     }
 
     Ok(())
 }
 
 fn main() -> io::Result<()> {
+    let _ = util::set_local_url("https://obm_main.leowong.space/");
+
     smol::block_on(async {
         // Bind the server to a local port
         let port_addr = "0.0.0.0:7000";

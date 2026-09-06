@@ -1,4 +1,4 @@
-// src/lib/server_util.rs
+// src/lib/util_http.rs
 
 use std::io;
 
@@ -10,8 +10,8 @@ use smol::{
     net::TcpStream,
 };
 
-pub async fn tcp_send_message(
-    client: &mut TcpStream,
+pub async fn response(
+    dest_stream: &mut TcpStream,
     status_code: &str,
     content_type: &str,
     text_format: &str,
@@ -30,23 +30,23 @@ pub async fn tcp_send_message(
         body.len(),
     );
 
-    client.write_all(header.as_bytes()).await?;
-    client.write_all(body.as_bytes()).await?;
+    dest_stream.write_all(header.as_bytes()).await?;
+    dest_stream.write_all(body.as_bytes()).await?;
 
-    client.flush().await
+    dest_stream.flush().await
 }
 
-pub async fn tcp_send_ok_utf8(
-    client: &mut TcpStream,
+pub async fn response_ok_utf8(
+    dest_stream: &mut TcpStream,
     content_type: &str,
     body: &str,
 ) -> io::Result<()> {
-    tcp_send_message(client, "200 OK", content_type, "charset=utf-8", body).await
+    response(dest_stream, "200 OK", content_type, "charset=utf-8", body).await
 }
 
-pub async fn tcp_send_404(client: &mut TcpStream) -> io::Result<()> {
-    tcp_send_message(
-        client,
+pub async fn response_404(dest_stream: &mut TcpStream) -> io::Result<()> {
+    response(
+        dest_stream,
         "404 Not Found",
         "text/plain",
         "charset=utf-8",
@@ -55,8 +55,8 @@ pub async fn tcp_send_404(client: &mut TcpStream) -> io::Result<()> {
     .await
 }
 
-pub async fn tcp_send_bytes(
-    client: &mut TcpStream,
+pub async fn response_bytes(
+    dest_stream: &mut TcpStream,
     content_type: &str,
     body: &[u8],
 ) -> io::Result<()> {
@@ -72,9 +72,36 @@ pub async fn tcp_send_bytes(
         content_type,
         body.len()
     );
-    client.write_all(header.as_bytes()).await?;
-    client.write_all(body).await?;
-    client.flush().await
+    dest_stream.write_all(header.as_bytes()).await?;
+    dest_stream.write_all(body).await?;
+    dest_stream.flush().await
+}
+
+pub async fn request_bodyless(
+    dest_stream: &mut TcpStream,
+    method: &str,
+    method_path: &str,
+    host: &str,
+) -> io::Result<()> {
+    let request = format!(
+        "{} {} HTTP/1.1\r\n\
+        Host: {}\r\n\
+        User-Agent: LoadBalancer/1.0\r\n\
+        Connection: close\r\n\
+        \r\n",
+        method, method_path, host
+    );
+
+    dest_stream.write_all(request.as_bytes()).await?;
+    dest_stream.flush().await
+}
+
+pub async fn request_get(
+    dest_stream: &mut TcpStream,
+    get_path: &str,
+    host: &str,
+) -> io::Result<()> {
+    request_bodyless(dest_stream, "GET", get_path, host).await
 }
 
 pub fn parse_method_path(request_str: &str) -> Option<(&str, &str)> {

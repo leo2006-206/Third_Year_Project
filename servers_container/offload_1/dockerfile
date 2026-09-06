@@ -1,0 +1,58 @@
+# ==============================================================================
+# Dockerfile for OBM Offload-1 Node
+# Co-located Rust Offload Server (Port 7010) & Dana Offload Engine (Port 9009)
+# ==============================================================================
+FROM ubuntu:22.04
+
+# Prevent interactive dialogs during apt installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential runtime dependencies for Dana (Mesa/GL for rendering) and networking
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    libgl1 \
+    libglu1-mesa \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Dana environment variables
+ENV DANA_HOME=/opt/dana
+ENV PATH="${PATH}:${DANA_HOME}"
+
+# Copy Dana runtime engine and standard components (cached permanently)
+WORKDIR /opt/dana
+COPY --chmod=755 servers_container/dana_runtime_copy/ /opt/dana/
+
+# Set working directory to the OBM application root
+WORKDIR /app/obm
+
+# Copy OBM runtime code, components, and tools (FAST: ~64MB, NO assets or shows)
+COPY obm/components/ /app/obm/components/
+COPY obm/media/ /app/obm/media/
+COPY obm/resources/ /app/obm/resources/
+COPY obm/resources-ext/ /app/obm/resources-ext/
+COPY obm/std_ui/ /app/obm/std_ui/
+COPY obm/tools/ /app/obm/tools/
+COPY obm/ws/ /app/obm/ws/
+COPY obm/*.* obm/Makefile /app/obm/
+
+# Target port for the co-located Rust Offload Server (default: 7010)
+ARG PORT=7010
+ENV OFFLOAD_PORT=${PORT}
+
+# Update ASSET_HOST in OffloadSite.dn to point to the Rust server port and recompile OffloadSite.o
+RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite.dn && \
+    cd /app/obm && dnc OffloadSite.dn
+
+# Copy pre-compiled Rust offload_server binary
+COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
+
+# Copy entrypoint script for launching both processes and handling signals cleanly
+COPY --chmod=755 servers_container/offload_1/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Expose ONLY the Rust Offload Server port (Dana OffloadSite runs internally on 9009)
+EXPOSE 7010
+
+# Use entrypoint to run both Dana OffloadSite and Rust offload_server
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
