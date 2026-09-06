@@ -3,4 +3,5 @@ docs_resource/*
 */dana_runtime_copy
 */target/*
 local_host.txt
+set_ssh.sh
 obm
