@@ -12,9 +12,14 @@ docs_resource
 local_host.txt
 set_ssh.sh
 
+# Large media assets not needed in container images (mount via volume if needed)
+obm/assets
+obm/assets/**
+
 # Rust build intermediates (only servers_rust/target/release/main_server is needed)
 servers_rust/src
 servers_rust/target/debug
+servers_rust/target/doc
 servers_rust/target/release/build
 servers_rust/target/release/deps
 servers_rust/target/release/incremental

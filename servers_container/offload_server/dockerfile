@@ -1,6 +1,6 @@
 # ==============================================================================
-# Dockerfile for OBM Offload-1 Node
-# Co-located Rust Offload Server (Port 7010) & Dana Offload Engine (Port 9009)
+# Dockerfile for OBM Offload Server Node
+# Co-located Rust Offload Server & Dana Offload Engine (Port 9009)
 # ==============================================================================
 FROM ubuntu:22.04
 
@@ -49,7 +49,7 @@ RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/o
 COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
 
 # Copy entrypoint script for launching both processes and handling signals cleanly
-COPY --chmod=755 servers_container/offload_1/entrypoint.sh /usr/local/bin/entrypoint.sh
+COPY --chmod=755 servers_container/offload_server/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Expose ONLY the Rust Offload Server port (Dana OffloadSite runs internally on 9009)
 EXPOSE 7010

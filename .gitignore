@@ -5,3 +5,4 @@ docs_resource/*
 local_host.txt
 set_ssh.sh
 obm
+__pycache__

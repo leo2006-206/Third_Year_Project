@@ -8,7 +8,6 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::util;
 use servers_rust::util_http as http;
 
 async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
@@ -32,12 +31,9 @@ async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
 }
 
 fn main() -> io::Result<()> {
-    let (local_url, port) = arg_url_port();
-    let _ = util::set_local_url(local_url);
-
     smol::block_on(async {
         // Bind the server to a local port
-        let port_addr = format!("0.0.0.0:{}", port);
+        let port_addr = format!("0.0.0.0:{}", arg_port());
         let listener = TcpListener::bind(&port_addr).await?;
         println!("TCP Server listening on {port_addr}");
 
@@ -57,25 +53,17 @@ fn main() -> io::Result<()> {
     })
 }
 
-fn arg_url_port() -> (String, String) {
+fn arg_port() -> String {
     let mut args = env::args().skip(1);
-
-    let local_url = args
-        .next()
-        .expect("Error: Missing local URL. Usage: <program> <local_url> <port>");
 
     let port = args
         .next()
-        .expect("Error: Missing port. Usage: <program> <local_url> <port>");
+        .expect("Error: Missing port. Usage: <program> <ip> <port>");
 
-    assert!(
-        local_url.starts_with("https"),
-        "Error: Local URL must start with https"
-    );
     assert!(
         port.parse::<u16>().is_ok(),
         "Error: Port must be a valid port number (1-65535), got: '{port}'"
     );
 
-    (local_url, port)
+    port
 }

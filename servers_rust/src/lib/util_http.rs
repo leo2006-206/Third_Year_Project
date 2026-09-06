@@ -82,14 +82,15 @@ pub async fn request_bodyless(
     method: &str,
     method_path: &str,
     host: &str,
+    user_agent: &str,
 ) -> io::Result<()> {
     let request = format!(
         "{} {} HTTP/1.1\r\n\
         Host: {}\r\n\
-        User-Agent: LoadBalancer/1.0\r\n\
+        User-Agent: {}\r\n\
         Connection: close\r\n\
         \r\n",
-        method, method_path, host
+        method, method_path, host, user_agent
     );
 
     dest_stream.write_all(request.as_bytes()).await?;
@@ -100,8 +101,9 @@ pub async fn request_get(
     dest_stream: &mut TcpStream,
     get_path: &str,
     host: &str,
+    user_agent: &str,
 ) -> io::Result<()> {
-    request_bodyless(dest_stream, "GET", get_path, host).await
+    request_bodyless(dest_stream, "GET", get_path, host, user_agent).await
 }
 
 pub fn parse_method_path(request_str: &str) -> Option<(&str, &str)> {

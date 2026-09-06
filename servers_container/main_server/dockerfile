@@ -14,10 +14,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory to the OBM application root
 WORKDIR /app/obm
 
-# 1. Copy media assets layer first (cached permanently: ~2GB)
-COPY obm/assets/ /app/obm/assets/
-
-# 2. Copy show definitions and UI assets needed by the Rust server
+# 1. Copy show definitions and UI assets needed by the Rust server
 COPY obm/shows/ /app/obm/shows/
 COPY obm/std_ui/ /app/obm/std_ui/
 

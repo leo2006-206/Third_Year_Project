@@ -38,13 +38,19 @@ async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
 async fn serve_offload(_client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
     use http::request_get;
 
-    const OFFLOAD_URL: [&str; 1] = ["https://obm_offload_1.leowong.space/"];
+    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
 
     let mut offload_steam = TcpStream::connect(OFFLOAD_URL[0]).await?;
 
-    let local_url = util::local_url().expect("local URL must set up");
+    println!("Forwarding req = {path}");
 
-    request_get(&mut offload_steam, path, local_url).await
+    request_get(
+        &mut offload_steam,
+        path,
+        OFFLOAD_URL[0],
+        "Load balancer/1.0",
+    )
+    .await
 }
 
 async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
