@@ -8,7 +8,7 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::util_http as http;
+use servers_rust::lib_http as http;
 
 async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];

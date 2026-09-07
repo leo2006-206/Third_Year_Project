@@ -8,3 +8,4 @@ path = "src/lib/lib.rs"
 
 [dependencies]
 smol = "2.0"
+deadpool = { version = "0.13.1", features = ["managed", "rt_smol_2"] }

@@ -22,8 +22,7 @@ pub async fn response(
         Content-Type: {}; {}\r\n\
         Content-Length: {}\r\n\
         Connection: close\r\n\
-        \r\n\
-		",
+		\r\n",
         status_code,
         content_type,
         text_format,

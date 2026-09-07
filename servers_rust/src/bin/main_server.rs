@@ -6,8 +6,8 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::util;
-use servers_rust::util_http as http;
+use servers_rust::lib_http as http;
+use servers_rust::lib_util;
 
 async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
@@ -87,7 +87,7 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
 }
 
 fn main() -> io::Result<()> {
-    let _ = util::set_local_url("https://obm_main.leowong.space/");
+    let _ = lib_util::set_local_url("https://obm_main.leowong.space/");
 
     smol::block_on(async {
         // Bind the server to a local port
