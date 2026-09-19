@@ -1,6 +1,7 @@
+use std::io;
+
 use deadpool::managed::{Manager, Metrics, Object, Pool, RecycleError, RecycleResult};
 use smol::net::TcpStream;
-use std::io;
 
 /// Manager responsible for creating and validating pooled TCP connections
 pub struct TcpManager {

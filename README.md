@@ -40,11 +40,7 @@ A distributed Object-Based Media (OBM) system with dynamic server-side video ren
    *(Or run an individual offload node manually: `./servers_container/offload_server/run_sh.sh 1 7010`)*.
 
 2. **Start Cloudflare Tunnel for Main Server**:
-   Exposes `localhost:7000` to `https://obm_main.leowong.space/` with automatic HTTPS/SSL:
-   ```bash
-   cloudflared tunnel run --token eyJhIjoiMDQzNzQ1NjU2MDBhMzVlNjMyOWFkZGI2ZjFiNjI5Y2YiLCJ0IjoiYjFlOWQ0ZWItOTVmNC00NTc3LWJkMTgtZTRiNWZkNmYxZjZjIiwicyI6Ik5EQXpaams1WW1JdE1XSXpPUzAwWW1WaExUazFZekF0WlRjeU9UZ3pNek14TkRjNCJ9
-   ```
-   *(This command is also saved in `servers_container/main_server/local_host.txt`)*.
+   Exposes `localhost:7000` to `https://obm_main.leowong.space/` with automatic HTTPS/SSL.
 
 4. Open `https://obm_main.leowong.space/` (or `http://localhost:7000/` locally) in your browser.
 
