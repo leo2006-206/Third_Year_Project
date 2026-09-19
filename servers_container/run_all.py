@@ -7,7 +7,6 @@ into separate tabs within a single GNOME Terminal window.
 """
 
 import csv
-import os
 import shutil
 import subprocess
 import sys
@@ -60,18 +59,26 @@ def main():
                 continue
 
             # Skip header line (e.g. "id", "port")
-            if fields[0].lower() == "id" and len(fields) > 1 and fields[1].lower() == "port":
+            if (
+                fields[0].lower() == "id"
+                and len(fields) > 1
+                and fields[1].lower() == "port"
+            ):
                 continue
 
             if len(fields) < 2 or not fields[0] or not fields[1]:
-                errors.append(f"Line {line_num}: Invalid row format. Expected 'id, port', got: {row}")
+                errors.append(
+                    f"Line {line_num}: Invalid row format. Expected 'id, port', got: {row}"
+                )
                 continue
 
             inst_id, port_str = fields[0], fields[1]
 
             # Validate port integer range
             if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
-                errors.append(f"Line {line_num}: Invalid port '{port_str}'. Must be an integer between 1 and 65535.")
+                errors.append(
+                    f"Line {line_num}: Invalid port '{port_str}'. Must be an integer between 1 and 65535."
+                )
                 continue
 
             port = int(port_str)
@@ -95,25 +102,44 @@ def main():
             endpoints.append((inst_id, port))
 
     if errors:
-        print("===========================================================", file=sys.stderr)
-        print("Validation failed: duplicate or invalid endpoints detected:", file=sys.stderr)
+        print(
+            "===========================================================",
+            file=sys.stderr,
+        )
+        print(
+            "Validation failed: duplicate or invalid endpoints detected:",
+            file=sys.stderr,
+        )
         for err in errors:
             print(f"  • {err}", file=sys.stderr)
         print(f"Please fix {csv_file} before continuing.", file=sys.stderr)
-        print("===========================================================", file=sys.stderr)
+        print(
+            "===========================================================",
+            file=sys.stderr,
+        )
         sys.exit(1)
 
     if not endpoints:
         sys.exit(f"Error: No valid endpoints found in {csv_file}")
 
-    print(f"✓ Validated {len(endpoints)} offload endpoint(s) successfully with no duplicates.")
+    print(
+        f"✓ Validated {len(endpoints)} offload endpoint(s) successfully with no duplicates."
+    )
 
     # -------------------------------------------------------------------------
     # 3. Pre-Compile Rust Binaries Once
     # -------------------------------------------------------------------------
     print("\n=== [1/3] Pre-compiling Rust Servers (--release) ===")
     subprocess.run(
-        ["cargo", "build", "--release", "--bin", "offload_server", "--bin", "main_server"],
+        [
+            "cargo",
+            "build",
+            "--release",
+            "--bin",
+            "offload_server",
+            "--bin",
+            "main_server",
+        ],
         cwd=servers_rust_dir,
         check=True,
     )
@@ -125,10 +151,13 @@ def main():
     print(" -> Building obm-offload-server image...")
     subprocess.run(
         [
-            "docker", "build",
-            "-f", str(script_dir / "offload_server" / "dockerfile"),
-            "-t", "obm-offload-server",
-            "."
+            "docker",
+            "build",
+            "-f",
+            str(script_dir / "offload_server" / "dockerfile"),
+            "-t",
+            "obm-offload-server",
+            ".",
         ],
         cwd=project_root,
         check=True,
@@ -137,22 +166,33 @@ def main():
     print(" -> Building obm-main-server image...")
     subprocess.run(
         [
-            "docker", "build",
-            "-f", str(script_dir / "main_server" / "dockerfile"),
-            "-t", "obm-main-server",
-            "."
+            "docker",
+            "build",
+            "-f",
+            str(script_dir / "main_server" / "dockerfile"),
+            "-t",
+            "obm-main-server",
+            ".",
         ],
         cwd=project_root,
         check=True,
     )
 
     # Ensure shared network exists
-    subprocess.run(["docker", "network", "create", "obm-net"], capture_output=True)
+    subprocess.run(
+        ["docker", "network", "create", "obm-net"], capture_output=True, check=False
+    )
 
     # Clean up any existing stale containers to prevent name collisions
     for inst_id, _ in endpoints:
-        subprocess.run(["docker", "rm", "-f", f"obm-offload-{inst_id}"], capture_output=True)
-    subprocess.run(["docker", "rm", "-f", "obm-main-server"], capture_output=True)
+        subprocess.run(
+            ["docker", "rm", "-f", f"obm-offload-{inst_id}"],
+            capture_output=True,
+            check=False,
+        )
+    subprocess.run(
+        ["docker", "rm", "-f", "obm-main-server"], capture_output=True, check=False
+    )
 
     # -------------------------------------------------------------------------
     # 5. Launch Terminals with Tabs
@@ -167,7 +207,7 @@ def main():
         # Set terminal title via ANSI sequence + run script + keep alive
         cmd = (
             f"printf '\\033]0;{title}\\007'; "
-            f"\"{offload_run_sh}\" \"{inst_id}\" \"{port}\" --skip-build; "
+            f'"{offload_run_sh}" "{inst_id}" "{port}" --skip-build; '
             f"echo; echo 'Process ended. Press Enter to close tab.'; read"
         )
         tabs.append({"title": title, "cmd": cmd})
@@ -189,26 +229,35 @@ def main():
         cmd = [
             "gnome-terminal",
             "--window",
-            "--title", tabs[0]["title"],
-            "--", "bash", "-c", tabs[0]["cmd"]
+            "--title",
+            tabs[0]["title"],
+            "--",
+            "bash",
+            "-c",
+            tabs[0]["cmd"],
         ]
         for tab in tabs[1:]:
-            cmd.extend([
-                "--tab",
-                "--title", tab["title"],
-                "--", "bash", "-c", tab["cmd"]
-            ])
+            cmd.extend(
+                ["--tab", "--title", tab["title"], "--", "bash", "-c", tab["cmd"]]
+            )
         subprocess.run(cmd, check=True)
     else:
         # Add all tabs to the current terminal window
         for tab in tabs:
             print(f" -> Adding tab for [{tab['title']}]...")
-            subprocess.run([
-                "gnome-terminal",
-                "--tab",
-                "--title", tab["title"],
-                "--", "bash", "-c", tab["cmd"]
-            ], check=True)
+            subprocess.run(
+                [
+                    "gnome-terminal",
+                    "--tab",
+                    "--title",
+                    tab["title"],
+                    "--",
+                    "bash",
+                    "-c",
+                    tab["cmd"],
+                ],
+                check=True,
+            )
             time.sleep(0.3)
 
     print("\n✓ All servers successfully launched in a single GNOME Terminal window!")
@@ -221,4 +270,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

@@ -6,11 +6,9 @@ Scans a directory containing OBM show definition files (*.json)
 and generates / updates show_options.json in place for the evaluation testing webpage.
 """
 
-import os
-import sys
 import json
+import sys
 from pathlib import Path
-
 
 SHOW_TITLE_MAP = {
     "f1_full.json": "Formula 1 Race (Full Experience)",
@@ -18,7 +16,7 @@ SHOW_TITLE_MAP = {
     "forest720_leaves.json": "Forest 720p (Multi-Layer Leaves & Creature)",
     "forest720.json": "Forest 720p (Standard)",
     "forecast.json": "Weather Forecast",
-    "spiders.json": "Spiders Animation"
+    "spiders.json": "Spiders Animation",
 }
 
 
@@ -47,7 +45,7 @@ def generate_show_options(shows_dir, output_file=None):
         try:
             with open(json_path, "r", encoding="utf-8") as f:
                 raw = json.load(f)
-        except Exception as e:
+        except (json.JSONDecodeError, OSError) as e:
             print(f"Skipping {filename} due to parse error: {e}")
             continue
 
@@ -87,49 +85,58 @@ def generate_show_options(shows_dir, output_file=None):
                 if default_opt is None and option_names:
                     default_opt = option_names[0]
 
-                catalog_layers.append({
-                    "name": layer_name,
-                    "options": option_names,
-                    "default": default_opt or ""
-                })
+                catalog_layers.append(
+                    {
+                        "name": layer_name,
+                        "options": option_names,
+                        "default": default_opt or "",
+                    }
+                )
 
-            catalog_variants.append({
-                "name": v_name,
-                "style": v_style,
-                "default": v_default,
-                "total_layers": len(catalog_layers),
-                "layers": catalog_layers
-            })
+            catalog_variants.append(
+                {
+                    "name": v_name,
+                    "style": v_style,
+                    "default": v_default,
+                    "total_layers": len(catalog_layers),
+                    "layers": catalog_layers,
+                }
+            )
 
         # Ensure at least one variant is marked default
         if not any(v["default"] for v in catalog_variants) and catalog_variants:
             catalog_variants[0]["default"] = True
 
-        catalog["shows"].append({
-            "id": filename,
-            "title": title,
-            "width": width,
-            "height": height,
-            "fps": 25,
-            "length_frames": length_frames,
-            "segment_length_sec": 10,
-            "variants": catalog_variants
-        })
+        catalog["shows"].append(
+            {
+                "id": filename,
+                "title": title,
+                "width": width,
+                "height": height,
+                "fps": 25,
+                "length_frames": length_frames,
+                "segment_length_sec": 10,
+                "variants": catalog_variants,
+            }
+        )
 
     # Write out the resulting show_options.json in place
     with open(output_file, "w", encoding="utf-8") as f:
         json.dump(catalog, f, indent=2)
 
-    print(f"Successfully generated {output_file} from {shows_path} ({len(catalog['shows'])} shows).")
+    print(
+        f"Successfully generated {output_file} from {shows_path} ({len(catalog['shows'])} shows)."
+    )
     return catalog
 
 
 if __name__ == "__main__":
     # Default to the obm/shows directory in this repository
-    default_shows_dir = Path(__file__).resolve().parent.parent.parent.parent / "obm" / "shows"
+    default_shows_dir = (
+        Path(__file__).resolve().parent.parent.parent.parent / "obm" / "shows"
+    )
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else default_shows_dir
     target_out = sys.argv[2] if len(sys.argv) > 2 else None
 
     generate_show_options(target_dir, target_out)
-
