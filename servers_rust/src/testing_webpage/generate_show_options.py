@@ -20,121 +20,98 @@ SHOW_TITLE_MAP = {
 }
 
 
-def generate_show_options(shows_dir, output_file=None):
+def transform_show(filename: str, raw: dict) -> dict | None:
+    """[Honest / Pure Domain Logic]
+    Deterministically transforms raw show JSON structure into catalog schema.
+    Returns None if no variants are defined.
     """
-    Reads all show JSON files in `shows_dir` and writes a unified `show_options.json`.
+    raw_variants = raw.get("variants", [])
+    if not raw_variants:
+        return None
+
+    first_var = raw_variants[0]
+    catalog_variants = []
+    for v in raw_variants:
+        catalog_layers = []
+        for layer in v.get("layers", []):
+            raw_options = layer.get("options", [])
+            option_names = [opt["name"] for opt in raw_options if opt.get("name")]
+            default_opt = next(
+                (opt["name"] for opt in raw_options if opt.get("default")),
+                option_names[0] if option_names else "",
+            )
+            catalog_layers.append(
+                {
+                    "name": layer.get("name", "layer"),
+                    "options": option_names,
+                    "default": default_opt,
+                }
+            )
+
+        catalog_variants.append(
+            {
+                "name": v.get("name", "core"),
+                "style": v.get("style", "landscape"),
+                "default": v.get("default", False),
+                "total_layers": len(catalog_layers),
+                "layers": catalog_layers,
+            }
+        )
+
+    # Ensure at least one variant is marked default
+    if not any(v["default"] for v in catalog_variants) and catalog_variants:
+        catalog_variants[0]["default"] = True
+
+    return {
+        "id": filename,
+        "title": filename,
+        "width": first_var.get("width", 1280),
+        "height": first_var.get("height", 720),
+        "fps": 25,
+        "length_frames": first_var.get("length_frames", 600),
+        "segment_length_sec": 10,
+        "variants": catalog_variants,
+    }
+
+
+def generate_show_options(shows_dir, output_file=None):
+    """[Dishonest / I/O Boundary Adapter]
+    Reads show JSON files from `shows_dir` and writes a unified `show_options.json`.
     If `output_file` is None, writes in-place to 'show_options.json' in this script's directory.
     """
     shows_path = Path(shows_dir).resolve()
     if not shows_path.is_dir():
         raise FileNotFoundError(f"Shows directory not found: {shows_path}")
 
-    if output_file is None:
-        output_file = Path(__file__).parent / "show_options.json"
-    else:
-        output_file = Path(output_file).resolve()
+    output_path = (
+        Path(__file__).parent / "show_options.json"
+        if output_file is None
+        else Path(output_file).resolve()
+    )
 
     catalog = {"shows": []}
 
-    # Find all JSON show files
-    json_files = sorted(shows_path.glob("*.json"))
-
-    for json_path in json_files:
-        filename = json_path.name
-
+    for json_path in sorted(shows_path.glob("*.json")):
         try:
-            with open(json_path, "r", encoding="utf-8") as f:
-                raw = json.load(f)
+            raw = json.loads(json_path.read_text(encoding="utf-8"))
         except (json.JSONDecodeError, OSError) as e:
-            print(f"Skipping {filename} due to parse error: {e}")
+            print(f"Skipping {json_path.name} due to parse error: {e}")
             continue
 
-        raw_variants = raw.get("variants", [])
-        if not raw_variants:
-            continue
+        show = transform_show(json_path.name, raw)
+        if show:
+            catalog["shows"].append(show)
 
-        first_var = raw_variants[0]
-        width = first_var.get("width", 1280)
-        height = first_var.get("height", 720)
-        length_frames = first_var.get("length_frames", 600)
-        title = filename
-
-        catalog_variants = []
-        for v in raw_variants:
-            v_name = v.get("name", "core")
-            v_style = v.get("style", "landscape")
-            v_default = v.get("default", False)
-            raw_layers = v.get("layers", [])
-
-            catalog_layers = []
-            for layer in raw_layers:
-                layer_name = layer.get("name", "layer")
-                raw_options = layer.get("options", [])
-
-                option_names = []
-                default_opt = None
-
-                for opt in raw_options:
-                    opt_name = opt.get("name", "")
-                    if opt_name:
-                        option_names.append(opt_name)
-                    if opt.get("default", False) and default_opt is None:
-                        default_opt = opt_name
-
-                # Fallback to the first option if none is explicitly marked default
-                if default_opt is None and option_names:
-                    default_opt = option_names[0]
-
-                catalog_layers.append(
-                    {
-                        "name": layer_name,
-                        "options": option_names,
-                        "default": default_opt or "",
-                    }
-                )
-
-            catalog_variants.append(
-                {
-                    "name": v_name,
-                    "style": v_style,
-                    "default": v_default,
-                    "total_layers": len(catalog_layers),
-                    "layers": catalog_layers,
-                }
-            )
-
-        # Ensure at least one variant is marked default
-        if not any(v["default"] for v in catalog_variants) and catalog_variants:
-            catalog_variants[0]["default"] = True
-
-        catalog["shows"].append(
-            {
-                "id": filename,
-                "title": title,
-                "width": width,
-                "height": height,
-                "fps": 25,
-                "length_frames": length_frames,
-                "segment_length_sec": 10,
-                "variants": catalog_variants,
-            }
-        )
-
-    # Write out the resulting show_options.json in place
-    with open(output_file, "w", encoding="utf-8") as f:
-        json.dump(catalog, f, indent=2)
-
+    output_path.write_text(json.dumps(catalog, indent=2), encoding="utf-8")
     print(
-        f"Successfully generated {output_file} from {shows_path} ({len(catalog['shows'])} shows)."
+        f"Successfully generated {output_path} from {shows_path} ({len(catalog['shows'])} shows)."
     )
     return catalog
 
 
 if __name__ == "__main__":
     # Default to the obm/shows directory in this repository
-    default_shows_dir = (
-        Path(__file__).resolve().parent.parent.parent.parent / "obm" / "shows"
-    )
+    default_shows_dir = Path(__file__).resolve().parents[3] / "obm" / "shows"
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else default_shows_dir
     target_out = sys.argv[2] if len(sys.argv) > 2 else None
