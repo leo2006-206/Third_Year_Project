@@ -2,7 +2,7 @@
 
 A distributed Object-Based Media (OBM) system with dynamic server-side video rendering offloading and load balancing.
 
----
+______________________________________________________________________
 
 ## 1. System Architecture & Tech Stack
 
@@ -18,33 +18,37 @@ A distributed Object-Based Media (OBM) system with dynamic server-side video ren
   - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication.
   - **Public Access**: Cloudflare Tunnel routing `https://obm_main.leowong.space/` to `localhost:7000`.
 
----
+______________________________________________________________________
 
 ## 2. How to Run the Servers
 
 ### Prerequisites
+
 1. **Docker Network** (create once):
    ```bash
    docker network create obm-net 2>/dev/null || true
    ```
-2. **Cloudflare Tunnel** (`cloudflared` installed on the host).
+1. **Cloudflare Tunnel** (`cloudflared` installed on the host).
 
 ### Starting the Services
+
 1. **Start All Servers (Offload Instances + Main Server)**:
    Reads `servers_container/offload_endpoint.csv`, checks for duplicates, pre-compiles and pre-builds container images, and launches each offload instance plus the Main Server in separate tabs in a single `gnome-terminal` window:
+
    ```bash
    ./servers_container/run_all.py
    # Or using the bash wrapper:
    ./servers_container/run_all.sh
    ```
+
    *(Or run an individual offload node manually: `./servers_container/offload_server/run_sh.sh 1 7010`)*.
 
-2. **Start Cloudflare Tunnel for Main Server**:
+1. **Start Cloudflare Tunnel for Main Server**:
    Exposes `localhost:7000` to `https://obm_main.leowong.space/` with automatic HTTPS/SSL.
 
-4. Open `https://obm_main.leowong.space/` (or `http://localhost:7000/` locally) in your browser.
+1. Open `https://obm_main.leowong.space/` (or `http://localhost:7000/` locally) in your browser.
 
----
+______________________________________________________________________
 
 ## 3. How to Add a New Offload Server
 
@@ -54,15 +58,15 @@ A distributed Object-Based Media (OBM) system with dynamic server-side video ren
    1, 7010
    2, 7020
    ```
-2. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
+1. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
    - Add `"obm-offload-2:7020"` to your offload server pool / load-balancer list.
-3. **Run or re-run**:
+1. **Run or re-run**:
    ```bash
    ./servers_container/run_all.sh
    ```
    `run_all.sh` will validate that there are no duplicate IDs or ports, compile the Rust binary once, and launch each offload instance in its own tab.
 
----
+______________________________________________________________________
 
 ## 4. `servers_container/` Directory Breakdown
 
