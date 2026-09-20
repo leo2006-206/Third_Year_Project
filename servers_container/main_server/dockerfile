@@ -14,9 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory to the OBM application root
 WORKDIR /app/obm
 
-# 1. Copy show definitions and UI assets needed by the Rust server
+# 1. Copy show definitions and media assets needed by the Rust server
 COPY obm/shows/ /app/obm/shows/
-COPY obm/std_ui/ /app/obm/std_ui/
+COPY obm/assets/ /app/obm/assets/
 
 # 3. Copy pre-compiled Rust main_server binary
 COPY --chmod=755 servers_rust/target/release/main_server /usr/local/bin/main_server

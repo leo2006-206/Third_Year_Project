@@ -1,0 +1,6 @@
+# Exclude large assets and show definitions from offload server image and build context
+obm/assets
+obm/assets/**
+obm/shows
+obm/shows/**
+
