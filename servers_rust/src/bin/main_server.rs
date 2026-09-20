@@ -54,7 +54,7 @@ async fn serve_offload(_client_stream: &mut TcpStream, path: &str) -> io::Result
 }
 
 async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
-    use http::{response_404, response_bytes, response_ok_utf8};
+    use http::{response_404, response_bytes, response_ok_utf8, send_raw_response};
 
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
     const APP_JS: &str = include_str!("../testing_webpage/app.js");
@@ -65,25 +65,26 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
     const FILE_SYSTEM_JS: &str = include_str!("../../../obm/file_system.js");
     const DANA_WASM: &[u8] = include_bytes!("../../../obm/dana.wasm");
 
-    if path == "/" || path == "/client_testing" || path == "/client_testing/index.html" {
-        response_ok_utf8(client_stream, "text/html", INDEX_HTML).await?;
-    } else if path == "/app.js" {
-        response_ok_utf8(client_stream, "application/javascript", APP_JS).await?;
-    } else if path == "/style.css" {
-        response_ok_utf8(client_stream, "text/css", STYLE_CSS).await?;
-    } else if path == "/show_options.json" {
-        response_ok_utf8(client_stream, "application/json", SHOW_OPTIONS).await?;
-    } else if path == "/dana.js" {
-        response_ok_utf8(client_stream, "application/javascript", DANA_JS).await?;
-    } else if path == "/file_system.js" {
-        response_ok_utf8(client_stream, "application/javascript", FILE_SYSTEM_JS).await?;
-    } else if path == "/dana.wasm" {
-        response_bytes(client_stream, "application/wasm", DANA_WASM).await?;
-    } else {
-        response_404(client_stream).await?;
-    }
+    let response =
+        if path == "/" || path == "/client_testing" || path == "/client_testing/index.html" {
+            response_ok_utf8("text/html", &[], INDEX_HTML.as_bytes())
+        } else if path == "/app.js" {
+            response_ok_utf8("application/javascript", &[], APP_JS.as_bytes())
+        } else if path == "/style.css" {
+            response_ok_utf8("text/css", &[], STYLE_CSS.as_bytes())
+        } else if path == "/show_options.json" {
+            response_ok_utf8("application/json", &[], SHOW_OPTIONS.as_bytes())
+        } else if path == "/dana.js" {
+            response_ok_utf8("application/javascript", &[], DANA_JS.as_bytes())
+        } else if path == "/file_system.js" {
+            response_ok_utf8("application/javascript", &[], FILE_SYSTEM_JS.as_bytes())
+        } else if path == "/dana.wasm" {
+            response_bytes("application/wasm", &[], DANA_WASM)
+        } else {
+            response_404()
+        };
 
-    Ok(())
+    send_raw_response(client_stream, &response).await
 }
 
 fn main() -> io::Result<()> {
