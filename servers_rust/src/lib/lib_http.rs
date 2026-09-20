@@ -44,11 +44,8 @@ pub fn format_response(
 
 /// [Dishonest / I/O Boundary Driver]
 /// Writes and flushes raw bytes to the output stream.
-pub async fn send_raw_response(
-    data_stream: &mut impl ct::Writer,
-    raw_response: &[u8],
-) -> io::Result<()> {
-    data_stream.write_all(raw_response).await?;
+pub async fn send_raw(data_stream: &mut impl ct::Writer, raw_data: &[u8]) -> io::Result<()> {
+    data_stream.write_all(raw_data).await?;
     data_stream.flush().await?;
     Ok(())
 }
@@ -97,7 +94,7 @@ pub fn response_bytes(content_type: &str, extra_headers: &[(&str, &str)], body: 
 
 /// [Honest / Pure Domain Logic]
 /// Deterministically formats an HTTP/1.1 bodyless request buffer (e.g. GET/HEAD).
-pub fn format_request_bodyless(
+pub fn request_bodyless(
     method: &str,
     method_path: &str,
     host: &str,
@@ -129,39 +126,15 @@ pub fn format_request_bodyless(
     request
 }
 
-/// [Dishonest / I/O Boundary Driver]
-/// Formats and sends a bodyless HTTP request over the stream.
-pub async fn request_bodyless(
-    dest_stream: &mut impl ct::Writer,
-    method: &str,
-    method_path: &str,
-    host: &str,
-    user_agent: &str,
-) -> io::Result<()> {
-    let raw = format_request_bodyless(method, method_path, host, user_agent, &[]);
-    send_raw_response(dest_stream, &raw).await
-}
-
-/// [Dishonest / I/O Boundary Driver]
-/// Formats and sends an HTTP GET request over the stream.
-pub async fn request_get(
-    dest_stream: &mut impl ct::Writer,
+/// [Honest / Pure Domain Logic]
+/// Formats an HTTP GET request buffer.
+pub fn request_get(
     get_path: &str,
     host: &str,
     user_agent: &str,
-) -> io::Result<()> {
-    request_bodyless(dest_stream, "GET", get_path, host, user_agent).await
-}
-
-/// [Honest / Pure Domain Logic]
-/// Extracts HTTP method and request path from the initial request line.
-pub fn parse_method_path(request_str: &str) -> Option<(&str, &str)> {
-    let mut words = request_str.lines().next()?.split_whitespace();
-
-    let method = words.next()?;
-    let path = words.next()?;
-
-    Some((method, path))
+    extra_headers: &[(&str, &str)],
+) -> Vec<u8> {
+    request_bodyless("GET", get_path, host, user_agent, extra_headers)
 }
 
 #[cfg(test)]
@@ -177,6 +150,15 @@ mod tests {
         assert!(resp_str.contains("Content-Length: 5\r\n"));
         assert!(resp_str.contains("X-Test: 123\r\n"));
         assert!(resp_str.ends_with("\r\n\r\nhello"));
+    }
+
+    #[test]
+    fn test_response_ok_utf8() {
+        let resp = response_ok_utf8("text/html", &[], b"<h1>OK</h1>");
+        let resp_str = String::from_utf8(resp).unwrap();
+        assert!(resp_str.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(resp_str.contains("Content-Type: text/html\r\n"));
+        assert!(resp_str.ends_with("\r\n\r\n<h1>OK</h1>"));
     }
 
     #[test]
@@ -197,8 +179,25 @@ mod tests {
     }
 
     #[test]
-    fn test_format_request_bodyless() {
-        let req = format_request_bodyless("GET", "/index.html", "localhost", "TestAgent", &[]);
+    fn test_request_bodyless() {
+        let req = request_bodyless(
+            "HEAD",
+            "/status",
+            "localhost",
+            "TestAgent",
+            &[("X-Custom", "val")],
+        );
+        let req_str = String::from_utf8(req).unwrap();
+        assert!(req_str.starts_with("HEAD /status HTTP/1.1\r\n"));
+        assert!(req_str.contains("Host: localhost\r\n"));
+        assert!(req_str.contains("User-Agent: TestAgent\r\n"));
+        assert!(req_str.contains("X-Custom: val\r\n"));
+        assert!(req_str.ends_with("\r\n\r\n"));
+    }
+
+    #[test]
+    fn test_request_get() {
+        let req = request_get("/index.html", "localhost", "TestAgent", &[]);
         let req_str = String::from_utf8(req).unwrap();
         assert!(req_str.starts_with("GET /index.html HTTP/1.1\r\n"));
         assert!(req_str.contains("Host: localhost\r\n"));
@@ -207,11 +206,13 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_method_path() {
-        assert_eq!(
-            parse_method_path("GET /index.html HTTP/1.1\r\nHost: localhost"),
-            Some(("GET", "/index.html"))
-        );
-        assert_eq!(parse_method_path(""), None);
+    fn test_send_raw() {
+        smol::block_on(async {
+            use smol::io::Cursor;
+            let mut cursor = Cursor::new(Vec::new());
+            let data = b"test raw bytes";
+            send_raw(&mut cursor, data).await.unwrap();
+            assert_eq!(cursor.into_inner(), data);
+        });
     }
 }

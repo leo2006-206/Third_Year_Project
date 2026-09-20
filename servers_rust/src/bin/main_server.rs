@@ -1,25 +1,22 @@
 use smol::{
     // future::zip,
     io,
-    io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     prelude::*,
 };
 
 use servers_rust::lib_http as http;
-use servers_rust::lib_util;
+use servers_rust::lib_util as util;
 
-async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
+async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
 
-    let n = client_stream.read(&mut buffer).await?;
-    if n == 0 {
+    let Ok(req_str) = util::read_as_str(&mut client_stream, &mut buffer).await else {
+        eprintln!("Failed to read HTTP request with err");
         return Ok(());
-    }
+    };
 
-    let req_str = String::from_utf8_lossy(&buffer[..n]);
-
-    let Some((method, path)) = http::parse_method_path(&req_str) else {
+    let Some((method, path)) = util::parse_method_path(&req_str) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
@@ -29,32 +26,29 @@ async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     if path.starts_with("/assets") {
         todo!()
     } else if path.starts_with("/offload") {
-        serve_offload(&mut client_stream, path).await
+        serve_offload(&mut client_stream, offload_url, path).await
     } else {
         serve_web_page(&mut client_stream, path).await
     }
 }
 
-async fn serve_offload(_client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
-    use http::request_get;
+async fn serve_offload(
+    _client_stream: &mut TcpStream,
+    offload_url: &[&str],
+    path: &str,
+) -> io::Result<()> {
+    use http::{request_get, send_raw};
 
-    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
-
-    let mut offload_steam = TcpStream::connect(OFFLOAD_URL[0]).await?;
+    let mut offload_steam = TcpStream::connect(offload_url[0]).await?;
 
     println!("Forwarding req = {path}");
 
-    request_get(
-        &mut offload_steam,
-        path,
-        OFFLOAD_URL[0],
-        "Load balancer/1.0",
-    )
-    .await
+    let req = request_get(path, offload_url[0], "Load balancer/1.0", &[]);
+    send_raw(&mut offload_steam, &req).await
 }
 
 async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
-    use http::{response_404, response_bytes, response_ok_utf8, send_raw_response};
+    use http::{response_404, response_bytes, response_ok_utf8, send_raw};
 
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
     const APP_JS: &str = include_str!("../testing_webpage/app.js");
@@ -84,11 +78,11 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
             response_404()
         };
 
-    send_raw_response(client_stream, &response).await
+    send_raw(client_stream, &response).await
 }
 
 fn main() -> io::Result<()> {
-    let _ = lib_util::set_local_url("https://obm_main.leowong.space/");
+    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -102,7 +96,7 @@ fn main() -> io::Result<()> {
             let stream = stream?;
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream).await {
+                if let Err(e) = handle_client(stream, &OFFLOAD_URL).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })

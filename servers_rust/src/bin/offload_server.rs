@@ -3,24 +3,21 @@ use std::env;
 use smol::{
     // future::zip,
     io,
-    io::AsyncReadExt,
     net::{TcpListener, TcpStream},
     prelude::*,
 };
 
-use servers_rust::lib_http as http;
+use servers_rust::lib_util as util;
 
 async fn handle_client(mut client_stream: TcpStream) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
 
-    let n = client_stream.read(&mut buffer).await?;
-    if n == 0 {
+    let Ok(req_str) = util::read_as_str(&mut client_stream, &mut buffer).await else {
+        eprintln!("Failed to read HTTP request with err");
         return Ok(());
-    }
+    };
 
-    let req_str = String::from_utf8_lossy(&buffer[..n]);
-
-    let Some((method, path)) = http::parse_method_path(&req_str) else {
+    let Some((method, path)) = util::parse_method_path(&req_str) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
