@@ -1,10 +1,71 @@
 // src/lib/lib_http.rs
 
+use std::fs::File;
 use std::io;
 
 use smol::io::AsyncWriteExt;
 
 use crate::lib_core_type as ct;
+
+/// [Dishonest / I/O Boundary Driver]
+/// Writes and flushes raw bytes to the output stream.
+pub async fn send_raw(data_stream: &mut impl ct::Writer, raw_data: &[u8]) -> io::Result<()> {
+    data_stream.write_all(raw_data).await?;
+    data_stream.flush().await?;
+    Ok(())
+}
+
+/// [Dishonest / I/O Boundary Driver]
+/// Reuses `format_response_header` to write HTTP 200 headers, then streams the file
+/// directly to the network socket via `smol::io::copy` without loading the entire file into RAM.
+pub async fn send_file(
+    data_stream: &mut impl ct::Writer,
+    file: File,
+    content_type: &str,
+    extra_headers: &[(&str, &str)],
+) -> io::Result<()> {
+    let file_len = file.metadata()?.len();
+    let header = format_response_header("200 OK", content_type, file_len, extra_headers);
+    send_raw(data_stream, &header).await?;
+
+    let mut async_file = smol::fs::File::from(file);
+    smol::io::copy(&mut async_file, &mut *data_stream).await?;
+    data_stream.flush().await?;
+    Ok(())
+}
+
+/// [Honest / Pure Domain Logic]
+/// Deterministically formats HTTP/1.1 response status line and headers into a byte buffer.
+pub fn format_response_header(
+    status_code: &str,
+    content_type: &str,
+    content_length: u64,
+    extra_headers: &[(&str, &str)],
+) -> Vec<u8> {
+    use std::io::Write;
+
+    let headers_len: usize = extra_headers
+        .iter()
+        .map(|(k, v)| k.len() + v.len() + 4) // ": " + "\r\n"
+        .sum();
+
+    let mut response = Vec::with_capacity(128 + headers_len);
+
+    let _ = write!(
+        &mut response,
+        "HTTP/1.1 {status_code}\r\n\
+        Content-Type: {content_type}\r\n\
+        Content-Length: {content_length}\r\n\
+        Connection: close\r\n",
+    );
+
+    for (key, value) in extra_headers {
+        let _ = write!(&mut response, "{key}: {value}\r\n");
+    }
+    response.extend_from_slice(b"\r\n");
+
+    response
+}
 
 /// [Honest / Pure Domain Logic]
 /// Deterministically formats an HTTP/1.1 response buffer with status line,
@@ -15,39 +76,14 @@ pub fn format_response(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Vec<u8> {
-    use std::io::Write;
-
-    let headers_len: usize = extra_headers
-        .iter()
-        .map(|(k, v)| k.len() + v.len() + 4) // ": " + "\r\n"
-        .sum();
-
-    let mut response = Vec::with_capacity(128 + headers_len + body.len());
-
-    let _ = write!(
-        &mut response,
-        "HTTP/1.1 {status_code}\r\n\
-        Content-Type: {content_type}\r\n\
-        Content-Length: {}\r\n\
-        Connection: close\r\n",
-        body.len(),
+    let mut response = format_response_header(
+        status_code,
+        content_type,
+        body.len() as u64,
+        extra_headers,
     );
-
-    for (key, value) in extra_headers {
-        let _ = write!(&mut response, "{key}: {value}\r\n");
-    }
-    response.extend_from_slice(b"\r\n");
     response.extend_from_slice(body);
-
     response
-}
-
-/// [Dishonest / I/O Boundary Driver]
-/// Writes and flushes raw bytes to the output stream.
-pub async fn send_raw(data_stream: &mut impl ct::Writer, raw_data: &[u8]) -> io::Result<()> {
-    data_stream.write_all(raw_data).await?;
-    data_stream.flush().await?;
-    Ok(())
 }
 
 /// [Honest / Pure Domain Logic]
@@ -213,6 +249,34 @@ mod tests {
             let data = b"test raw bytes";
             send_raw(&mut cursor, data).await.unwrap();
             assert_eq!(cursor.into_inner(), data);
+        });
+    }
+
+    #[test]
+    fn test_send_file() {
+        smol::block_on(async {
+            use smol::io::Cursor;
+            let file = std::fs::File::open("Cargo.toml").unwrap();
+            let file_len = file.metadata().unwrap().len();
+            let mut cursor = Cursor::new(Vec::new());
+
+            send_file(
+                &mut cursor,
+                file,
+                "text/plain",
+                &[("X-Custom", "file-test")],
+            )
+            .await
+            .unwrap();
+
+            let output = cursor.into_inner();
+            let output_str = String::from_utf8_lossy(&output);
+
+            assert!(output_str.starts_with("HTTP/1.1 200 OK\r\n"));
+            assert!(output_str.contains("Content-Type: text/plain\r\n"));
+            assert!(output_str.contains(&format!("Content-Length: {file_len}\r\n")));
+            assert!(output_str.contains("X-Custom: file-test\r\n"));
+            assert!(output_str.contains("[package]"));
         });
     }
 }

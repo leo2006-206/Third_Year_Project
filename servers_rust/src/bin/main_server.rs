@@ -32,6 +32,10 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
     }
 }
 
+async fn serve_resource(_client_stream: &mut TcpStream, _resource_path: &str) -> io::Result<()> {
+    Ok(())
+}
+
 async fn serve_offload(
     _client_stream: &mut TcpStream,
     offload_url: &[&str],
