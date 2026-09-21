@@ -76,12 +76,8 @@ pub fn format_response(
     extra_headers: &[(&str, &str)],
     body: &[u8],
 ) -> Vec<u8> {
-    let mut response = format_response_header(
-        status_code,
-        content_type,
-        body.len() as u64,
-        extra_headers,
-    );
+    let mut response =
+        format_response_header(status_code, content_type, body.len() as u64, extra_headers);
     response.extend_from_slice(body);
     response
 }

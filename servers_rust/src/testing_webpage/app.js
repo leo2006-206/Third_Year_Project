@@ -167,12 +167,28 @@ function renderLayerOptions() {
     });
 }
 
+function getSelectedOptionTokens() {
+    const selects = layerContainer.querySelectorAll(".layer-select");
+    const optionTokens = [];
+    selects.forEach(select => {
+        const layerName = select.dataset.layerName;
+        const chosenVal = select.value;
+        optionTokens.push(`${layerName}|${chosenVal}`);
+    });
+    return optionTokens;
+}
+
 /**
  * 4. Construct Offload URL matching Dana OffloadSite.dn format:
  * /offload/show/<id>/<timeStart>/<timeEnd>/<w>/<h>/<variant>/<style>/<offloadLayers>/<layer1>|<opt1>/...
  */
 function buildOffloadUrl(timeStart = 0, timeEnd = 10) {
     if (!activeShow || !activeVariant) return "";
+
+    const mode = offloadModeSelect.value;
+    if (mode === "non_offload") {
+        return `/shows/${activeShow.id}`;
+    }
 
     const w = activeShow.width;
     const h = activeShow.height;
@@ -181,28 +197,22 @@ function buildOffloadUrl(timeStart = 0, timeEnd = 10) {
 
     // Determine offload layers count
     let offloadLayers = activeVariant.total_layers;
-    const mode = offloadModeSelect.value;
     if (mode === "partial") {
         const chosen = parseInt(partialLayersSelect.value, 10);
         offloadLayers = isNaN(chosen) ? Math.min(4, activeVariant.total_layers) : chosen;
-    } else if (mode === "non_offload") {
-        offloadLayers = 0;
     }
 
-    // Collect chosen layer options
-    const selects = layerContainer.querySelectorAll(".layer-select");
-    const optionTokens = [];
-    selects.forEach(select => {
-        const layerName = select.dataset.layerName;
-        const chosenVal = select.value;
-        optionTokens.push(`${layerName}|${chosenVal}`);
-    });
-
+    const optionTokens = getSelectedOptionTokens();
     const basePath = `/offload/show/${activeShow.id}/${timeStart}/${timeEnd}/${w}/${h}/${variantName}/${styleName}/${offloadLayers}`;
     return optionTokens.length > 0 ? `${basePath}/${optionTokens.join("/")}` : basePath;
 }
 
 function updateOffloadUrlPreview() {
+    const mode = offloadModeSelect.value;
+    if (mode === "non_offload") {
+        urlPreview.textContent = `/shows/${activeShow ? activeShow.id : "f1.json"} (Local Mode: Direct Client Compositing)`;
+        return;
+    }
     const url = buildOffloadUrl(0, activeShow ? activeShow.segment_length_sec : 10);
     urlPreview.textContent = url;
 }
@@ -302,7 +312,7 @@ async function fetchAndRecordSegment(index) {
         time_range: `${timeStart}_${timeEnd}`,
         show_id: activeShow.id,
         mode: mode,
-        selected_options: url.split(`/${mode === 'non_offload' ? 0 : activeVariant.total_layers}/`)[1] || "default",
+        selected_options: getSelectedOptionTokens().join("/") || "default",
         req_dispatch_ms: Math.round(dispatchTime),
         ttfb_ms: Math.round(ttfbTime - dispatchTime),
         element_recv_ms: Math.round(elementRecvTime),

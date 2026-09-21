@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OBM Testing Page</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
     <div class="header-container">
@@ -147,6 +147,8 @@
     <!-- Dana WebAssembly Integration -->
     <script>
         // Setup Module object for Dana WASM Runtime
+        var showParam = new URLSearchParams(window.location.search).get('show') || 'f1_full.json';
+        var showPath = showParam.startsWith('shows/') ? showParam : 'shows/' + showParam;
         var Module = {
             canvas: (function() {
                 var c = document.getElementById('canvas');
@@ -156,7 +158,7 @@
                 }, false);
                 return c;
             })(),
-            arguments: ['-dh', '.', 'App.o', '/', 'shows/f1_full.json']
+            arguments: ['-dh', '.', 'App.o', '/', showPath]
         };
     </script>
     <!-- Core Dana WASM files (served from OBM root) -->
@@ -164,7 +166,7 @@
     <script async src="/dana.js"></script>
 
     <!-- Evaluation Page Logic -->
-    <script src="app.js"></script>
+    <script src="app.js?v=2"></script>
 </body>
 </html>
 

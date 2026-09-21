@@ -1,3 +1,5 @@
+.vscode/*
+
 docs_resource/*
 # *.sh
 */dana_runtime_copy

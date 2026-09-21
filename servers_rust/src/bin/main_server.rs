@@ -16,15 +16,16 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
         return Ok(());
     };
 
-    let Some((method, path)) = util::parse_method_path(&req_str) else {
+    let Some((method, raw_path)) = util::parse_method_path(&req_str) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
+    let path = raw_path.split('?').next().unwrap_or(raw_path);
 
     dbg!(&method, &path);
 
-    if path.starts_with("/assets") {
-        todo!()
+    if path.starts_with("/assets") || path.starts_with("/shows") {
+        serve_resource(&mut client_stream, path).await
     } else if path.starts_with("/offload") {
         serve_offload(&mut client_stream, offload_url, path).await
     } else {
@@ -32,8 +33,20 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
     }
 }
 
-async fn serve_resource(_client_stream: &mut TcpStream, _resource_path: &str) -> io::Result<()> {
-    Ok(())
+async fn serve_resource(client_stream: &mut TcpStream, resource_path: &str) -> io::Result<()> {
+    use http::{response_404, send_file, send_raw};
+    use util::{file_check, match_content_type};
+
+    // docker path here, for docker only
+    const BASE_PATH: &str = "/app/obm";
+
+    let Some(file) = file_check(BASE_PATH, resource_path) else {
+        let resp = response_404();
+        return send_raw(client_stream, &resp).await;
+    };
+
+    let content_type = match_content_type(resource_path);
+    send_file(client_stream, file, content_type, &[]).await
 }
 
 async fn serve_offload(
@@ -47,8 +60,12 @@ async fn serve_offload(
 
     println!("Forwarding req = {path}");
 
-    let req = request_get(path, offload_url[0], "Load balancer/1.0", &[]);
-    send_raw(&mut offload_steam, &req).await
+    let message = request_get(path, offload_url[0], "Load balancer/1.0", &[]);
+    send_raw(&mut offload_steam, &message).await?;
+
+    // todo!("copy video from offload to client");
+
+    Ok(())
 }
 
 async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
@@ -63,15 +80,17 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
     const FILE_SYSTEM_JS: &str = include_str!("../../../obm/file_system.js");
     const DANA_WASM: &[u8] = include_bytes!("../../../obm/dana.wasm");
 
+    const NO_CACHE: [(&str, &str); 1] = [("Cache-Control", "no-cache, no-store, must-revalidate")];
+
     let response =
         if path == "/" || path == "/client_testing" || path == "/client_testing/index.html" {
-            response_ok_utf8("text/html", &[], INDEX_HTML.as_bytes())
+            response_ok_utf8("text/html", &NO_CACHE, INDEX_HTML.as_bytes())
         } else if path == "/app.js" {
-            response_ok_utf8("application/javascript", &[], APP_JS.as_bytes())
+            response_ok_utf8("application/javascript", &NO_CACHE, APP_JS.as_bytes())
         } else if path == "/style.css" {
-            response_ok_utf8("text/css", &[], STYLE_CSS.as_bytes())
+            response_ok_utf8("text/css", &NO_CACHE, STYLE_CSS.as_bytes())
         } else if path == "/show_options.json" {
-            response_ok_utf8("application/json", &[], SHOW_OPTIONS.as_bytes())
+            response_ok_utf8("application/json", &NO_CACHE, SHOW_OPTIONS.as_bytes())
         } else if path == "/dana.js" {
             response_ok_utf8("application/javascript", &[], DANA_JS.as_bytes())
         } else if path == "/file_system.js" {
