@@ -13,4 +13,5 @@ pub use lib_core_type::*;
 pub use lib_http::*;
 pub use lib_util::*;
 
+#[allow(unused_imports)]
 pub use lib_load_balancer::*;

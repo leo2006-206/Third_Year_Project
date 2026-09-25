@@ -16,24 +16,23 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
         return Ok(());
     };
 
-    let Some((method, raw_path)) = util::parse_method_path(&req_str) else {
+    let Some((method, path)) = util::parse_method_path(&req_str, Some("?")) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
-    let path = raw_path.split('?').next().unwrap_or(raw_path);
 
     dbg!(&method, &path);
 
     if path.starts_with("/assets") || path.starts_with("/shows") {
-        serve_resource(&mut client_stream, path).await
+        serve_resource(client_stream, path).await
     } else if path.starts_with("/offload") {
-        serve_offload(&mut client_stream, offload_url, path).await
+        serve_offload(client_stream, offload_url, path).await
     } else {
-        serve_web_page(&mut client_stream, path).await
+        serve_web_page(client_stream, path).await
     }
 }
 
-async fn serve_resource(client_stream: &mut TcpStream, resource_path: &str) -> io::Result<()> {
+async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io::Result<()> {
     use http::{response_404, send_file, send_raw};
     use util::{file_check, match_content_type};
 
@@ -42,33 +41,36 @@ async fn serve_resource(client_stream: &mut TcpStream, resource_path: &str) -> i
 
     let Some(file) = file_check(BASE_PATH, resource_path) else {
         let resp = response_404();
-        return send_raw(client_stream, &resp).await;
+        return send_raw(&mut client_stream, &resp).await;
     };
 
     let content_type = match_content_type(resource_path);
-    send_file(client_stream, file, content_type, &[]).await
+    send_file(&mut client_stream, file, content_type, &[]).await
 }
 
 async fn serve_offload(
-    _client_stream: &mut TcpStream,
+    mut client_stream: TcpStream,
     offload_url: &[&str],
     path: &str,
 ) -> io::Result<()> {
     use http::{request_get, send_raw};
 
+    const MAIN_SERVER_AGENT: &str = "OBM Load balancer/1.0";
+
     let mut offload_steam = TcpStream::connect(offload_url[0]).await?;
 
     println!("Forwarding req = {path}");
 
-    let message = request_get(path, offload_url[0], "Load balancer/1.0", &[]);
+    let message = request_get(path, offload_url[0], MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
-    // todo!("copy video from offload to client");
+    smol::io::copy(&mut offload_steam, &mut client_stream).await?;
+    client_stream.flush().await?;
 
     Ok(())
 }
 
-async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result<()> {
+async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<()> {
     use http::{response_404, response_bytes, response_ok_utf8, send_raw};
 
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
@@ -101,7 +103,7 @@ async fn serve_web_page(client_stream: &mut TcpStream, path: &str) -> io::Result
             response_404()
         };
 
-    send_raw(client_stream, &response).await
+    send_raw(&mut client_stream, &response).await
 }
 
 fn main() -> io::Result<()> {

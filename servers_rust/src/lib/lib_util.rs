@@ -43,11 +43,21 @@ pub fn file_check(base_dir: impl AsRef<Path>, url_path: &str) -> Option<File> {
 
 /// [Honest / Pure Domain Logic]
 /// Extracts HTTP method and request path from the initial request line.
-pub fn parse_method_path(request_str: &str) -> Option<(&str, &str)> {
+/// If `pat` is `Some(...)` (e.g. `Some("?")`), the path is truncated at the first occurrence of that pattern.
+/// If `None`, the raw path is returned unmodified.
+pub fn parse_method_path<'a>(
+    request_str: &'a str,
+    pat: Option<&str>,
+) -> Option<(&'a str, &'a str)> {
     let mut words = request_str.lines().next()?.split_whitespace();
 
     let method = words.next()?;
-    let path = words.next()?;
+    let raw_path = words.next()?;
+
+    let path = match pat {
+        Some(pat) => raw_path.split(pat).next().unwrap_or(raw_path),
+        None => raw_path,
+    };
 
     Some((method, path))
 }
@@ -77,10 +87,24 @@ mod test {
     #[test]
     fn test_parse_method_path() {
         assert_eq!(
-            parse_method_path("GET /index.html HTTP/1.1\r\nHost: localhost"),
+            parse_method_path("GET /index.html HTTP/1.1\r\nHost: localhost", None),
             Some(("GET", "/index.html"))
         );
-        assert_eq!(parse_method_path(""), None);
+        assert_eq!(
+            parse_method_path(
+                "GET /shows/f1.json?nocache=1 HTTP/1.1\r\nHost: localhost",
+                None
+            ),
+            Some(("GET", "/shows/f1.json?nocache=1"))
+        );
+        assert_eq!(
+            parse_method_path(
+                "GET /shows/f1.json?nocache=1 HTTP/1.1\r\nHost: localhost",
+                Some("?")
+            ),
+            Some(("GET", "/shows/f1.json"))
+        );
+        assert_eq!(parse_method_path("", None), None);
     }
 
     #[test]
