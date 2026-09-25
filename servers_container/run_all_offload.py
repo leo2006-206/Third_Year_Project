@@ -21,14 +21,15 @@ from pathlib import Path
 
 def validate_endpoints(
     rows: Iterable[list[str]],
-) -> tuple[list[tuple[str, int]], list[str]]:
+) -> tuple[list[tuple[str, int, str]], list[str]]:
     """[Honest / Pure Domain Logic]
-    Validates CSV rows for schema, port integer ranges, and duplicate IDs/ports.
+    Validates CSV rows for schema (id, port, device), port integer ranges,
+    valid device types ('cpu' or 'gpu'), and duplicate IDs/ports.
     Returns a tuple of (valid_endpoints, errors).
     """
     seen_ids: dict[str, int] = {}
     seen_ports: dict[int, int] = {}
-    endpoints: list[tuple[str, int]] = []
+    endpoints: list[tuple[str, int, str]] = []
     errors: list[str] = []
 
     for line_num, row in enumerate(rows, start=1):
@@ -39,7 +40,7 @@ def validate_endpoints(
         if not fields or not fields[0] or fields[0].startswith("#"):
             continue
 
-        # Skip header line (e.g. "id", "port")
+        # Skip header line (e.g. "id", "port", "device")
         if (
             fields[0].lower() == "id"
             and len(fields) > 1
@@ -47,13 +48,13 @@ def validate_endpoints(
         ):
             continue
 
-        if len(fields) < 2 or not fields[0] or not fields[1]:
+        if len(fields) < 3 or not fields[0] or not fields[1] or not fields[2]:
             errors.append(
-                f"Line {line_num}: Invalid row format. Expected 'id, port', got: {row}"
+                f"Line {line_num}: Invalid row format. Expected 'id, port, device', got: {row}"
             )
             continue
 
-        inst_id, port_str = fields[0], fields[1]
+        inst_id, port_str, device_str = fields[0], fields[1], fields[2]
 
         # Validate port integer range
         if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
@@ -63,6 +64,14 @@ def validate_endpoints(
             continue
 
         port = int(port_str)
+
+        # Validate device type ('cpu' or 'gpu')
+        device = device_str.lower()
+        if device not in ("cpu", "gpu"):
+            errors.append(
+                f"Line {line_num}: Invalid device '{device_str}'. Must be 'cpu' or 'gpu'."
+            )
+            continue
 
         # Check duplicate ID
         if inst_id in seen_ids:
@@ -80,7 +89,7 @@ def validate_endpoints(
         else:
             seen_ports[port] = line_num
 
-        endpoints.append((inst_id, port))
+        endpoints.append((inst_id, port, device))
 
     return endpoints, errors
 
@@ -101,7 +110,7 @@ def format_tab_command(title: str, run_cmd: str) -> str:
 # -----------------------------------------------------------------------------
 
 
-def load_and_validate_endpoints(csv_file: Path) -> list[tuple[str, int]]:
+def load_and_validate_endpoints(csv_file: Path) -> list[tuple[str, int, str]]:
     """[Dishonest / I/O Boundary Adapter]
     Reads endpoint definitions from CSV file, executes validation, and halts on error.
     """
@@ -159,7 +168,7 @@ def build_offload_image(
     )
 
 
-def setup_docker_environment(endpoints: list[tuple[str, int]]) -> None:
+def setup_docker_environment(endpoints: list[tuple[str, int, str]]) -> None:
     """[Dishonest / Container Driver]
     Ensures the shared Docker bridge network exists and removes stale offload containers.
     """
@@ -167,14 +176,14 @@ def setup_docker_environment(endpoints: list[tuple[str, int]]) -> None:
         ["docker", "network", "create", "obm-net"], capture_output=True, check=False
     )
 
-    stale_containers = [f"obm-offload-{inst_id}" for inst_id, _ in endpoints]
+    stale_containers = [f"obm-offload-{inst_id}" for inst_id, _, _ in endpoints]
     subprocess.run(
         ["docker", "rm", "-f", *stale_containers], capture_output=True, check=False
     )
 
 
 def spawn_terminal_tabs(
-    endpoints: list[tuple[str, int]],
+    endpoints: list[tuple[str, int, str]],
     offload_run_sh: Path,
     new_window: bool,
 ) -> None:
@@ -186,9 +195,9 @@ def spawn_terminal_tabs(
         sys.exit("Error: 'gnome-terminal' command not found in PATH.")
 
     tabs = []
-    for inst_id, port in endpoints:
-        title = f"Offload-{inst_id} ({port})"
-        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" --skip-build'
+    for inst_id, port, device in endpoints:
+        title = f"Offload-{inst_id} ({port}/{device.upper()})"
+        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{device}" --skip-build'
         tabs.append({"title": title, "cmd": format_tab_command(title, run_cmd)})
 
     if new_window:

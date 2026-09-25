@@ -7,13 +7,20 @@ FROM ubuntu:22.04
 # Prevent interactive dialogs during apt installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential runtime dependencies for Dana (Mesa/GL for rendering) and networking
+# Install essential runtime dependencies for Dana (Mesa/GL for rendering, VA-API for hardware acceleration) and networking
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     wget \
     libgl1 \
     libglu1-mesa \
+    libva2 \
+    libva-drm2 \
+    libvdpau1 \
+    libopus0 \
+    vainfo \
+    intel-media-va-driver-non-free \
+    mesa-va-drivers \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up Dana environment variables
@@ -41,9 +48,12 @@ COPY obm/*.* obm/Makefile /app/obm/
 ARG PORT=7010
 ENV OFFLOAD_PORT=${PORT}
 
-# Update ASSET_HOST in OffloadSite.dn to point to the Rust server port and recompile OffloadSite.o
+# Update ASSET_HOST in OffloadSite.dn to point to the Rust server port and compile OffloadSite.o + VA-API hardware codecs
 RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite.dn && \
-    cd /app/obm && dnc OffloadSite.dn
+    cd /app/obm && \
+    dnc OffloadSite.dn && \
+    dnc media/video/Encoder.h264va.dn && \
+    dnc media/video/Decoder.h264va.dn
 
 # Copy pre-compiled Rust offload_server binary
 COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
