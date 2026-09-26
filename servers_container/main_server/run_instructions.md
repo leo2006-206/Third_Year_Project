@@ -26,9 +26,12 @@ Run the automated script from the repository root:
 ### What this script does automatically:
 1. **Compiles** the Rust server with optimizations: `cargo build --release --bin main_server`.
 2. **Builds** the Docker image: `obm-main-server`.
-3. **Launches** the container in interactive mode mapping port `7000`:
+3. **Launches** the container in interactive mode on `obm-net` mapping port `7000`:
    ```bash
-   docker run -it --rm -p 7000:7000 --name obm-main-server obm-main-server
+   docker run -it --rm --init --network obm-net -p 7000:7000 \
+       -v "$PWD/obm/assets:/app/obm/assets:ro" \
+       -v "$PWD/obm/shows:/app/obm/shows:ro" \
+       --name obm-main-server obm-main-server
    ```
 
 ---
@@ -43,8 +46,7 @@ Run the automated script from the repository root:
 
 ## 4. Container Structure & Assets
 
-The container preserves all OBM asset directories needed by the Rust server:
-- `/app/obm/assets/`: Cached video, mask, and media assets (~2GB).
-- `/app/obm/shows/`: Show definition files (`.json`).
-- `/app/obm/std_ui/`: Standard UI elements and icons.
+Assets and show specifications are mounted directly from the host at runtime via read-only volumes (keeping the Docker image small and build times under 1 second):
+- `obm/assets/` -> `/app/obm/assets:ro`: Cached video, mask, and media assets.
+- `obm/shows/` -> `/app/obm/shows:ro`: Show definition files (`.json`).
 - `/usr/local/bin/main_server`: The compiled Rust binary.

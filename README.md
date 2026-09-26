@@ -1,26 +1,26 @@
 # OBM Video Offload & Load Balancing Project
 
-A distributed Object-Based Media (OBM) system with dynamic server-side video rendering offloading and load balancing.
+A distributed Object-Based Media (OBM) system with server-side video rendering offloading and load balancing.
 
 ______________________________________________________________________
 
-## 1. System Architecture & Tech Stack
+## 1. System Architecture & What the Servers Do
 
 - **Main Server (Rust + `smol`)** — Port `7000`:
-  - Serves the testing web client UI and Dana WebAssembly player runtime (`dana.wasm`, `dana.js`, `file_system.js`).
-  - Serves raw media assets (`/assets/...`) for client-side local rendering.
-  - Acts as a reverse proxy / load balancer for `/offload/show/...`, dispatching video rendering requests to offload servers and streaming H.264 video back to the browser.
-- **Offload Nodes (Rust + Dana)** — Configurable Ports (e.g. `7010`, `7020`):
-  - **Rust Offload Server**: Exposed container entrypoint. Forwards offload requests to Dana and serves as a local asset cache (`ASSET_HOST`).
-  - **Dana Offload Engine** (Port `9009` internal): Headless Mesa/GL rendering engine that composites active show layers and encodes them into H.264 video streams.
+  - Serves the testing web client UI (benchmark and evaluation harness).
+  - Serves raw media assets (`/assets/...`) and show specifications (`/shows/...`).
+  - Acts as a reverse proxy / load balancer for `/offload/shows/...`: receives segment rendering requests, routes them to offload worker servers, and streams generated H.264 video chunks back to the client.
+- **Offload Nodes (Rust + Dana Engine)** — Configurable Ports (e.g. `7010`, `7020`):
+  - **Rust Offload Server**: Exposed container entrypoint. Acts as a reverse proxy, forwards offload requests to the local Dana engine, and serves as a local asset cache (`ASSET_HOST`) for Dana.
+  - **Dana Offload Engine** (Port `9009` internal): Headless Mesa/GL rendering engine that composites active show layers and encodes them into H.264 video streams using hardware acceleration (Intel VA-API GPU via `/dev/dri`) or CPU fallback.
 - **Networking**:
   - **Local (Same host)**: Docker network `obm-net` (containers resolve each other directly by name, e.g. `obm-offload-1:7010`, `obm-offload-2:7020`).
-  - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication.
+  - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication across hosts.
   - **Public Access**: Cloudflare Tunnel routing `https://obm_main.leowong.space/` to `localhost:7000`.
 
 ______________________________________________________________________
 
-## 2. How to Run the Servers
+## 2. How to Run the Docker Containers
 
 ### Prerequisites
 
@@ -28,25 +28,44 @@ ______________________________________________________________________
    ```bash
    docker network create obm-net 2>/dev/null || true
    ```
-1. **Cloudflare Tunnel** (`cloudflared` installed on the host).
+2. **Cloudflare Tunnel** (`cloudflared` installed on the host, if public access is needed).
 
-### Starting the Services
+### A. Running the Offload Servers
 
-1. **Start All Servers (Offload Instances + Main Server)**:
-   Reads `servers_container/offload_endpoint.csv`, checks for duplicates, pre-compiles and pre-builds container images, and launches each offload instance plus the Main Server in separate tabs in a single `gnome-terminal` window:
+#### Cluster Mode (All Offload Nodes Automatically)
+Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal`:
 
-   ```bash
-   ./servers_container/run_all.py
-   # Or using the bash wrapper:
-   ./servers_container/run_all.sh
-   ```
+```bash
+./servers_container/run_all_offload.py
+```
 
-   *(Or run an individual offload node manually: `./servers_container/offload_server/run_sh.sh 1 7010`)*.
+#### Individual Node (Manual Run)
+You can launch an individual offload node by passing `ID`, `PORT`, and optional device (`gpu` or `cpu`):
 
-1. **Start Cloudflare Tunnel for Main Server**:
-   Exposes `localhost:7000` to `https://obm_main.leowong.space/` with automatic HTTPS/SSL.
+```bash
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|cpu]
+```
 
-1. Open `https://obm_main.leowong.space/` (or `http://localhost:7000/` locally) in your browser.
+*Examples:*
+```bash
+./servers_container/offload_server/run_sh.sh 1 7010 gpu
+./servers_container/offload_server/run_sh.sh 2 7020 cpu
+```
+
+### B. Running the Main Server
+
+Run the automated build and startup script from the project root:
+
+```bash
+./servers_container/main_server/run_sh.sh
+```
+
+This compiles the Rust `main_server`, builds the lightweight Docker image, mounts `obm/assets` and `obm/shows` directly as read-only volumes, and starts the container on port `7000`.
+
+### C. Accessing the System
+
+- **Local**: Open `http://localhost:7000/` in your browser.
+- **Public / Remote**: Start your Cloudflare Tunnel to access `https://obm_main.leowong.space/`.
 
 ______________________________________________________________________
 
@@ -54,27 +73,27 @@ ______________________________________________________________________
 
 1. **Add an endpoint to [`servers_container/offload_endpoint.csv`](servers_container/offload_endpoint.csv)**:
    ```csv
-   id, port
-   1, 7010
-   2, 7020
+   id, port, device
+   1, 7010, gpu
+   2, 7020, cpu
+   3, 7030, cpu
    ```
-1. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
-   - Add `"obm-offload-2:7020"` to your offload server pool / load-balancer list.
-1. **Run or re-run**:
+2. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
+   - Add `"obm-offload-3:7030"` to the offload server pool / load balancer list.
+3. **Launch the cluster**:
    ```bash
-   ./servers_container/run_all.sh
+   ./servers_container/run_all_offload.py
    ```
-   `run_all.sh` will validate that there are no duplicate IDs or ports, compile the Rust binary once, and launch each offload instance in its own tab.
 
 ______________________________________________________________________
 
 ## 4. `servers_container/` Directory Breakdown
 
-| File / Directory | Status | Purpose |
-| :--- | :--- | :--- |
-| `main_server/` | **Required** | Builds & runs the Rust Main Server container on port `7000`. |
-| `offload_server/` | **Required** | Generic Offload Node container configuration (Rust + Dana). Parameterized by `ID` and `PORT`. |
-| `offload_endpoint.csv` | **Required** | Defines active offload instance mappings (`id, port`). |
-| `run_all.sh` | **Required** | Reads CSV, validates duplicates, and launches all offload instances in `gnome-terminal` tabs. |
-| `dana_runtime_copy/` | **Required** | Local Dana runtime binaries & compiler (`dana`, `dnc`) used during Docker builds. |
-| `original_obm_main/` | **Optional (Baseline)** | Legacy standalone Dana server (`dana ws.core -p 7000`). Only needed for comparative baseline benchmarks. |
+| File / Directory | Purpose |
+| :--- | :--- |
+| `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
+| `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, and `DEVICE` (`gpu`/`cpu`). |
+| `offload_endpoint.csv` | Active offload instance mappings (`id, port, device`). |
+| `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
+| `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`) used during Docker builds. |
+| `original_obm_main/` | Legacy standalone Dana server (`dana ws.core -p 7000`) used for comparative baseline benchmarks. |

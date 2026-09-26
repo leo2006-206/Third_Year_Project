@@ -55,7 +55,7 @@ Key:
 |||
 |:-:|:-:|
 |Start| 01/08/2026|
-|End| |
+|End| 26/09/2026|
 
 Setting on the existing system from the paper
 
@@ -76,37 +76,32 @@ Usage:
 
 - `main server`, store the assets, also be the load-balancing server to select offloading server
 - `offloading server`, computing server to offload rendering for user
-- `client`, new user interface to select video with options and display video, user should only use this URL
+- `testing page`, user interface to configure show options and run evaluation benchmarks, user should only use this URL
 
 Detail:
 
-- `offloading server` actually is a rust server process with a dana offload process, where rust handle request and dana rendering the segments. They communicating over localhost http.
-- `evaluation client (client_testing)`: A lightweight, static HTML/JS test harness served directly by the Rust server for both human and automated bot evaluation:
-  - Reads `show_options.json` listing all available shows, variants, and layer options.
-  - Standard dropdown selectors (`<select>`) allowing users and bots to switch video shows and layer options dynamically.
-  - Headless toggle switch to disable video decoding/canvas display for lightweight, high-concurrency bot benchmarks.
-  - Metric recording & CSV export: tracks request dispatch time, network latency, and for non-offload mode, records the exact timestamp of each layer element received versus the timestamp when the client finishes rendering the segment/frame.
-  - *(TODO: In-browser automation mode for scheduled/randomized option switching)*.
+- `offloading server`: actually is a rust server process with a dana offload process, where rust handle request and dana rendering the segments. They communicating over localhost http.
+- `testing page`: A lightweight, static HTML/JS that able to select video combinations and record the send and receive time with size.
 
-______________________________________________________________________
+***
 
 ### Stage 2
 
 |||
 |:-:|:-:|
-|Start| |
+|Start| 26/09/2026|
 |End| |
 
-Implement the basic load-balancing server
+#### Goals
 
-- forwarding request
-- logging for basic info
-- implement baseline load-balancing policy:
-  - No policy (send all the components to user)
-  - round robin
-  - lowest-network latency
-  - least-loaded (shortest queuing)
+- Implement the basic load-balancing server:
+  - Forwarding request
+  - Logging for basic info
+  - Implement baseline load-balancing policy:
+    - Round robin
+    - Lowest-network latency
+    - Least-loaded (shortest queuing)
+- Collect data point from the experiments
 
-Collect data point from the experiments
-
-Setting basic simulator
+> [!NOTE]
+> **Status (as of 26/09/2026):** Rust main server and offload nodes are fully containerized in Docker (`obm-net`) with GPU VA-API and CPU support. Server-side rendering offload and reverse proxy streaming are working end-to-end, currently dispatching requests without dynamic policy. Webpage benchmark harness records request latency and segment sizes.

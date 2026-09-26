@@ -37,25 +37,23 @@ This directory contains the Docker configuration and execution scripts for runni
 ## 2. Running an Offload Server
 
 ### A. Run All Configured Servers Automatically
-Use `servers_container/run_all.py` (or `servers_container/run_all.sh`) to parse `offload_endpoint.csv`, check for duplicate IDs/ports, pre-compile binaries, pre-build Docker images, and launch all offload servers and the main server into separate tabs in a single `gnome-terminal` window:
+Use `servers_container/run_all_offload.py` to parse `offload_endpoint.csv`, check for duplicate IDs/ports, pre-compile binaries, pre-build Docker images, and launch all offload worker nodes into separate tabs in a single `gnome-terminal` window:
 
 ```bash
-./servers_container/run_all.py
-# or:
-./servers_container/run_all.sh
+./servers_container/run_all_offload.py
 ```
 
 ### B. Run a Specific Offload Instance Manually
-You can launch a specific offload instance by passing its `ID` and `PORT`:
+You can launch a specific offload instance by passing its `ID`, `PORT`, and optional hardware device (`gpu` or `cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT>
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|cpu]
 ```
 
 *Example:*
 ```bash
-./servers_container/offload_server/run_sh.sh 1 7010
-./servers_container/offload_server/run_sh.sh 2 7020
+./servers_container/offload_server/run_sh.sh 1 7010 gpu
+./servers_container/offload_server/run_sh.sh 2 7020 cpu
 ```
 
 ---
