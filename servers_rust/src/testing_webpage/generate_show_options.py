@@ -20,6 +20,19 @@ SHOW_TITLE_MAP = {
 }
 
 
+def get_show_title(filename: str) -> str:
+    """[Honest / Pure Domain Logic]
+    Resolves human-readable titles for shows, including dynamic offload variants.
+    """
+    if filename in SHOW_TITLE_MAP:
+        return SHOW_TITLE_MAP[filename]
+    if filename.endswith("_offload.json"):
+        base_name = filename.replace("_offload.json", ".json")
+        base_title = SHOW_TITLE_MAP.get(base_name, base_name)
+        return f"{base_title} (Offload)"
+    return filename
+
+
 def transform_show(filename: str, raw: dict) -> dict | None:
     """[Honest / Pure Domain Logic]
     Deterministically transforms raw show JSON structure into catalog schema.
@@ -48,15 +61,17 @@ def transform_show(filename: str, raw: dict) -> dict | None:
                 }
             )
 
-        catalog_variants.append(
-            {
-                "name": v.get("name", "core"),
-                "style": v.get("style", "landscape"),
-                "default": v.get("default", False),
-                "total_layers": len(catalog_layers),
-                "layers": catalog_layers,
-            }
-        )
+        variant_dict = {
+            "name": v.get("name", "core"),
+            "style": v.get("style", "landscape"),
+            "default": v.get("default", False),
+            "total_layers": len(catalog_layers),
+            "layers": catalog_layers,
+        }
+        if "offloadLayers" in v:
+            variant_dict["offload_layers"] = v["offloadLayers"]
+
+        catalog_variants.append(variant_dict)
 
     # Ensure at least one variant is marked default
     if not any(v["default"] for v in catalog_variants) and catalog_variants:
@@ -64,7 +79,7 @@ def transform_show(filename: str, raw: dict) -> dict | None:
 
     return {
         "id": filename,
-        "title": filename,
+        "title": get_show_title(filename),
         "width": first_var.get("width", 1280),
         "height": first_var.get("height", 720),
         "fps": 25,
