@@ -16,12 +16,10 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
         return Ok(());
     };
 
-    let Some((method, path)) = util::parse_method_path(&req_str, Some("?")) else {
+    let Some((_method, path)) = util::parse_method_path(&req_str, Some("?")) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
-
-    dbg!(&method, &path);
 
     if path.starts_with("/assets") || path.starts_with("/shows") {
         serve_resource(client_stream, path).await
@@ -44,8 +42,13 @@ async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io
         return send_raw(&mut client_stream, &resp).await;
     };
 
+    const RESOURCE_HEADERS: [(&str, &str); 2] = [
+        ("Cross-Origin-Resource-Policy", "cross-origin"),
+        ("Cache-Control", "no-cache, no-store, must-revalidate"),
+    ];
+
     let content_type = match_content_type(resource_path);
-    send_file(&mut client_stream, file, content_type, &[]).await
+    send_file(&mut client_stream, file, content_type, &RESOURCE_HEADERS).await
 }
 
 async fn serve_offload(
@@ -71,34 +74,27 @@ async fn serve_offload(
 }
 
 async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<()> {
-    use http::{response_404, response_bytes, response_ok_utf8, send_raw};
+    use http::{response_404, response_ok_utf8, send_raw};
 
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
     const APP_JS: &str = include_str!("../testing_webpage/app.js");
     const STYLE_CSS: &str = include_str!("../testing_webpage/style.css");
     const SHOW_OPTIONS: &str = include_str!("../testing_webpage/show_options.json");
 
-    const DANA_JS: &str = include_str!("../../../obm/dana.js");
-    const FILE_SYSTEM_JS: &str = include_str!("../../../obm/file_system.js");
-    const DANA_WASM: &[u8] = include_bytes!("../../../obm/dana.wasm");
-
-    const NO_CACHE: [(&str, &str); 1] = [("Cache-Control", "no-cache, no-store, must-revalidate")];
+    const HEADERS: [(&str, &str); 2] = [
+        ("Cache-Control", "no-cache, no-store, must-revalidate"),
+        ("Cross-Origin-Resource-Policy", "cross-origin"),
+    ];
 
     let response =
         if path == "/" || path == "/client_testing" || path == "/client_testing/index.html" {
-            response_ok_utf8("text/html", &NO_CACHE, INDEX_HTML.as_bytes())
+            response_ok_utf8("text/html", &HEADERS, INDEX_HTML.as_bytes())
         } else if path == "/app.js" {
-            response_ok_utf8("application/javascript", &NO_CACHE, APP_JS.as_bytes())
+            response_ok_utf8("application/javascript", &HEADERS, APP_JS.as_bytes())
         } else if path == "/style.css" {
-            response_ok_utf8("text/css", &NO_CACHE, STYLE_CSS.as_bytes())
+            response_ok_utf8("text/css", &HEADERS, STYLE_CSS.as_bytes())
         } else if path == "/show_options.json" {
-            response_ok_utf8("application/json", &NO_CACHE, SHOW_OPTIONS.as_bytes())
-        } else if path == "/dana.js" {
-            response_ok_utf8("application/javascript", &[], DANA_JS.as_bytes())
-        } else if path == "/file_system.js" {
-            response_ok_utf8("application/javascript", &[], FILE_SYSTEM_JS.as_bytes())
-        } else if path == "/dana.wasm" {
-            response_bytes("application/wasm", &[], DANA_WASM)
+            response_ok_utf8("application/json", &HEADERS, SHOW_OPTIONS.as_bytes())
         } else {
             response_404()
         };
