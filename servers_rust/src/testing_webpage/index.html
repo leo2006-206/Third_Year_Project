@@ -3,17 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OBM Testing Page</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <title>OBM Benchmark & Testing</title>
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <h1>OBM Testing Page</h1>
+    <h1>OBM Benchmark & Testing</h1>
 
     <div class="layout">
-        <div class="video-panel">
-            <canvas class="emscripten" id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
-        </div>
-
         <div class="controls-panel">
             <label>Show: <select id="show-select"></select></label>
             <label>Strategy:
@@ -28,43 +24,29 @@
             </div>
             <div id="layer-options-container"></div>
             <div class="url-preview-box">
-                <strong>URL:</strong> <span id="url-preview">/offload/show/...</span>
+                <strong>Request Target:</strong> <span id="url-preview">/offload/show/...</span>
             </div>
+        </div>
+
+        <div class="benchmark-panel">
+            <div class="benchmark-header">
+                <button id="benchmark-btn" class="btn">Start Benchmark</button>
+                <button id="clear-btn" class="btn btn-secondary">Clear Results</button>
+            </div>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Request URL</th>
+                        <th>Sent Time</th>
+                        <th>Receive Time (Duration)</th>
+                        <th>Size</th>
+                    </tr>
+                </thead>
+                <tbody id="log-body"></tbody>
+            </table>
         </div>
     </div>
 
-    <div class="benchmark-panel">
-        <button id="benchmark-btn" class="btn">Start Benchmark</button>
-        <table>
-            <thead>
-                <tr>
-                    <th>Request URL</th>
-                    <th>Sent Time</th>
-                    <th>Receive Time (Duration)</th>
-                </tr>
-            </thead>
-            <tbody id="log-body"></tbody>
-        </table>
-    </div>
-
-    <!-- Dana WebAssembly Integration -->
-    <script>
-        var showParam = new URLSearchParams(window.location.search).get('show') || 'f1_full.json';
-        var showPath = showParam.startsWith('shows/') ? showParam : 'shows/' + showParam;
-        var Module = {
-            canvas: (function() {
-                var c = document.getElementById('canvas');
-                c.addEventListener("webglcontextlost", function(e) {
-                    alert("WebGL context lost. Please reload.");
-                    e.preventDefault();
-                }, false);
-                return c;
-            })(),
-            arguments: ['-dh', '.', 'App.o', '/', showPath]
-        };
-    </script>
-    <script src="/file_system.js"></script>
-    <script async src="/dana.js"></script>
-    <script src="app.js?v=3"></script>
+    <script src="app.js"></script>
 </body>
 </html>

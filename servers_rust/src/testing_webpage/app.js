@@ -16,6 +16,7 @@ const partialSelect = document.getElementById("partial-layers-select");
 const layerContainer = document.getElementById("layer-options-container");
 const urlPreview = document.getElementById("url-preview");
 const benchmarkBtn = document.getElementById("benchmark-btn");
+const clearBtn = document.getElementById("clear-btn");
 const logBody = document.getElementById("log-body");
 
 async function initCatalog() {
@@ -36,13 +37,25 @@ async function initCatalog() {
         showSelect.value = reqShow;
     }
 
-    showSelect.addEventListener("change", onShowChanged);
+    showSelect.addEventListener("change", () => {
+        onShowChanged();
+        const url = new URL(window.location);
+        url.searchParams.set("show", showSelect.value);
+        window.history.replaceState(null, "", url.href);
+    });
+
     modeSelect.addEventListener("change", () => {
         partialGroup.style.display = modeSelect.value === "partial" ? "block" : "none";
         updateUrlPreview();
     });
+
     partialSelect.addEventListener("change", updateUrlPreview);
     benchmarkBtn.addEventListener("click", toggleBenchmark);
+    if (clearBtn) {
+        clearBtn.addEventListener("click", () => {
+            logBody.innerHTML = "";
+        });
+    }
 
     onShowChanged();
 }
@@ -89,10 +102,17 @@ function buildOffloadUrl(timeStart = 0, timeEnd = 10) {
 function updateUrlPreview() {
     const mode = modeSelect.value;
     if (mode === "non_offload") {
-        urlPreview.textContent = `/shows/${activeShow ? activeShow.id : "f1.json"} (Local Mode)`;
+        urlPreview.textContent = `/shows/${activeShow ? activeShow.id : "f1.json"} (Non-Offload / Local)`;
         return;
     }
     urlPreview.textContent = buildOffloadUrl(0, activeShow ? activeShow.segment_length_sec : 10);
+}
+
+function formatBytes(bytes) {
+    if (!bytes || bytes <= 0) return "0 B";
+    if (bytes < 1024) return bytes + " B";
+    if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + " KB";
+    return (bytes / (1024 * 1024)).toFixed(2) + " MB";
 }
 
 async function sendSegment(index) {
@@ -101,20 +121,23 @@ async function sendSegment(index) {
     const sentTime = new Date().toLocaleTimeString();
     const t0 = performance.now();
 
-    let recvTime = "Error";
-    let duration = "-";
+    // Immediately render request row with empty Receive Time and Size
+    const tr = document.createElement("tr");
+    tr.innerHTML = `<td>${url}</td><td>${sentTime}</td><td class="res-time"></td><td class="res-size"></td>`;
+    logBody.insertBefore(tr, logBody.firstChild);
 
     try {
         const response = await fetch(url);
-        recvTime = new Date().toLocaleTimeString();
-        duration = `${Math.round(performance.now() - t0)} ms (${response.status})`;
-    } catch (e) {
-        duration = "Failed";
-    }
+        const blob = await response.blob();
+        const duration = Math.round(performance.now() - t0);
+        const recvTime = new Date().toLocaleTimeString();
 
-    const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${url}</td><td>${sentTime}</td><td>${recvTime} (${duration})</td>`;
-    logBody.insertBefore(tr, logBody.firstChild);
+        tr.querySelector(".res-time").textContent = `${recvTime} (${duration} ms, ${response.status})`;
+        tr.querySelector(".res-size").textContent = formatBytes(blob.size);
+    } catch (e) {
+        tr.querySelector(".res-time").textContent = "Failed";
+        tr.querySelector(".res-size").textContent = "-";
+    }
 }
 
 function toggleBenchmark() {
