@@ -11,7 +11,6 @@ import sys
 from pathlib import Path
 
 
-
 def transform_show(filename: str, raw: dict) -> dict | None:
     """[Honest / Pure Domain Logic]
     Deterministically transforms raw show JSON structure into catalog schema.
