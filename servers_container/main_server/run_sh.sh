@@ -39,6 +39,7 @@ docker run -it --rm \
     --network obm-net \
     -p 7000:7000 \
     -v "$PROJECT_ROOT/obm/assets:/app/obm/assets:ro" \
+    -v "$PROJECT_ROOT/obm/shows:/app/obm/shows:ro" \
     --name obm-main-server \
     obm-main-server
 
