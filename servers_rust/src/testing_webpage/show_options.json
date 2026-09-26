@@ -2,7 +2,7 @@
   "shows": [
     {
       "id": "f1.json",
-      "title": "Formula 1 Race (Single Variant)",
+      "title": "f1.json",
       "width": 1280,
       "height": 720,
       "fps": 25,
@@ -209,7 +209,7 @@
     },
     {
       "id": "f1_full.json",
-      "title": "Formula 1 Race (Full Experience)",
+      "title": "f1_full.json",
       "width": 1280,
       "height": 720,
       "fps": 25,
@@ -416,7 +416,7 @@
     },
     {
       "id": "forecast.json",
-      "title": "Weather Forecast",
+      "title": "forecast.json",
       "width": 1280,
       "height": 720,
       "fps": 25,
@@ -473,7 +473,7 @@
     },
     {
       "id": "forest720.json",
-      "title": "Forest 720p (Standard)",
+      "title": "forest720.json",
       "width": 1280,
       "height": 720,
       "fps": 25,
@@ -541,7 +541,7 @@
     },
     {
       "id": "forest720_leaves.json",
-      "title": "Forest 720p (Multi-Layer Leaves & Creature)",
+      "title": "forest720_leaves.json",
       "width": 1280,
       "height": 720,
       "fps": 25,
@@ -624,7 +624,7 @@
     },
     {
       "id": "spiders.json",
-      "title": "Spiders Animation",
+      "title": "spiders.json",
       "width": 1280,
       "height": 720,
       "fps": 25,

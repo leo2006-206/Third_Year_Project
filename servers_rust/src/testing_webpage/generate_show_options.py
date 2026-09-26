@@ -10,27 +10,6 @@ import json
 import sys
 from pathlib import Path
 
-SHOW_TITLE_MAP = {
-    "f1_full.json": "Formula 1 Race (Full Experience)",
-    "f1.json": "Formula 1 Race (Single Variant)",
-    "forest720_leaves.json": "Forest 720p (Multi-Layer Leaves & Creature)",
-    "forest720.json": "Forest 720p (Standard)",
-    "forecast.json": "Weather Forecast",
-    "spiders.json": "Spiders Animation",
-}
-
-
-def get_show_title(filename: str) -> str:
-    """[Honest / Pure Domain Logic]
-    Resolves human-readable titles for shows, including dynamic offload variants.
-    """
-    if filename in SHOW_TITLE_MAP:
-        return SHOW_TITLE_MAP[filename]
-    if filename.endswith("_offload.json"):
-        base_name = filename.replace("_offload.json", ".json")
-        base_title = SHOW_TITLE_MAP.get(base_name, base_name)
-        return f"{base_title} (Offload)"
-    return filename
 
 
 def transform_show(filename: str, raw: dict) -> dict | None:
@@ -79,7 +58,7 @@ def transform_show(filename: str, raw: dict) -> dict | None:
 
     return {
         "id": filename,
-        "title": get_show_title(filename),
+        "title": filename,
         "width": first_var.get("width", 1280),
         "height": first_var.get("height", 720),
         "fps": 25,
