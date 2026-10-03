@@ -1,0 +1,72 @@
+# ==============================================================================
+# Dockerfile for Profiled OBM Offload Server Node
+# Copies profiled Dana OffloadSite without modifying original obm/ code
+# ==============================================================================
+FROM ubuntu:22.04
+
+# Prevent interactive dialogs during apt installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install essential runtime dependencies for Dana (Mesa/GL for rendering, VA-API for hardware acceleration) and networking
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    curl \
+    wget \
+    libgl1 \
+    libglu1-mesa \
+    libva2 \
+    libva-drm2 \
+    libvdpau1 \
+    libopus0 \
+    vainfo \
+    intel-media-va-driver-non-free \
+    mesa-va-drivers \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set up Dana environment variables
+ENV DANA_HOME=/opt/dana
+ENV PATH="${PATH}:${DANA_HOME}"
+
+# Copy Dana runtime engine and standard components (cached permanently)
+WORKDIR /opt/dana
+COPY --chmod=755 servers_container/dana_runtime_copy/ /opt/dana/
+
+# Set working directory to the OBM application root
+WORKDIR /app/obm
+
+# Copy original OBM runtime code, components, and tools
+COPY obm/components/ /app/obm/components/
+COPY obm/media/ /app/obm/media/
+COPY obm/resources/ /app/obm/resources/
+COPY obm/resources-ext/ /app/obm/resources-ext/
+COPY obm/std_ui/ /app/obm/std_ui/
+COPY obm/tools/ /app/obm/tools/
+COPY obm/ws/ /app/obm/ws/
+COPY obm/*.* obm/Makefile /app/obm/
+
+# Target port for the co-located Rust Offload Server (default: 7030)
+ARG PORT=7030
+ENV OFFLOAD_PORT=${PORT}
+
+# Copy profiled OffloadSite OVER /app/obm/OffloadSite.dn inside container image only
+COPY servers_container/profile_offload/OffloadSite_profiled.dn /app/obm/OffloadSite.dn
+
+# Update ASSET_HOST in OffloadSite.dn to point to the Rust server port and compile OffloadSite.o + VA-API hardware codecs
+RUN sed -i "s|http://localhost:[0-9]*/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite.dn && \
+    cd /app/obm && \
+    dnc OffloadSite.dn && \
+    dnc media/video/Encoder.h264va.dn && \
+    dnc media/video/Decoder.h264va.dn
+
+# Copy pre-compiled Rust offload_server binary
+COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
+
+# Copy entrypoint script for launching both processes and handling signals cleanly
+COPY --chmod=755 servers_container/offload_server/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+# Expose port
+EXPOSE 7030
+EXPOSE 7040
+
+# Use entrypoint to run both Dana OffloadSite and Rust offload_server
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
