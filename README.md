@@ -97,3 +97,11 @@ ______________________________________________________________________
 | `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
 | `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`) used during Docker builds. |
 | `original_obm_main/` | Legacy standalone Dana server (`dana ws.core -p 7000`) used for comparative baseline benchmarks. |
+
+***
+
+## 5. Play Video
+
+1. Open a directory
+2. run `curl -s "https://obm_main.leowong.space/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam" -o segment.h264 `
+3. run `ffplay -f h264 -autoexit segment.h264`

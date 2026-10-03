@@ -62,7 +62,10 @@ async fn serve_offload(
 
     let mut offload_steam = TcpStream::connect(offload_url[0]).await?;
 
-    println!("Forwarding req = {path}");
+    println!(
+        "Forwarding req to offload site,\n req = {path},\n worker = {}",
+        offload_url[0]
+    );
 
     let message = request_get(path, offload_url[0], MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
