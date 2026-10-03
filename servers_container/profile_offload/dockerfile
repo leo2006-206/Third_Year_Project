@@ -1,5 +1,5 @@
 # ==============================================================================
-# Dockerfile for Profiled OBM Offload Server Node
+# Dockerfile for Profiled OBM Offload Server Node (with OpenGL & Xvfb)
 # Copies profiled Dana OffloadSite without modifying original obm/ code
 # ==============================================================================
 FROM ubuntu:22.04
@@ -7,13 +7,16 @@ FROM ubuntu:22.04
 # Prevent interactive dialogs during apt installation
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential runtime dependencies for Dana (Mesa/GL for rendering, VA-API for hardware acceleration) and networking
+# Install essential runtime dependencies for Dana (Mesa/GL for rendering, VA-API for hardware acceleration, Xvfb for headless OpenGL)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
     wget \
     libgl1 \
     libglu1-mesa \
+    libgl1-mesa-dri \
+    mesa-utils \
+    xvfb \
     libva2 \
     libva-drm2 \
     libvdpau1 \
@@ -61,12 +64,12 @@ RUN sed -i "s|http://localhost:[0-9]*/|http://localhost:${OFFLOAD_PORT}/|g" /app
 # Copy pre-compiled Rust offload_server binary
 COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
 
-# Copy entrypoint script for launching both processes and handling signals cleanly
-COPY --chmod=755 servers_container/offload_server/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Copy entrypoint script configured for Xvfb and OpenGL
+COPY --chmod=755 servers_container/profile_offload/entrypoint.sh /usr/local/bin/entrypoint.sh
 
-# Expose port
+# Expose ports
 EXPOSE 7030
 EXPOSE 7040
 
-# Use entrypoint to run both Dana OffloadSite and Rust offload_server
+# Use entrypoint to run Xvfb, Dana OffloadSite, and Rust offload_server
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

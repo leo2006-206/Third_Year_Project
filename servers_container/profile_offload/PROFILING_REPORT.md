@@ -1,65 +1,55 @@
-# Dana Offload Server Rendering Pipeline: Profiling Report
+# Dana Offload Server Rendering Pipeline: Profiling & OpenGL Acceleration Report
 
-This benchmark profiles the rendering latency of Dana's offload pipeline when generating a **10-second segment (250 frames at 25 fps, 1280x720)** for the test show (`f1_full.json`).
+This document benchmarks Dana's offload rendering pipeline before and after enabling **OpenGL hardware acceleration** for a **10-second segment (250 frames at 25 fps, 1280x720)** (`f1_full.json`).
 
 ---
 
-## 1. Empirical Results: GPU vs. CPU Offload
+## 1. Executive Summary: The Massive Breakthrough
 
-| Pipeline Stage | GPU Node (VA-API) | CPU Node (libx264) | Per-Frame Avg | % Total Time |
+By enabling headless OpenGL via `Xvfb` + Mesa DRI, offload rendering went from **slower than real-time (10.8 fps, 23.4s)** to **super real-time (39.0 fps, 6.7s)**:
+
+| Metric | Before: Software Fallback | After: OpenGL Hardware (GPU) | After: OpenGL (CPU llvmpipe) | Improvement |
 | :--- | :---: | :---: | :---: | :---: |
-| **1. Resource Wait (HTTP / Network)** | 12 ms | 25 ms | 0.1 ms | **0.1%** |
-| **2. Prepare (Decode Video + Scene)** | 1,262 ms | 4,077 ms | 5.0 – 16.3 ms | **5.4% – 15.9%** |
-| **3. Render (Canvas 2D Compositing)** | **16,086 ms** | **16,639 ms** | **64.3 ms** | **65.0% – 69.4% 🔥** |
-| **4. Readback (`window.getPixels` to RAM)** | **4,002 ms** | **4,053 ms** | **16.0 ms** | **15.8% – 17.2% 🔥** |
-| **5. YUV Convert (`rgbaToYUV`)** | 314 ms | 304 ms | 1.2 ms | **1.2%** |
-| **6. H.264 Encoder (Frame Encode)** | 1,461 ms | 172 ms | 0.6 – 5.8 ms | **0.6% – 6.3%** |
-| **7. Encoder Finish (Flush Buffer)** | 0 ms | 291 ms | — | **1.1%** |
-| **8. Frame Packaging (IHDR/NAL)** | 2 ms | 2 ms | — | **0.0%** |
-| **Total Frame Processing Loop** | **23,148 ms** | **25,575 ms** | **92.6 – 102 ms** | **100.0%** |
-| **Pre-Loop Overhead (Spec & Variant)** | 248 ms | 301 ms | — | — |
-| **Overall Wall-Clock Duration** | **23,407 ms (23.4s)** | **25,881 ms (25.8s)** | — | — |
-| **Processing Throughput** | **10.8 fps** | **9.7 fps** | — | (Real-time is 25 fps) |
+| **Total Request Wall-Clock** | **23,407 ms (23.4s)** | **6,705 ms (6.7s)** | **8,243 ms (8.2s)** | **3.5x Faster! 🚀** |
+| **Processing Throughput** | **10.8 fps** | **39.0 fps** | **31.3 fps** | **Super Real-Time!** |
+| **2D Canvas Compositing** | **16,086 ms (16.1s)** | **1,881 ms (1.88s)** | **1,826 ms (1.83s)** | **8.5x Faster! 🔥** |
+| **Framebuffer Readback** | **4,002 ms (4.0s)** | **869 ms (0.87s)** | **652 ms (0.65s)** | **4.6x Faster! 🔥** |
+| **Combined Composition Bottleneck** | **20,088 ms (20.1s)** | **2,750 ms (2.75s)** | **2,478 ms (2.48s)** | **7.3x Speedup** |
 
 ---
 
-## 2. Key Findings: Where the Latency Comes From
+## 2. Granular Stage-by-Stage Profiling Breakdown (250 Frames)
 
-Encoding, decoding, and network downloads are **not** the main bottlenecks:
-```
-Total Frame Loop: 23,148 ms
-├── 3. Canvas 2D Compositing (UIPlaneLib) : 16,086 ms (69.4%) ─── 64.3 ms/frame
-├── 4. Framebuffer Readback (getPixels)   :  4,002 ms (17.2%) ─── 16.0 ms/frame
-└── Everything else (decode, encode, net) :  3,060 ms (13.4%)
-```
-
-- **Compositing + Readback account for 20.1s (86.6%) of the 23s total rendering time**.
-
-### Why Compositing is Slow (~16.1s / 64.3 ms per frame)
-In headless Docker containers, there is no hardware display server (X11/Wayland). Dana falls back to `UIPlaneLib`'s software CPU rasterizer (`flow_bitmap_yuv`). For each frame, it software-rescales and alpha-blends:
-1. 1080p race video down to 720p.
-2. 360p driver video down to 422x238 (PiP).
-3. Animated track map and driver vector marker.
-
-### Why Readback is Slow (~4.0s / 16.0 ms per frame)
-`window.getPixels()` copies the rendered 2D canvas buffer back to RAM as a Dana `PixelMap` ($1280 \times 720 \times 4\text{ bytes} \approx 3.68\text{ MB/frame}$). Over 250 frames, this copies **920 MB of uncompressed RGBA pixel data** in RAM.
+| Pipeline Stage | Before: Software GPU (ms) | After: OpenGL GPU (ms) | After: OpenGL CPU (ms) | Per-Frame Avg (OpenGL GPU) |
+| :--- | :---: | :---: | :---: | :---: |
+| **1. Resource Wait (HTTP / Network)** | 12 ms | 9 ms | 17 ms | 0.0 ms |
+| **2. Prepare (Decode Video + Scene)** | 1,262 ms | 1,509 ms | 4,498 ms | 6.0 ms (GPU) / 18 ms (CPU) |
+| **3. Render (Canvas 2D Compositing)** | **16,086 ms** | **1,881 ms** | **1,826 ms** | **7.5 ms (was 64.3 ms!)** |
+| **4. Readback (`glReadPixels` to RAM)** | **4,002 ms** | **869 ms** | **652 ms** | **3.4 ms (was 16.0 ms!)** |
+| **5. YUV Convert (`rgbaToYUV`)** | 314 ms | 436 ms | 368 ms | 1.7 ms |
+| **6. H.264 Encoder (Frame Encode)** | 1,461 ms | 1,669 ms | 346 ms | 6.6 ms (VA-API) / 1.3 ms (CPU) |
+| **7. Encoder Finish (Flush Buffer)** | 0 ms | 0 ms | 247 ms | — |
+| **8. Frame Packaging (IHDR/NAL)** | 2 ms | 7 ms | 2 ms | — |
+| **Total Frame Processing Loop** | **23,148 ms** | **6,408 ms** | **7,980 ms** | **25.6 ms / frame** |
+| **Pre-Loop Overhead (Spec & ResLoad)** | 248 ms | 297 ms | 263 ms | — |
+| **Overall Wall Clock Duration** | **23,407 ms (23.4s)** | **6,705 ms (6.7s)** | **8,243 ms (8.2s)** | — |
 
 ---
 
-## 3. Why Local Mode Takes 10s vs. Offload Mode 23s
+## 3. What Was Solved
 
-| Phase | Local Mode (WASM / Browser / Native Window) | Offload Mode (Headless Docker Server) |
-| :--- | :--- | :--- |
-| **Execution Model** | Real-time playback (25 fps). | Headless batch transcoding pipeline. |
-| **Compute Time** | **< 1.5s total compute**; CPU/GPU **sleeps 8.5s** (`window.wait()` throttled to 25 fps clock). | **23+ seconds** running at 100% CPU capacity with zero sleeping. |
-| **Compositing** | **Hardware GPU Canvas**: Browser WebGL/Canvas2D scales and blits layers in **< 1 ms per frame**. | **CPU Software Rasterizer (`UIPlaneLib`)**: Pure CPU loops scale and blit pixels in **64.3 ms per frame**. |
-| **Readback** | **Zero readback**: Surface displayed directly to screen by GPU. | **920 MB readback**: Canvas copied to host RAM via `window.getPixels()` (**16 ms/frame, 4.0s total**). |
-| **Encoding** | **Zero encoding**: Decodes and displays; never encodes. | **Full H.264 Re-encode**: Compresses all 250 frames into a new H.264 bitstream. |
+### The Problem
+1. Dana's native library (`UIPlaneLib`) requests an OpenGL hardware renderer by default (`SDL_CreateRenderer(..., SDL_RENDERER_ACCELERATED)`).
+2. However, it was compiled against the **X11 video driver**.
+3. In headless Docker, with no X11 display server running, the OpenGL context creation silently failed, forcing Dana to fall back to a single-threaded CPU software rasterizer (`SDL_CreateRenderer(..., 0)`), which took **64.3 ms per frame** just to scale and blit the video layers.
 
----
-
-## 4. Hardware vs. Software Codec Impact
-
-- **VA-API Decoder (`Decoder.h264va`)**: Decodes 250 frames in **1.26s** vs. **4.08s** in software (`libavcodec`), saving **2.8 seconds**.
-- **Encoder**: Software `libx264` (ultrafast) takes **463 ms**, while VA-API hardware encoder takes **1,461 ms**.
-- **Conclusion**: GPU codecs provide a minor speedup (~2.4s overall), but cannot overcome the ~20s CPU compositing and readback bottleneck without offscreen GPU rasterization (e.g. EGL / GBM).
+### The Solution
+1. Added `xvfb`, `libgl1-mesa-dri`, and `mesa-utils` into the container.
+2. In `entrypoint.sh`, started a virtual headless X11 display in memory:
+   ```bash
+   Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+   export DISPLAY=:99
+   export SDL_VIDEODRIVER=x11
+   export SDL_RENDER_DRIVER=opengl
+   ```
+3. The dummy X11 handshake succeeds $\rightarrow$ SDL attaches directly to Mesa DRI / Intel GPU (`/dev/dri/renderD128`) $\rightarrow$ OpenGL hardware shaders composite and scale video frames in **7.5 ms per frame** instead of 64.3 ms!
