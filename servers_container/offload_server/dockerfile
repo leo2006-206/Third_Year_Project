@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     wget \
     libgl1 \
     libglu1-mesa \
+    libgl1-mesa-dri \
+    mesa-utils \
+    xvfb \
     libva2 \
     libva-drm2 \
     libvdpau1 \
