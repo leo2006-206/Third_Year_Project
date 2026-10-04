@@ -41,6 +41,14 @@ pub fn file_check(base_dir: impl AsRef<Path>, url_path: &str) -> Option<File> {
     }
 }
 
+pub async fn buf_read(source_stream: &mut impl ct::Reader, buff: &mut [u8]) -> io::Result<usize> {
+    let n = source_stream.read(buff).await?;
+    if n == 0 {
+        return Err(io::ErrorKind::UnexpectedEof.into());
+    }
+    Ok(n)
+}
+
 /// [Honest / Pure Domain Logic]
 /// Extracts HTTP method and request path from the initial request line.
 /// If `pat` is `Some(...)` (e.g. `Some("?")`), the path is truncated at the first occurrence of that pattern.

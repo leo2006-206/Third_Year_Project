@@ -124,6 +124,20 @@ pub fn response_bytes(content_type: &str, extra_headers: &[(&str, &str)], body: 
     }
 }
 
+pub fn response_append(header: &str, extra_headers: &[(&str, &str)]) -> Vec<u8> {
+    use std::io::Write;
+
+    let mut response = Vec::with_capacity(header.len());
+
+    let _ = write!(&mut response, "{header}\r\n");
+    for (key, value) in extra_headers {
+        let _ = write!(&mut response, "{key}: {value}\r\n");
+    }
+    let _ = write!(&mut response, "\r\n");
+
+    response
+}
+
 /// [Honest / Pure Domain Logic]
 /// Deterministically formats an HTTP/1.1 bodyless request buffer (e.g. GET/HEAD).
 pub fn request_bodyless(
@@ -274,5 +288,17 @@ mod tests {
             assert!(output_str.contains("X-Custom: file-test\r\n"));
             assert!(output_str.contains("[package]"));
         });
+    }
+
+    #[test]
+    fn test_response_append() {
+        let base_header = "HTTP/1.0 200 OK\r\nServer: Dana";
+        let extra = [("X-OBM-Net", "42"), ("Server-Timing", "net;dur=42")];
+        let res = response_append(base_header, &extra);
+        let s = String::from_utf8(res).unwrap();
+        assert_eq!(
+            s,
+            "HTTP/1.0 200 OK\r\nServer: Dana\r\nX-OBM-Net: 42\r\nServer-Timing: net;dur=42\r\n\r\n"
+        );
     }
 }

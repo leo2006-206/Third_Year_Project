@@ -31,7 +31,7 @@ async fn handle_client(
 
     dbg!(&method, &path);
 
-    if path.starts_with("/offload") {
+    if path.starts_with("/offload") || path.starts_with("/times/offload") {
         serve_dana_proxy(client_stream, path, dana_addr).await
     } else if path.starts_with("/shows") || path.starts_with("/assets") {
         serve_main_proxy(client_stream, path, main_addr).await

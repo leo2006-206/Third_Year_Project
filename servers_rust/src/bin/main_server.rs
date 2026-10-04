@@ -6,6 +6,7 @@ use smol::{
 };
 
 use servers_rust::lib_http as http;
+use servers_rust::lib_server_main as sm;
 use servers_rust::lib_util as util;
 
 async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io::Result<()> {
@@ -23,7 +24,7 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
 
     if path.starts_with("/assets") || path.starts_with("/shows") {
         serve_resource(client_stream, path).await
-    } else if path.starts_with("/offload") {
+    } else if path.starts_with("/offload") || path.starts_with("/times/offload") {
         serve_offload(client_stream, offload_url, path).await
     } else {
         serve_web_page(client_stream, path).await
@@ -57,8 +58,10 @@ async fn serve_offload(
     path: &str,
 ) -> io::Result<()> {
     use http::{request_get, send_raw};
-
+    use std::time::Instant;
     const MAIN_SERVER_AGENT: &str = "OBM Load balancer/1.0";
+
+    let t_start = Instant::now();
 
     let mut offload_steam = TcpStream::connect(offload_url[0]).await?;
 
@@ -67,9 +70,54 @@ async fn serve_offload(
         offload_url[0]
     );
 
-    let message = request_get(path, offload_url[0], MAIN_SERVER_AGENT, &[]);
+    let mut fpath = path;
+    if path.starts_with("/times") {
+        fpath = path.strip_prefix("/times").expect("Must start with /times");
+    }
+
+    let message = request_get(fpath, offload_url[0], MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
+    // 1. Read initial chunk (contains headers + first video slice)
+    let mut buf = vec![0u8; 4096];
+    let n = util::buf_read(&mut offload_steam, &mut buf).await?;
+
+    let elapsed = t_start.elapsed().as_millis() as i64;
+
+    // 1. Locate boundary between HTTP headers and binary video payload
+    let Some(pos) = buf[..n].windows(4).position(|w| w == b"\r\n\r\n") else {
+        // If no HTTP delimiter found, forward raw buffer directly and exit
+        client_stream.write_all(&buf[..n]).await?;
+        smol::io::copy(&mut offload_steam, &mut client_stream).await?;
+        client_stream.flush().await?;
+        return Ok(());
+    };
+
+    // 2. Everything below runs without any enclosing { }
+    let header_str = String::from_utf8_lossy(&buf[..pos]);
+    let t_net = sm::compute_t_net(&header_str, elapsed).unwrap_or(0);
+
+    // 3. Inject timing headers and delimiter
+    let t_net_str = t_net.to_string();
+    let server_timing_str = format!("net;dur={t_net}");
+    let extra_headers = [
+        ("X-OBM-Net", t_net_str.as_str()),
+        ("Server-Timing", server_timing_str.as_str()),
+        (
+            "Access-Control-Expose-Headers",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net",
+        ),
+    ];
+    let modified_headers = http::response_append(&header_str, &extra_headers);
+    client_stream.write_all(&modified_headers).await?;
+
+    // 4. Forward trailing binary payload slice
+    let body_chunk = &buf[pos + 4..n];
+    if !body_chunk.is_empty() {
+        client_stream.write_all(body_chunk).await?;
+    }
+
+    // 5. Stream the rest of the video chunks directly
     smol::io::copy(&mut offload_steam, &mut client_stream).await?;
     client_stream.flush().await?;
 
