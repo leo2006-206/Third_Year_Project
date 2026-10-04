@@ -23,9 +23,8 @@ def compute_dag_root_count(raw_layers: list[dict]) -> int:
         ltype = layer.get("type", "source")
         if ltype in ("source", "source-multi"):
             root_count += 1
-        elif ltype == "transform":
-            if layer.get("children", 1) == 0:
-                root_count = 1
+        elif ltype == "transform" and layer.get("children", 1) == 0:
+            root_count = 1
     return root_count
 
 
