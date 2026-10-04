@@ -11,8 +11,22 @@ because **latency is also affected by local compute and/or each offload site to 
 
 Like:
 $$
-T\_\\text{total} = T\_\\text{network} + T\_\\text{queue} + T\_\\text{assert acquisition} + T\_\\text{render} + T\_\\text{encode} + T\_\\text{return}
+T_\text{total} = T_\text{network} + T_\text{queue} + T_\text{assert acquisition} + T_\text{render} + T_\text{encode} + T_\text{return}
 $$
+
+04/10/2026 refined timing formula:
+$$
+T_\text{total} = T_\text{network} + T_\text{queue} + T_\text{asset} + T_\text{work}
+
+\\
+
+T_\text{network} = T_\text{forward} + T_\text{return}
+
+\\
+
+T_\text{work} = T_\text{render} + T_\text{encode}
+$$
+
 
 ## Approaches
 
