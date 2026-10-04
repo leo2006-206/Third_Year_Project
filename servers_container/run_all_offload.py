@@ -24,7 +24,7 @@ def validate_endpoints(
 ) -> tuple[list[tuple[str, int, str]], list[str]]:
     """[Honest / Pure Domain Logic]
     Validates CSV rows for schema (id, port, device), port integer ranges,
-    valid device types ('cpu' or 'gpu'), and duplicate IDs/ports.
+    valid 3-tier device types ('cpu', 'llvmpipe', 'gpu'), and duplicate IDs/ports.
     Returns a tuple of (valid_endpoints, errors).
     """
     seen_ids: dict[str, int] = {}
@@ -65,11 +65,11 @@ def validate_endpoints(
 
         port = int(port_str)
 
-        # Validate device type ('cpu' or 'gpu')
+        # Validate device type (strictly one of: 'cpu', 'llvmpipe', 'gpu')
         device = device_str.lower()
-        if device not in ("cpu", "gpu"):
+        if device not in ("cpu", "llvmpipe", "gpu"):
             errors.append(
-                f"Line {line_num}: Invalid device '{device_str}'. Must be 'cpu' or 'gpu'."
+                f"Line {line_num}: Invalid device '{device_str}'. Must be 'cpu', 'llvmpipe', or 'gpu'."
             )
             continue
 

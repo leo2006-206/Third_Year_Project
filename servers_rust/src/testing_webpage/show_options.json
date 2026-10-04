@@ -427,7 +427,7 @@
           "name": "core",
           "style": "landscape",
           "default": true,
-          "total_layers": 5,
+          "total_layers": 4,
           "layers": [
             {
               "name": "map",

@@ -31,16 +31,36 @@ XVFB_PID=$!
 export DISPLAY=:99
 sleep 1
 
-# Set SDL to use X11 and OpenGL
+# Configure rendering drivers and OpenGL settings based on acceleration tier:
+#   Tier 'cpu'      : Pure CPU software rasterization (SDL software blitter)
+#   Tier 'llvmpipe' : CPU Software OpenGL rasterizer (Mesa llvmpipe)
+#   Tier 'gpu'      : Physical GPU Direct Rendering (Mesa DRI + VA-API decoder)
 export SDL_VIDEODRIVER=x11
-export SDL_RENDER_DRIVER=opengl
 
-if [ "$DEVICE" = "gpu" ] || [ "$DEVICE" = "gpu-va" ]; then
-    echo "Configuring GPU Direct Rendering (DRI)"
+if [ "$DEVICE" = "gpu" ]; then
+    echo "=== Tier 3: Physical GPU Direct Rendering (Mesa DRI + VA-API Decoder) ==="
+    if [ ! -d "/dev/dri" ]; then
+        echo "ERROR: /dev/dri not found inside container. Hardware GPU acceleration requires /dev/dri to be mounted." >&2
+        echo "Aborting startup. Pass '--device /dev/dri:/dev/dri' or set device tier to 'llvmpipe' or 'cpu'." >&2
+        exit 1
+    fi
+    export SDL_RENDER_DRIVER=opengl
     export LIBGL_ALWAYS_INDIRECT=0
-else
-    echo "Configuring CPU Software OpenGL (llvmpipe / swrast)"
+    unset LIBGL_ALWAYS_SOFTWARE
+elif [ "$DEVICE" = "llvmpipe" ]; then
+    echo "=== Tier 2: CPU Software OpenGL Rasterizer (Mesa llvmpipe) ==="
+    export SDL_RENDER_DRIVER=opengl
     export LIBGL_ALWAYS_SOFTWARE=1
+else
+    echo "=== Tier 1: Pure CPU Software Pipeline (SDL Software Blitter) ==="
+    export SDL_RENDER_DRIVER=software
+    export LIBGL_ALWAYS_SOFTWARE=1
+fi
+
+# Ensure Dana UIPlaneLib default window size matches 1280x720 for 1:1 OpenGL viewport mapping
+if [ -f /opt/dana/components/resources-ext/UIPlaneLib\[deb.x64\].dnl ]; then
+    perl -0777 -pi -e 's/\x48\xb9\x80\x02\x00\x00\xe0\x01\x00\x00/\x48\xb9\x00\x05\x00\x00\xd0\x02\x00\x00/g' \
+        /opt/dana/components/resources-ext/UIPlaneLib\[deb.x64\].dnl 2>/dev/null || true
 fi
 
 # Ensure ASSET_HOST in OffloadSite.dn matches the container's configured port
@@ -51,20 +71,15 @@ if ! grep -q "http://localhost:${PORT}/" /app/obm/OffloadSite.dn 2>/dev/null; th
 fi
 
 # 2. Start Dana Offload Site on internal port 9009
-echo "=== Starting Dana Offload Site on internal port 9009 (Device: $DEVICE, OpenGL enabled) ==="
+echo "=== Starting Dana Offload Site on internal port 9009 (Tier: $DEVICE, Encoder: libx264) ==="
 cd /app/obm
 
 if [ "$DEVICE" = "gpu" ]; then
-    echo "Using VA-API GPU Decoder (Decoder.h264va) + Software Encoder (libx264 for standards compliance)"
+    echo "Using VA-API Hardware Decoder (Decoder.h264va) + Software Encoder (libx264)"
     dana -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" \
          OffloadSite &
-elif [ "$DEVICE" = "gpu-va" ]; then
-    echo "Using Full VA-API Video Hardware Codecs (Encoder.h264va / Decoder.h264va)"
-    dana -lc "media.video.Encoder:h264|media/video/Encoder.h264va.o|media.video.Encoder:h264va" \
-         -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" \
-         OffloadSite &
 else
-    echo "Using Software Video Codecs (libx264)"
+    echo "Using Software Video Codecs (libavcodec decoder + libx264 encoder)"
     dana OffloadSite &
 fi
 DANA_PID=$!

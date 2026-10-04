@@ -16,7 +16,7 @@ SKIP_BUILD_FLAG=0
 for arg in "${@:3}"; do
     if [ "$arg" = "--skip-build" ]; then
         SKIP_BUILD_FLAG=1
-    elif [ "$arg" = "gpu" ] || [ "$arg" = "cpu" ]; then
+    elif [ "$arg" = "gpu" ] || [ "$arg" = "llvmpipe" ] || [ "$arg" = "cpu" ]; then
         DEVICE="$arg"
     fi
 done
@@ -54,17 +54,18 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 DOCKER_GPU_ARGS=()
 if [ "$DEVICE" = "gpu" ]; then
     if [ -d "/dev/dri" ]; then
-        echo "Hardware acceleration enabled: mounting /dev/dri into container."
+        echo "Hardware GPU acceleration enabled: mounting /dev/dri into container."
         DOCKER_GPU_ARGS=(--device /dev/dri:/dev/dri)
     else
-        echo "WARNING: /dev/dri not found on host. Falling back to software/CPU rendering."
-        DEVICE="cpu"
+        echo "ERROR: /dev/dri not found on host. Hardware GPU acceleration requires a physical GPU (/dev/dri)." >&2
+        echo "Aborting startup for $CONTAINER_NAME. Use 'llvmpipe' or 'cpu' if no physical GPU is available." >&2
+        exit 1
     fi
 fi
 
-echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Device: $DEVICE) ==="
-echo "Container: $CONTAINER_NAME (Port $PORT, Device: $DEVICE)"
-echo "Dana Offload Engine: Internal Port 9009"
+echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Tier: $DEVICE) ==="
+echo "Container: $CONTAINER_NAME (Port $PORT, Tier: $DEVICE)"
+echo "Dana Offload Engine: Internal Port 9009 (Encoding: libx264)"
 echo "Press Ctrl+C to stop the server."
 echo "-------------------------------------------------------------"
 
