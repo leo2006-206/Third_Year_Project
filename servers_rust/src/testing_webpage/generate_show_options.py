@@ -11,6 +11,24 @@ import sys
 from pathlib import Path
 
 
+def compute_dag_root_count(raw_layers: list[dict]) -> int:
+    """[Honest / Pure Domain Logic]
+    Computes the exact number of DAG root nodes (renderable screen nodes)
+    built by Dana's Experience.dn.
+    Source layers create root nodes; transform layers wrap existing child nodes
+    (children == 1 wraps the preceding node; children == 0 wraps all nodes).
+    """
+    root_count = 0
+    for layer in raw_layers:
+        ltype = layer.get("type", "source")
+        if ltype in ("source", "source-multi"):
+            root_count += 1
+        elif ltype == "transform":
+            if layer.get("children", 1) == 0:
+                root_count = 1
+    return root_count
+
+
 def transform_show(filename: str, raw: dict) -> dict | None:
     """[Honest / Pure Domain Logic]
     Deterministically transforms raw show JSON structure into catalog schema.
@@ -23,8 +41,9 @@ def transform_show(filename: str, raw: dict) -> dict | None:
     first_var = raw_variants[0]
     catalog_variants = []
     for v in raw_variants:
+        raw_layers = v.get("layers", [])
         catalog_layers = []
-        for layer in v.get("layers", []):
+        for layer in raw_layers:
             raw_options = layer.get("options", [])
             option_names = [opt["name"] for opt in raw_options if opt.get("name")]
             default_opt = next(
@@ -43,7 +62,7 @@ def transform_show(filename: str, raw: dict) -> dict | None:
             "name": v.get("name", "core"),
             "style": v.get("style", "landscape"),
             "default": v.get("default", False),
-            "total_layers": len(catalog_layers),
+            "total_layers": compute_dag_root_count(raw_layers),
             "layers": catalog_layers,
         }
         if "offloadLayers" in v:

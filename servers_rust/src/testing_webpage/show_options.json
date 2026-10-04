@@ -57,7 +57,7 @@
           "name": "race",
           "style": "portrait",
           "default": false,
-          "total_layers": 6,
+          "total_layers": 4,
           "layers": [
             {
               "name": "race",
@@ -172,7 +172,7 @@
           "name": "driver",
           "style": "portrait",
           "default": false,
-          "total_layers": 4,
+          "total_layers": 2,
           "layers": [
             {
               "name": "driver",
@@ -264,7 +264,7 @@
           "name": "race",
           "style": "portrait",
           "default": false,
-          "total_layers": 6,
+          "total_layers": 4,
           "layers": [
             {
               "name": "race",
@@ -379,7 +379,7 @@
           "name": "driver",
           "style": "portrait",
           "default": false,
-          "total_layers": 4,
+          "total_layers": 2,
           "layers": [
             {
               "name": "driver",
@@ -484,7 +484,7 @@
           "name": "core",
           "style": "landscape",
           "default": true,
-          "total_layers": 7,
+          "total_layers": 4,
           "layers": [
             {
               "name": "background",
@@ -552,7 +552,7 @@
           "name": "core",
           "style": "landscape",
           "default": true,
-          "total_layers": 9,
+          "total_layers": 5,
           "layers": [
             {
               "name": "background",
