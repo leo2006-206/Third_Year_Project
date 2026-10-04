@@ -10,6 +10,5 @@
 #             - 'gpu'      : Level 3 - Full hardware GPU acceleration (Mesa DRI, VA-API decoder, libx264)
 # ==============================================================================
 id, port, device
-1, 7010, cpu
+1, 7010, gpu
 2, 7020, llvmpipe
-3, 7030, gpu

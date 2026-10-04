@@ -63,11 +63,11 @@ if [ -f /opt/dana/components/resources-ext/UIPlaneLib\[deb.x64\].dnl ]; then
         /opt/dana/components/resources-ext/UIPlaneLib\[deb.x64\].dnl 2>/dev/null || true
 fi
 
-# Ensure ASSET_HOST in OffloadSite.dn matches the container's configured port
-if ! grep -q "http://localhost:${PORT}/" /app/obm/OffloadSite.dn 2>/dev/null; then
+# Ensure ASSET_HOST in OffloadSite_new.dn matches the container's configured port
+if ! grep -q "http://localhost:${PORT}/" /app/obm/OffloadSite_new.dn 2>/dev/null; then
     echo "Configuring ASSET_HOST for port $PORT..."
-    sed -i "s|http://localhost:[0-9]*/|http://localhost:${PORT}/|g" /app/obm/OffloadSite.dn
-    (cd /app/obm && dnc OffloadSite.dn)
+    sed -i "s|http://localhost:[0-9]*/|http://localhost:${PORT}/|g" /app/obm/OffloadSite_new.dn
+    (cd /app/obm && dnc OffloadSite_new.dn)
 fi
 
 # 2. Start Dana Offload Site on internal port 9009
@@ -77,10 +77,10 @@ cd /app/obm
 if [ "$DEVICE" = "gpu" ]; then
     echo "Using VA-API Hardware Decoder (Decoder.h264va) + Software Encoder (libx264)"
     dana -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" \
-         OffloadSite &
+         OffloadSite_new &
 else
     echo "Using Software Video Codecs (libavcodec decoder + libx264 encoder)"
-    dana OffloadSite &
+    dana OffloadSite_new &
 fi
 DANA_PID=$!
 

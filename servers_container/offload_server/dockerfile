@@ -57,10 +57,13 @@ COPY obm/*.* obm/Makefile /app/obm/
 ARG PORT=7010
 ENV OFFLOAD_PORT=${PORT}
 
-# Update ASSET_HOST in OffloadSite.dn to point to the Rust server port and compile OffloadSite.o + VA-API hardware decoder
-RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite.dn && \
+# Copy customized OffloadSite_new.dn with timing instrumentation
+COPY servers_container/offload_server/OffloadSite_new.dn /app/obm/OffloadSite_new.dn
+
+# Update ASSET_HOST in OffloadSite_new.dn to point to the Rust server port and compile OffloadSite_new.o + VA-API hardware decoder
+RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite_new.dn && \
     cd /app/obm && \
-    dnc OffloadSite.dn && \
+    dnc OffloadSite_new.dn && \
     dnc media/video/Decoder.h264va.dn
 
 # Copy pre-compiled Rust offload_server binary

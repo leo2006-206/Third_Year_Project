@@ -107,7 +107,7 @@ Dana's offload rendering pipeline consists of several distinct stages: video dec
   * **Option 1: CPU Software Decoder**: Default `media.video.Decoder:h264` (FFmpeg `libavcodec`).
   * **Option 2: GPU VA-API Hardware Decoder**: `media/video/Decoder.h264va.o` mapped via Dana's `-lc` component switch:
     ```bash
-    dana -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" OffloadSite
+    dana -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" OffloadSite_new
     ```
 * **Performance / Functional Impact**:
   * Option 1 (CPU Decoder): **4,498 ms** (18.0 ms/frame).
@@ -179,7 +179,7 @@ Two specific code-level adaptations were made to Dana's engine and configuration
   The OpenGL viewport, projection matrix, sub-surface textures, and pixel readbacks match $1280 \times 720$ 1:1 right from initialization, rendering **100% pixel-perfect video with 0 visual artifacts** at full GPU speed.
 
 ### B. ASSET_HOST Dynamic Port Binding
-* **Target File**: `obm/OffloadSite.dn` (Line 74).
+* **Target File**: `servers_container/offload_server/OffloadSite_new.dn` (Line 80; keeping `obm/OffloadSite.dn` 100% untouched).
 * **Original Code**:
   ```dana
   const char ASSET_HOST[] = "http://localhost:8080/"
@@ -187,11 +187,29 @@ Two specific code-level adaptations were made to Dana's engine and configuration
 * **Why the Change Was Needed**:
   In the OBM offload architecture, each container runs a co-located Rust offload server on an assigned port (e.g. `7010`, `7020`). Dana needs to request assets (source video chunks, metadata, overlays) from its co-located Rust proxy server, which acts as a local cache and asset provider.
 * **The Change**:
-  In `servers_container/offload_server/dockerfile` and `entrypoint.sh`, `ASSET_HOST` is dynamically rewritten to match the container's configured port and recompiled:
+  In `servers_container/offload_server/dockerfile` and `entrypoint.sh`, `ASSET_HOST` is dynamically rewritten in `OffloadSite_new.dn` to match the container's configured port and recompiled:
   ```bash
-  sed -i "s|http://localhost:[0-9]*/|http://localhost:${PORT}/|g" /app/obm/OffloadSite.dn
-  (cd /app/obm && dnc OffloadSite.dn)
+  sed -i "s|http://localhost:[0-9]*/|http://localhost:${PORT}/|g" /app/obm/OffloadSite_new.dn
+  (cd /app/obm && dnc OffloadSite_new.dn)
   ```
 * **Result**:
   Dana offload workers seamlessly route asset downloads through their local Rust offload proxy cache on their assigned port.
+
+### C. Clock-Skew-Free Timing Instrumentation ($T_\text{queue}, T_\text{asset}, T_\text{work}$)
+* **Target File**: `servers_container/offload_server/OffloadSite_new.dn`.
+* **Metrics Recorded**:
+  - **$T_\text{queue}$**: Elapsed time waiting in Dana's task queue between arrival (`queueRequest`) and being dequeued into service (`M_INIT`).
+  - **$T_\text{asset}$**: Elapsed time between downloading spec JSON and all variant assets finishing download (`variantReady`).
+  - **$T_\text{work}$**: Pure rendering, transformation, and H.264 video encoding execution time.
+* **Response Headers**:
+  Dana returns the timings via custom HTTP headers:
+  ```http
+  X-Dana-Timings: queue=1;asset=35;work=142
+  Server-Timing: queue;dur=1, asset;dur=35, work;dur=142
+  Access-Control-Expose-Headers: X-Dana-Timings, Server-Timing
+  ```
+* **Network Latency Estimation ($T_\text{net}$)**:
+  Because all Dana durations are measured locally, $T_\text{net}$ is calculated on the client/main server without any clock skew:
+  $$T_\text{net} = T_\text{total} - (T_\text{queue} + T_\text{asset} + T_\text{work})$$
+
 
