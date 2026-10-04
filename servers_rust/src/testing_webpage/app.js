@@ -121,9 +121,9 @@ async function sendSegment(index) {
     const sentTime = new Date().toLocaleTimeString();
     const t0 = performance.now();
 
-    // Immediately render request row with empty Receive Time and Size
+    // Immediately render request row with empty columns
     const tr = document.createElement("tr");
-    tr.innerHTML = `<td>${url}</td><td>${sentTime}</td><td class="res-time"></td><td class="res-size"></td>`;
+    tr.innerHTML = `<td class="res-url">${url}</td><td>${sentTime}</td><td class="res-time"></td><td class="res-queue">-</td><td class="res-asset">-</td><td class="res-work">-</td><td class="res-net">-</td><td class="res-size"></td>`;
     logBody.insertBefore(tr, logBody.firstChild);
 
     try {
@@ -134,6 +134,22 @@ async function sendSegment(index) {
 
         tr.querySelector(".res-time").textContent = `${recvTime} (${duration} ms, ${response.status})`;
         tr.querySelector(".res-size").textContent = formatBytes(blob.size);
+
+        const timingHeader = response.headers.get("X-Dana-Timings");
+        if (timingHeader) {
+            const match = timingHeader.match(/queue=(\d+);asset=(\d+);work=(\d+)/);
+            if (match) {
+                const q = parseInt(match[1], 10);
+                const a = parseInt(match[2], 10);
+                const w = parseInt(match[3], 10);
+                const obmNet = response.headers.get("X-OBM-Net");
+                const net = obmNet !== null ? parseInt(obmNet, 10) : Math.max(0, duration - (q + a + w));
+                tr.querySelector(".res-queue").textContent = `${q} ms`;
+                tr.querySelector(".res-asset").textContent = `${a} ms`;
+                tr.querySelector(".res-work").textContent = `${w} ms`;
+                tr.querySelector(".res-net").textContent = `${net} ms`;
+            }
+        }
     } catch (e) {
         tr.querySelector(".res-time").textContent = "Failed";
         tr.querySelector(".res-size").textContent = "-";

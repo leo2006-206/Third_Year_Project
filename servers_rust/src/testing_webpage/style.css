@@ -12,9 +12,17 @@ select { min-width: 150px; }
 .btn.active { background: #da3633; }
 .btn-secondary { background: #333; font-weight: normal; }
 .url-preview-box { padding: 6px 8px; background: #1a1a1a; border: 1px solid #333; border-radius: 4px; font-family: monospace; font-size: 12px; word-break: break-all; color: #58a6ff; }
-.benchmark-panel { width: 70%; flex: 1; min-width: 360px; }
+.benchmark-panel { width: 70%; flex: 1; min-width: 360px; overflow-x: auto; }
 .benchmark-header { display: flex; gap: 8px; margin-bottom: 8px; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th, td { border: 1px solid #333; padding: 6px 8px; text-align: left; }
 th { background: #222; color: #aaa; }
 tr:nth-child(even) { background: #181818; }
+td.res-url {
+    word-break: break-all;
+    overflow-wrap: anywhere;
+    max-width: 280px;
+    font-family: monospace;
+    font-size: 12px;
+}
+
