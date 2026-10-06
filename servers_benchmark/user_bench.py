@@ -11,6 +11,7 @@ import subprocess
 import threading
 import time
 from collections.abc import Callable
+from pathlib import Path
 from typing import Any
 
 import requests
@@ -22,13 +23,40 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 # Default public OBM base URL
 DEFAULT_BASE_URL = "https://obm_main.leowong.space"
 
-# Representative segment paths from the F1 show
+# Representative segment paths from the F1 show (fallback)
 DEFAULT_REQUESTS = [
     "/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
     "/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
     "/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
     "/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
 ]
+
+
+def load_requests_file(file_path: Path | str | None = None) -> list[str]:
+    """[Dishonest / File Loader]
+    Loads request URLs from a newline-delimited requests.txt file.
+    Searches provided path, local directory, or testing_webpage directory.
+    Falls back to DEFAULT_REQUESTS if not found.
+    """
+    candidates = [
+        Path(file_path) if file_path else None,
+        Path(__file__).resolve().parent / "requests.txt",
+        Path(__file__).resolve().parents[1]
+        / "servers_rust"
+        / "src"
+        / "testing_webpage"
+        / "requests.txt",
+    ]
+    for cand in candidates:
+        if cand and cand.is_file():
+            lines = [
+                line.strip()
+                for line in cand.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
+            if lines:
+                return lines
+    return DEFAULT_REQUESTS
 
 
 # ==============================================================================
@@ -111,6 +139,11 @@ def compute_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
             if successful
             else 0
         ),
+        "avg_client_net_ms": (
+            round(sum(r["client_net_ms"] for r in successful) / len(successful), 1)
+            if successful
+            else 0
+        ),
     }
 
 
@@ -187,6 +220,9 @@ def send_single_request(req_id: int, url: str) -> dict[str, Any]:
         duration_ms = round((time.perf_counter() - t0) * 1000)
         timings = parse_timing_headers(dict(resp.headers))
 
+        all_offload_t = timings["work"] + timings["asset"] + timings["queue"] + timings["net"]
+        client_net = max(0, duration_ms - all_offload_t)
+
         result = {
             "id": req_id,
             "url": url,
@@ -197,11 +233,13 @@ def send_single_request(req_id: int, url: str) -> dict[str, Any]:
             "asset_ms": timings["asset"],
             "work_ms": timings["work"],
             "net_ms": timings["net"],
+            "client_net_ms": client_net,
         }
         print(
             f"[Req #{req_id:02d}] {resp.status_code} | {duration_ms / 1000:.2f}s | "
             f"{len(resp.content) / (1024 * 1024):.2f}MB | "
-            f"work={timings['work']}ms asset={timings['asset']}ms queue={timings['queue']}ms net={timings['net']}ms"
+            f"work={timings['work']}ms asset={timings['asset']}ms queue={timings['queue']}ms "
+            f"net={timings['net']}ms c_net={client_net}ms"
         )
         return result
     except Exception as e:
@@ -217,6 +255,7 @@ def send_single_request(req_id: int, url: str) -> dict[str, Any]:
             "asset_ms": 0,
             "work_ms": 0,
             "net_ms": 0,
+            "client_net_ms": 0,
             "error": str(e),
         }
 
@@ -238,6 +277,7 @@ def run_benchmark(
         f"(1 req every {interval:.3f}s / {total_requests / duration:.2f} req/s)"
     )
     print(f"Target Base URL: {base_url}")
+    print(f"Request Pool:    {len(requests_list)} unique URL(s) loaded")
     print("-" * 75)
 
     monitor = None
@@ -288,6 +328,7 @@ def run_benchmark(
     print(f"  Avg Asset(asset): {summary.get('avg_asset_ms', 0)} ms")
     print(f"  Avg Queue(queue): {summary.get('avg_queue_ms', 0)} ms")
     print(f"  Avg Network(net): {summary.get('avg_net_ms', 0)} ms")
+    print(f"  Avg Client(c_net): {summary.get('avg_client_net_ms', 0)} ms")
 
     if monitor and monitor.snapshots:
         print("\nOffload Container Utilization Summary:")
@@ -336,13 +377,8 @@ def main():
     duration = 30.0
     total_requests = 10
 
-    # 3. List of request paths to benchmark
-    requests_list = [
-        "/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
-        "/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
-        "/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
-        "/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
-    ]
+    # 3. List of request paths to benchmark (defaults to all URLs from requests.txt)
+    requests_list = load_requests_file()
 
     # 4. Request pattern callback
     #    - make_loop_pattern: cycles through all URLs sequentially (0, 1, 2, 3, 0...)

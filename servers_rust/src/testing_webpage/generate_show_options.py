@@ -6,6 +6,7 @@ Scans a directory containing OBM show definition files (*.json)
 and generates / updates show_options.json in place for the evaluation testing webpage.
 """
 
+import itertools
 import json
 import sys
 from pathlib import Path
@@ -85,10 +86,54 @@ def transform_show(filename: str, raw: dict) -> dict | None:
     }
 
 
-def generate_show_options(shows_dir, output_file=None):
+def generate_full_offload_urls(catalog: dict) -> list[str]:
+    """[Honest / Pure Domain Logic]
+    Generates all valid full-offload request URLs across all shows in the catalog.
+    Strictly iterates over valid 10-second segments (within total show duration)
+    and all layer option permutations.
+    """
+    urls: list[str] = []
+
+    for show in catalog.get("shows", []):
+        show_id = show["id"]
+        width = show.get("width", 1280)
+        height = show.get("height", 720)
+        fps = show.get("fps", 25)
+        length_frames = show.get("length_frames", 600)
+        seg_sec = show.get("segment_length_sec", 10)
+
+        # Total 10-second segments covering valid show duration
+        total_segs = (length_frames + (seg_sec * fps) - 1) // (seg_sec * fps)
+
+        for variant in show.get("variants", []):
+            var_name = variant.get("name", "core")
+            var_style = variant.get("style", "landscape")
+            total_layers = variant.get("total_layers", len(variant.get("layers", [])))
+            layers = variant.get("layers", [])
+
+            # Cartesian product of layer options: [('race|race', 'driver|Sam', ...), ...]
+            layer_combos = list(
+                itertools.product(
+                    *[[f"{l['name']}|{opt}" for opt in l.get("options", [])] for l in layers]
+                )
+            ) if layers else [()]
+
+            for combo in layer_combos:
+                tokens_str = "/".join(combo)
+                for seg_idx in range(total_segs):
+                    t_from = seg_idx * seg_sec
+                    t_to = (seg_idx + 1) * seg_sec
+                    base = f"/offload/show/{show_id}/{t_from}/{t_to}/{width}/{height}/{var_name}/{var_style}/{total_layers}"
+                    url = f"{base}/{tokens_str}" if tokens_str else base
+                    urls.append(url)
+
+    return urls
+
+
+def generate_show_options(shows_dir, output_file=None, requests_file=None):
     """[Dishonest / I/O Boundary Adapter]
-    Reads show JSON files from `shows_dir` and writes a unified `show_options.json`.
-    If `output_file` is None, writes in-place to 'show_options.json' in this script's directory.
+    Reads show JSON files from `shows_dir`, writes 'show_options.json', and writes
+    all valid full-offload request URLs to 'requests.txt'.
     """
     shows_path = Path(shows_dir).resolve()
     if not shows_path.is_dir():
@@ -98,6 +143,11 @@ def generate_show_options(shows_dir, output_file=None):
         Path(__file__).parent / "show_options.json"
         if output_file is None
         else Path(output_file).resolve()
+    )
+    requests_path = (
+        output_path.parent / "requests.txt"
+        if requests_file is None
+        else Path(requests_file).resolve()
     )
 
     catalog = {"shows": []}
@@ -117,6 +167,13 @@ def generate_show_options(shows_dir, output_file=None):
     print(
         f"Successfully generated {output_path} from {shows_path} ({len(catalog['shows'])} shows)."
     )
+
+    urls = generate_full_offload_urls(catalog)
+    requests_path.write_text("\n".join(urls) + "\n", encoding="utf-8")
+    print(
+        f"Successfully generated {requests_path} ({len(urls)} full offload requests)."
+    )
+
     return catalog
 
 
@@ -126,5 +183,6 @@ if __name__ == "__main__":
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else default_shows_dir
     target_out = sys.argv[2] if len(sys.argv) > 2 else None
+    target_req = sys.argv[3] if len(sys.argv) > 3 else None
 
-    generate_show_options(target_dir, target_out)
+    generate_show_options(target_dir, target_out, target_req)
