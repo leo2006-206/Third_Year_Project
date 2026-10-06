@@ -1,3 +1,5 @@
+use std::sync::Arc;
+
 use smol::{
     // future::zip,
     io,
@@ -8,8 +10,13 @@ use smol::{
 use servers_rust::lib_http as http;
 use servers_rust::lib_server_main as sm;
 use servers_rust::lib_util as util;
+use servers_rust::mod_load_balancer as lb;
+use servers_rust::mod_load_balancer::base_balancer as blb;
 
-async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io::Result<()> {
+async fn handle_client<P: blb::LoadBalancerPolicy>(
+    mut client_stream: TcpStream,
+    balancer: Arc<blb::LoadBalancer<P>>,
+) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
 
     let Ok(req_str) = util::read_as_str(&mut client_stream, &mut buffer).await else {
@@ -17,7 +24,7 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
         return Ok(());
     };
 
-    let Some((_method, path)) = util::parse_method_path(&req_str, Some("?")) else {
+    let Some((_method, mut path)) = util::parse_method_path(&req_str, Some("?")) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
@@ -25,7 +32,10 @@ async fn handle_client(mut client_stream: TcpStream, offload_url: &[&str]) -> io
     if path.starts_with("/assets") || path.starts_with("/shows") {
         serve_resource(client_stream, path).await
     } else if path.starts_with("/offload") || path.starts_with("/times/offload") {
-        serve_offload(client_stream, offload_url, path).await
+        if path.starts_with("/times") {
+            path = path.strip_prefix("/times").expect("Must start with /times");
+        }
+        serve_offload(client_stream, balancer, path).await
     } else {
         serve_web_page(client_stream, path).await
     }
@@ -52,9 +62,9 @@ async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io
     send_file(&mut client_stream, file, content_type, &RESOURCE_HEADERS).await
 }
 
-async fn serve_offload(
+async fn serve_offload<P: blb::LoadBalancerPolicy>(
     mut client_stream: TcpStream,
-    offload_url: &[&str],
+    balancer: Arc<blb::LoadBalancer<P>>,
     path: &str,
 ) -> io::Result<()> {
     use http::{request_get, send_raw};
@@ -63,19 +73,16 @@ async fn serve_offload(
 
     let t_start = Instant::now();
 
-    let mut offload_steam = TcpStream::connect(offload_url[0]).await?;
+    let target_offload = balancer.select(None);
+
+    let mut offload_steam = TcpStream::connect(target_offload.endpoint).await?;
 
     println!(
         "Forwarding req to offload site,\n req = {path},\n worker = {}",
-        offload_url[0]
+        target_offload.endpoint
     );
 
-    let mut fpath = path;
-    if path.starts_with("/times") {
-        fpath = path.strip_prefix("/times").expect("Must start with /times");
-    }
-
-    let message = request_get(fpath, offload_url[0], MAIN_SERVER_AGENT, &[]);
+    let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
     // 1. Read initial chunk (contains headers + first video slice)
@@ -154,7 +161,8 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
+    const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
+    let balancer = Arc::new(lb::RoundRobinLB::new(OFFLOAD_URL));
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -166,9 +174,10 @@ fn main() -> io::Result<()> {
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
+            let lb_clone = Arc::clone(&balancer);
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, &OFFLOAD_URL).await {
+                if let Err(e) = handle_client(stream, lb_clone).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })
