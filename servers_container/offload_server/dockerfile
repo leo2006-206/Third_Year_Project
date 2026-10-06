@@ -11,7 +11,6 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
-    wget \
     libgl1 \
     libglu1-mesa \
     libgl1-mesa-dri \
@@ -21,9 +20,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libva-drm2 \
     libvdpau1 \
     libopus0 \
+    libxtst6 \
+    libxv1 \
     vainfo \
     intel-media-va-driver-non-free \
     mesa-va-drivers \
+    && curl -fsSL -o /tmp/virtualgl.deb https://github.com/VirtualGL/virtualgl/releases/download/3.1.5/virtualgl_3.1.5_amd64.deb \
+    && dpkg -i /tmp/virtualgl.deb \
+    && rm -f /tmp/virtualgl.deb \
     && rm -rf /var/lib/apt/lists/*
 
 # Set up Dana environment variables
