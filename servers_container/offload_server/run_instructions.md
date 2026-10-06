@@ -44,16 +44,17 @@ Use `servers_container/run_all_offload.py` to parse `offload_endpoint.csv`, chec
 ```
 
 ### B. Run a Specific Offload Instance Manually
-You can launch a specific offload instance by passing its `ID`, `PORT`, and optional hardware device (`gpu` or `cpu`):
+You can launch a specific offload instance by passing its `ID`, `PORT`, and hardware acceleration tier (`gpu`, `llvmpipe`, or `cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|cpu]
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|llvmpipe|cpu]
 ```
 
 *Example:*
 ```bash
 ./servers_container/offload_server/run_sh.sh 1 7010 gpu
-./servers_container/offload_server/run_sh.sh 2 7020 cpu
+./servers_container/offload_server/run_sh.sh 2 7020 llvmpipe
+./servers_container/offload_server/run_sh.sh 3 7030 cpu
 ```
 
 ---
@@ -88,19 +89,23 @@ Dana's offload rendering pipeline consists of several distinct stages: video dec
 
 ### A. 2D Scene Composition (Canvas Blitting & Scaling)
 * **Available Configurations**:
-  * **Option 1: Pure CPU Software (`SDL_RENDER_DRIVER=software`)**: Uses SDL's CPU software rasterizer.
-  * **Option 2: CPU Software OpenGL (`SDL_RENDER_DRIVER=opengl`, `LIBGL_ALWAYS_SOFTWARE=1`)**: Uses Mesa's `llvmpipe` CPU rasterizer with OpenGL shaders.
-  * **Option 3: Physical GPU Direct Rendering (`SDL_RENDER_DRIVER=opengl`, `LIBGL_ALWAYS_INDIRECT=0`)**: Direct hardware-accelerated OpenGL rendering via Mesa DRI (`/dev/dri/renderD128`).
+  * **Tier 1: Pure CPU Software (`SDL_RENDER_DRIVER=software`)**: Uses SDL's CPU software rasterizer without OpenGL.
+  * **Tier 2: CPU Software OpenGL (`SDL_RENDER_DRIVER=opengl`, `LIBGL_ALWAYS_SOFTWARE=1`)**: Uses Mesa's `llvmpipe` CPU rasterizer with OpenGL shaders.
+  * **Tier 3: Physical GPU Direct Rendering (VirtualGL + Mesa DRI)**: Direct hardware-accelerated OpenGL rendering via VirtualGL (`vglrun -d "$GPU_CARD"`) communicating with the host KMS/DRI graphics card (`/dev/dri/card*`).
 * **Performance / Functional Impact**:
-  * Option 1 (CPU Software): **16,086 ms** (64.3 ms/frame) — major bottleneck, limits throughput to ~10 fps.
-  * Option 2 (Mesa llvmpipe): **1,826 ms** (7.3 ms/frame) — **8.5x faster** than software blitting.
-  * Option 3 (Physical GPU DRI): **1,881 ms** (7.5 ms/frame) — **8.5x faster**, offloading CPU compute to the GPU.
+  * Tier 1 (CPU Software): **~16,000 ms – 29,000 ms** (64 – 115 ms/frame) — major bottleneck, limits throughput to ~10 fps.
+  * Tier 2 (Mesa llvmpipe): **~7,000 ms – 8,000 ms** (28 – 32 ms/frame) — multi-threaded software OpenGL rasterization.
+  * Tier 3 (Physical GPU VirtualGL): **~3,200 ms – 4,700 ms** (13 – 19 ms/frame) — **fastest**, offloads 3D rendering and compositing to the physical GPU.
+* **Strict Startup Pre-Flight Assertions (`entrypoint.sh`)**:
+  To guarantee that containers strictly run on the requested device tier without silent software fallbacks:
+  - When started with tier `gpu`, the container probes VirtualGL (`vglrun -d "$GPU_CARD" glxinfo -B`) and VA-API (`vainfo --display drm --device "$RENDER_DEV"`). If the renderer detects `llvmpipe`, `software`, or fails to find hardware decoding (`VAEntrypointVLD`), it **immediately prints a fatal error and terminates (`exit 1`)**.
+  - When started with tier `llvmpipe`, it asserts that `glxinfo` reports `llvmpipe`. If not, it halts (`exit 1`).
 * **Dependencies & Settings Required**:
   1. Virtual X11 display: `Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &`
   2. Environment variables: `DISPLAY=:99`, `SDL_VIDEODRIVER=x11`, `SDL_RENDER_DRIVER=opengl`
-  3. System libraries: `xvfb`, `libgl1`, `libglu1-mesa`, `libgl1-mesa-dri`, `mesa-utils`
-  4. Docker device mount (Option 3 only): `--device /dev/dri:/dev/dri`
-  5. Native library patch: `UIPlaneLib[deb.x64].dnl` must initialize at $1280 \times 720$ (see Part 6).
+  3. System packages: `virtualgl` (3.1.5), `xvfb`, `libgl1`, `libglu1-mesa`, `libgl1-mesa-dri`, `mesa-utils`, `libxtst6`, `libxv1`
+  4. Docker device mount (Tier 3 only): `--device /dev/dri:/dev/dri`
+  5. Native library patch: `UIPlaneLib[deb.x64].dnl` is patched at Docker build time to initialize at $1280 \times 720$.
 
 ### B. Video Decoding (Prepare Stage)
 * **Available Configurations**:
@@ -115,7 +120,7 @@ Dana's offload rendering pipeline consists of several distinct stages: video dec
 * **Dependencies & Settings Required**:
   1. Host physical GPU device: `/dev/dri/renderD128` (Intel Quick Sync or AMD VA-API)
   2. Docker permission: `--device /dev/dri:/dev/dri`
-  3. System packages: `libva2`, `libva-drm2`, `intel-media-va-driver-non-free`, `mesa-va-drivers`, `vainfo`
+  3. System packages: `libva2`, `libva-drm2`, `libvdpau1`, `intel-media-va-driver-non-free`, `mesa-va-drivers`, `vainfo`
   4. Compiled Dana component: `dnc media/video/Decoder.h264va.dn`
 
 ### C. Video Encoding (H.264 Segment Generation)

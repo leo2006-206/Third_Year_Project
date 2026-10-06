@@ -10,17 +10,59 @@ ______________________________________________________________________
   - Serves the testing web client UI (benchmark and evaluation harness).
   - Serves raw media assets (`/assets/...`) and show specifications (`/shows/...`).
   - Acts as a reverse proxy / load balancer for `/offload/shows/...`: receives segment rendering requests, routes them to offload worker servers, and streams generated H.264 video chunks back to the client.
-- **Offload Nodes (Rust + Dana Engine)** — Configurable Ports (e.g. `7010`, `7020`):
+- **Offload Nodes (Rust + Dana Engine)** — Configurable Ports (e.g. `7010`, `7020`, `7030`):
   - **Rust Offload Server**: Exposed container entrypoint. Acts as a reverse proxy, forwards offload requests to the local Dana engine, and serves as a local asset cache (`ASSET_HOST`) for Dana.
-  - **Dana Offload Engine** (Port `9009` internal): Headless Mesa/GL rendering engine that composites active show layers and encodes them into H.264 video streams using hardware acceleration (Intel VA-API GPU via `/dev/dri`) or CPU fallback.
+  - **Dana Offload Engine** (Port `9009` internal): Headless Mesa/GL rendering engine supporting 3 strict acceleration tiers:
+    - **`gpu` (Level 3)**: Physical GPU direct rendering via VirtualGL (`vglrun -d "$GPU_CARD"`) + VA-API hardware video decoding (`Decoder.h264va`). Pre-flight verified at startup.
+    - **`llvmpipe` (Level 2)**: CPU Software OpenGL rasterizer (`Mesa llvmpipe`) + CPU video decoding.
+    - **`cpu` (Level 1)**: Pure CPU software pipeline (SDL software blitter) + CPU video decoding.
+  - **Pre-Flight Device Verification**: Each offload container asserts and verifies its active graphics driver against the requested tier at startup; if a device tier mismatch occurs or falls back to software on `gpu`, the container prints a fatal error and terminates immediately (`exit 1`).
 - **Networking**:
-  - **Local (Same host)**: Docker network `obm-net` (containers resolve each other directly by name, e.g. `obm-offload-1:7010`, `obm-offload-2:7020`).
+  - **Local (Same host)**: Docker network `obm-net` (containers resolve each other directly by name, e.g. `obm-offload-1:7010`, `obm-offload-2:7020`, `obm-offload-3:7030`).
   - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication across hosts.
   - **Public Access**: Cloudflare Tunnel routing `https://obm_main.leowong.space/` to `localhost:7000`.
 
 ______________________________________________________________________
 
-## 2. How to Run the Docker Containers
+## 2. Host Machine Requirements for the 3 Offload Tiers
+
+To run all 3 acceleration tiers (`gpu`, `llvmpipe`, `cpu`) correctly on a machine without startup assertions failing, the host system must meet the following requirements:
+
+### Tier Requirements Matrix
+
+| Requirement | Tier 3: `gpu` (Hardware Accelerated) | Tier 2: `llvmpipe` (Software OpenGL) | Tier 1: `cpu` (Pure Software) |
+| :--- | :--- | :--- | :--- |
+| **Physical Hardware** | Dedicated or integrated GPU with H.264 decode (Intel UHD/Iris/Arc or AMD) | Any multi-core x86_64 CPU (No GPU required) | Any multi-core x86_64 CPU (No GPU required) |
+| **Linux DRM Subsystem** | `/dev/dri/card*` (for VirtualGL) and `/dev/dri/renderD*` (for VA-API) | Not required | Not required |
+| **Docker Device Mount** | Mandatory: `--device /dev/dri:/dev/dri` | None | None |
+| **Host User Groups** | User in `video` and `render` groups (`sudo usermod -aG video,render $USER`) | Standard Docker access | Standard Docker access |
+| **Compositing Driver** | VirtualGL 3.1.5 + Mesa DRI direct hardware rendering | CPU Mesa software rasterizer (`llvmpipe`) | Pure SDL2 software blitter |
+| **Video Decoding** | GPU VA-API hardware acceleration (`Decoder.h264va`) | Software CPU decoding (`libavcodec`) | Software CPU decoding (`libavcodec`) |
+| **Video Encoding** | Multi-threaded CPU `libx264` | Multi-threaded CPU `libx264` | Multi-threaded CPU `libx264` |
+| **Avg Render Time** | **~3.2s – 4.7s** | **~7.0s – 8.5s** | **~25s – 35s** |
+| **Strict Assertion** | Fails startup if `/dev/dri` missing or renderer is `llvmpipe`/software | Asserts active renderer is `llvmpipe` | Sets software driver |
+
+### Host System Checklist
+
+1. **Operating System**: Linux x86_64 with kernel 5.4+ (Ubuntu 20.04/22.04/24.04, Debian 11+, Arch, etc.).
+2. **DRM Device Access (for `gpu` tier)**:
+   - Ensure the kernel DRM driver exposes both card and render nodes:
+     ```bash
+     ls -la /dev/dri
+     # Expected: card0/card1 and renderD128/renderD129
+     ```
+   - Ensure your host user has read/write permissions to `/dev/dri`:
+     ```bash
+     sudo usermod -aG video,render $USER
+     ```
+3. **CPU & Memory Sizing**:
+   - **RAM**: Minimum 8 GB (each active rendering worker container consumes ~200MB – 460MB during 1080p/720p compositing).
+   - **CPU**: Minimum 4 physical cores recommended (8+ vCPUs recommended for multi-node clusters, as `libx264` utilizes 3–4 threads per active encoding segment).
+4. **Docker Engine**: Docker 20.10+ with BuildKit support.
+
+______________________________________________________________________
+
+## 3. How to Run the Docker Containers
 
 ### Prerequisites
 
@@ -40,16 +82,17 @@ Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports, 
 ```
 
 #### Individual Node (Manual Run)
-You can launch an individual offload node by passing `ID`, `PORT`, and optional device (`gpu` or `cpu`):
+You can launch an individual offload node by passing `ID`, `PORT`, and acceleration tier (`gpu`, `llvmpipe`, or `cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|cpu]
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|llvmpipe|cpu]
 ```
 
 *Examples:*
 ```bash
 ./servers_container/offload_server/run_sh.sh 1 7010 gpu
-./servers_container/offload_server/run_sh.sh 2 7020 cpu
+./servers_container/offload_server/run_sh.sh 2 7020 llvmpipe
+./servers_container/offload_server/run_sh.sh 3 7030 cpu
 ```
 
 ### B. Running the Main Server
@@ -69,13 +112,13 @@ This compiles the Rust `main_server`, builds the lightweight Docker image, mount
 
 ______________________________________________________________________
 
-## 3. How to Add a New Offload Server
+## 4. How to Add a New Offload Server
 
 1. **Add an endpoint to [`servers_container/offload_endpoint.csv`](servers_container/offload_endpoint.csv)**:
    ```csv
    id, port, device
    1, 7010, gpu
-   2, 7020, cpu
+   2, 7020, llvmpipe
    3, 7030, cpu
    ```
 2. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
@@ -87,12 +130,12 @@ ______________________________________________________________________
 
 ______________________________________________________________________
 
-## 4. `servers_container/` Directory Breakdown
+## 5. `servers_container/` Directory Breakdown
 
 | File / Directory | Purpose |
 | :--- | :--- |
 | `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
-| `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, and `DEVICE` (`gpu`/`cpu`). |
+| `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, and `DEVICE` (`gpu`/`llvmpipe`/`cpu`). |
 | `offload_endpoint.csv` | Active offload instance mappings (`id, port, device`). |
 | `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
 | `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`) used during Docker builds. |
@@ -100,7 +143,7 @@ ______________________________________________________________________
 
 ***
 
-## 5. Play Video
+## 6. Play Video
 
 1. Open a directory
 2. run `curl -s "https://obm_main.leowong.space/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam" -o segment.h264 `
