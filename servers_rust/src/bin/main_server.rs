@@ -161,10 +161,9 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    const OFFLOAD_URL: [&str; 3] = [
+    const OFFLOAD_URL: [&str; 2] = [
         "obm-offload-1:7010",
         "obm-offload-2:7020",
-        "obm-offload-3:7030",
     ];
     let balancer = Arc::new(lb::RoundRobinLB::new(OFFLOAD_URL));
 

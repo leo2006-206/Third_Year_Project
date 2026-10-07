@@ -3,12 +3,35 @@ set -e
 
 ID="${1:-1}"
 PORT="${2:-7010}"
-DEVICE="${3:-cpu}"
+DECODING="${3:-cpu}"
+COMPOSITION="${4:-cpu}"
+ENCODING="${5:-cpu}"
+
+# Validate parameter values
+if [ "$DECODING" != "cpu" ] && [ "$DECODING" != "gpu" ]; then
+    echo "[FATAL ERROR] Invalid decoding '$DECODING'. Must be 'cpu' or 'gpu'." >&2
+    exit 1
+fi
+
+if [ "$COMPOSITION" != "cpu" ] && [ "$COMPOSITION" != "llvmpipe" ] && [ "$COMPOSITION" != "gpu" ]; then
+    echo "[FATAL ERROR] Invalid composition '$COMPOSITION'. Must be 'cpu', 'llvmpipe', or 'gpu'." >&2
+    exit 1
+fi
+
+if [ "$ENCODING" = "gpu" ]; then
+    echo "[FATAL ERROR] GPU encoding is currently unsupported/disabled. Please set encoding to 'cpu'." >&2
+    exit 1
+fi
+
+if [ "$ENCODING" != "cpu" ]; then
+    echo "[FATAL ERROR] Invalid encoding '$ENCODING'. Only 'cpu' is supported." >&2
+    exit 1
+fi
 
 # Forward SIGINT (Ctrl+C) and SIGTERM to all child processes
 cleanup() {
     echo ""
-    echo "Shutting down offload server $ID (port $PORT, device $DEVICE)..."
+    echo "Shutting down offload server $ID (port $PORT, decoding $DECODING, composition $COMPOSITION, encoding $ENCODING)..."
     if [ -n "$RUST_PID" ]; then
         kill -TERM "$RUST_PID" 2>/dev/null || true
     fi
@@ -31,16 +54,14 @@ XVFB_PID=$!
 export DISPLAY=:99
 sleep 1
 
-# Configure rendering drivers and OpenGL settings based on acceleration tier:
-#   Tier 'cpu'      : Pure CPU software rasterization (SDL software blitter)
-#   Tier 'llvmpipe' : CPU Software OpenGL rasterizer (Mesa llvmpipe)
-#   Tier 'gpu'      : Physical GPU Direct Rendering (VirtualGL + Mesa DRI + VA-API decoder)
 export SDL_VIDEODRIVER=x11
 
 GPU_CARD=""
+RENDER_DEV=""
 
-if [ "$DEVICE" = "gpu" ]; then
-    echo "=== Tier 3: Physical GPU Direct Rendering (VirtualGL + Mesa DRI + VA-API Decoder) ==="
+# Check whether physical GPU hardware is needed
+if [ "$COMPOSITION" = "gpu" ] || [ "$DECODING" = "gpu" ]; then
+    echo "=== Hardware GPU Verification (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING) ==="
     if [ ! -d "/dev/dri" ]; then
         echo "==========================================================================" >&2
         echo "[FATAL ERROR] /dev/dri not found inside container." >&2
@@ -69,30 +90,7 @@ if [ "$DEVICE" = "gpu" ]; then
         exit 1
     fi
 
-    # Pre-flight check: Verify OpenGL hardware acceleration via VirtualGL
-    GL_RENDERER=$(vglrun -d "$GPU_CARD" glxinfo -B 2>&1 | grep "OpenGL renderer string:" | cut -d: -f2 | xargs)
-    echo "Probing VirtualGL OpenGL on $GPU_CARD: '$GL_RENDERER'"
-
-    if echo "$GL_RENDERER" | grep -qi "llvmpipe\|software"; then
-        echo "==========================================================================" >&2
-        echo "[FATAL ERROR] Tier 'gpu' requested, but renderer fell back to software!" >&2
-        echo "  Observed Renderer : '$GL_RENDERER'" >&2
-        echo "  Target DRM Card   : $GPU_CARD" >&2
-        echo "Aborting startup. Container will NOT fall back to software rendering." >&2
-        echo "==========================================================================" >&2
-        exit 1
-    fi
-
-    if [ -z "$GL_RENDERER" ]; then
-        echo "==========================================================================" >&2
-        echo "[FATAL ERROR] Tier 'gpu' requested, but failed to initialize OpenGL on $GPU_CARD!" >&2
-        echo "Aborting startup." >&2
-        echo "==========================================================================" >&2
-        exit 1
-    fi
-
-    # Pre-flight check: Verify VA-API hardware video decoder
-    RENDER_DEV=""
+    # Find render node for VA-API
     for r in /dev/dri/renderD*; do
         [ -e "$r" ] || continue
         if [ "$(cat /sys/class/drm/$(basename $r)/device/vendor 2>/dev/null)" = "0x8086" ]; then
@@ -109,23 +107,42 @@ if [ "$DEVICE" = "gpu" ]; then
         VAINFO_CMD="vainfo --display drm --device $RENDER_DEV"
     fi
 
-    if ! $VAINFO_CMD 2>&1 | grep -q "VAEntrypointVLD"; then
+    if [ "$DECODING" = "gpu" ]; then
+        if ! $VAINFO_CMD 2>&1 | grep -q "VAEntrypointVLD"; then
+            echo "==========================================================================" >&2
+            echo "[FATAL ERROR] Hardware decoding requested, but VAEntrypointVLD not supported on $RENDER_DEV!" >&2
+            echo "Aborting startup." >&2
+            echo "==========================================================================" >&2
+            exit 1
+        fi
+        echo "=== [DEVICE VERIFIED] VA-API Hardware Video Decoder Active on ${RENDER_DEV:-drm} ==="
+    else
+        echo "=== [DECODER VERIFIED] Software CPU Video Decoder Active (libavcodec) ==="
+    fi
+
+    echo "=== [ENCODER VERIFIED] Software CPU Video Encoder Active (libx264) ==="
+fi
+
+# Configure OpenGL renderer based on COMPOSITION
+if [ "$COMPOSITION" = "gpu" ]; then
+    GL_RENDERER=$(vglrun -d "$GPU_CARD" glxinfo -B 2>&1 | grep "OpenGL renderer string:" | cut -d: -f2 | xargs)
+    echo "Probing VirtualGL OpenGL on $GPU_CARD: '$GL_RENDERER'"
+
+    if echo "$GL_RENDERER" | grep -qi "llvmpipe\|software"; then
         echo "==========================================================================" >&2
-        echo "[FATAL ERROR] Tier 'gpu' requested, but VA-API Hardware Decoder not available!" >&2
+        echo "[FATAL ERROR] Composition 'gpu' requested, but renderer fell back to software: '$GL_RENDERER'!" >&2
         echo "Aborting startup." >&2
         echo "==========================================================================" >&2
         exit 1
     fi
-
     echo "=== [DEVICE VERIFIED] Hardware GPU Active: '$GL_RENDERER' on $GPU_CARD ==="
-    echo "=== [DEVICE VERIFIED] VA-API Hardware Video Decoder Active on ${RENDER_DEV:-drm} ==="
 
     export SDL_RENDER_DRIVER=opengl
     export LIBGL_ALWAYS_INDIRECT=0
     unset LIBGL_ALWAYS_SOFTWARE
 
-elif [ "$DEVICE" = "llvmpipe" ]; then
-    echo "=== Tier 2: CPU Software OpenGL Rasterizer (Mesa llvmpipe) ==="
+elif [ "$COMPOSITION" = "llvmpipe" ]; then
+    echo "=== Composition Tier: CPU Software OpenGL Rasterizer (Mesa llvmpipe) ==="
     export SDL_RENDER_DRIVER=opengl
     export LIBGL_ALWAYS_SOFTWARE=1
 
@@ -134,22 +151,18 @@ elif [ "$DEVICE" = "llvmpipe" ]; then
 
     if ! echo "$GL_RENDERER" | grep -qi "llvmpipe"; then
         echo "==========================================================================" >&2
-        echo "[FATAL ERROR] Tier 'llvmpipe' requested, but renderer is not llvmpipe: '$GL_RENDERER'" >&2
+        echo "[FATAL ERROR] Composition 'llvmpipe' requested, but renderer is not llvmpipe: '$GL_RENDERER'!" >&2
         echo "Aborting startup." >&2
         echo "==========================================================================" >&2
         exit 1
     fi
     echo "=== [DEVICE VERIFIED] Mesa llvmpipe Software OpenGL Active ==="
 
-elif [ "$DEVICE" = "cpu" ]; then
-    echo "=== Tier 1: Pure CPU Software Pipeline (SDL Software Blitter) ==="
+elif [ "$COMPOSITION" = "cpu" ]; then
+    echo "=== Composition Tier: Pure CPU Software Pipeline (SDL Software Blitter) ==="
     export SDL_RENDER_DRIVER=software
     export LIBGL_ALWAYS_SOFTWARE=1
     echo "=== [DEVICE VERIFIED] SDL Software Blitter Active ==="
-
-else
-    echo "[FATAL ERROR] Unknown device tier '$DEVICE'. Expected 'gpu', 'llvmpipe', or 'cpu'." >&2
-    exit 1
 fi
 
 # Ensure ASSET_HOST in OffloadSite_new.dn matches the container's configured port
@@ -160,16 +173,20 @@ if ! grep -q "http://localhost:${PORT}/" /app/obm/OffloadSite_new.dn 2>/dev/null
 fi
 
 # 2. Start Dana Offload Site on internal port 9009
-echo "=== Starting Dana Offload Site on internal port 9009 (Tier: $DEVICE, Encoder: libx264) ==="
+DANA_ARGS=()
+if [ "$DECODING" = "gpu" ]; then
+    DANA_ARGS+=(-lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va")
+fi
+
+echo "=== Starting Dana Offload Site on internal port 9009 (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING) ==="
 cd /app/obm
 
-if [ "$DEVICE" = "gpu" ]; then
-    echo "Launching Dana with VirtualGL on $GPU_CARD + Hardware Decoder (Decoder.h264va)..."
-    vglrun -d "$GPU_CARD" dana -lc "media.video.Decoder:h264|media/video/Decoder.h264va.o|media.video.Decoder:h264va" \
-         OffloadSite_new &
+if [ "$COMPOSITION" = "gpu" ]; then
+    echo "Launching Dana with VirtualGL on $GPU_CARD..."
+    vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new &
 else
-    echo "Launching Dana with Software Video Codecs (libavcodec decoder + libx264 encoder)..."
-    dana OffloadSite_new &
+    echo "Launching Dana..."
+    dana "${DANA_ARGS[@]}" OffloadSite_new &
 fi
 DANA_PID=$!
 

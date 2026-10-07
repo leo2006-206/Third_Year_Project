@@ -21,15 +21,19 @@ from pathlib import Path
 
 def validate_endpoints(
     rows: Iterable[list[str]],
-) -> tuple[list[tuple[str, int, str]], list[str]]:
+) -> tuple[list[tuple[str, int, str, str, str]], list[str]]:
     """[Honest / Pure Domain Logic]
-    Validates CSV rows for schema (id, port, device), port integer ranges,
-    valid 3-tier device types ('cpu', 'llvmpipe', 'gpu'), and duplicate IDs/ports.
+    Validates CSV rows for schema (id, port, decoding, composition, encoding),
+    port integer ranges, valid values:
+      - decoding: 'cpu', 'gpu'
+      - composition: 'cpu', 'llvmpipe', 'gpu'
+      - encoding: 'cpu', 'gpu'
+    and duplicate IDs/ports.
     Returns a tuple of (valid_endpoints, errors).
     """
     seen_ids: dict[str, int] = {}
     seen_ports: dict[int, int] = {}
-    endpoints: list[tuple[str, int, str]] = []
+    endpoints: list[tuple[str, int, str, str, str]] = []
     errors: list[str] = []
 
     for line_num, row in enumerate(rows, start=1):
@@ -40,7 +44,7 @@ def validate_endpoints(
         if not fields or not fields[0] or fields[0].startswith("#"):
             continue
 
-        # Skip header line (e.g. "id", "port", "device")
+        # Skip header line (e.g. "id", "port", ...)
         if (
             fields[0].lower() == "id"
             and len(fields) > 1
@@ -48,13 +52,13 @@ def validate_endpoints(
         ):
             continue
 
-        if len(fields) < 3 or not fields[0] or not fields[1] or not fields[2]:
+        if len(fields) < 5 or not all(fields[:5]):
             errors.append(
-                f"Line {line_num}: Invalid row format. Expected 'id, port, device', got: {row}"
+                f"Line {line_num}: Invalid row format. Expected 'id, port, decoding, composition, encoding', got: {row}"
             )
             continue
 
-        inst_id, port_str, device_str = fields[0], fields[1], fields[2]
+        inst_id, port_str, decoding_str, composition_str, encoding_str = fields[:5]
 
         # Validate port integer range
         if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
@@ -65,11 +69,32 @@ def validate_endpoints(
 
         port = int(port_str)
 
-        # Validate device type (strictly one of: 'cpu', 'llvmpipe', 'gpu')
-        device = device_str.lower()
-        if device not in ("cpu", "llvmpipe", "gpu"):
+        # Validate decoding ('cpu', 'gpu')
+        decoding = decoding_str.lower()
+        if decoding not in ("cpu", "gpu"):
             errors.append(
-                f"Line {line_num}: Invalid device '{device_str}'. Must be 'cpu', 'llvmpipe', or 'gpu'."
+                f"Line {line_num}: Invalid decoding '{decoding_str}'. Must be 'cpu' or 'gpu'."
+            )
+            continue
+
+        # Validate composition ('cpu', 'llvmpipe', 'gpu')
+        composition = composition_str.lower()
+        if composition not in ("cpu", "llvmpipe", "gpu"):
+            errors.append(
+                f"Line {line_num}: Invalid composition '{composition_str}'. Must be 'cpu', 'llvmpipe', or 'gpu'."
+            )
+            continue
+
+        # Validate encoding ('cpu' only; 'gpu' disabled)
+        encoding = encoding_str.lower()
+        if encoding == "gpu":
+            errors.append(
+                f"Line {line_num}: GPU encoding is currently unsupported/disabled. Please set encoding to 'cpu'."
+            )
+            continue
+        if encoding != "cpu":
+            errors.append(
+                f"Line {line_num}: Invalid encoding '{encoding_str}'. Only 'cpu' is supported."
             )
             continue
 
@@ -89,7 +114,7 @@ def validate_endpoints(
         else:
             seen_ports[port] = line_num
 
-        endpoints.append((inst_id, port, device))
+        endpoints.append((inst_id, port, decoding, composition, encoding))
 
     return endpoints, errors
 
@@ -110,7 +135,9 @@ def format_tab_command(title: str, run_cmd: str) -> str:
 # -----------------------------------------------------------------------------
 
 
-def load_and_validate_endpoints(csv_file: Path) -> list[tuple[str, int, str]]:
+def load_and_validate_endpoints(
+    csv_file: Path,
+) -> list[tuple[str, int, str, str, str]]:
     """[Dishonest / I/O Boundary Adapter]
     Reads endpoint definitions from CSV file, executes validation, and halts on error.
     """
@@ -168,7 +195,7 @@ def build_offload_image(
     )
 
 
-def setup_docker_environment(endpoints: list[tuple[str, int, str]]) -> None:
+def setup_docker_environment(endpoints: list[tuple[str, int, str, str, str]]) -> None:
     """[Dishonest / Container Driver]
     Ensures the shared Docker bridge network exists and removes stale offload containers.
     """
@@ -176,14 +203,14 @@ def setup_docker_environment(endpoints: list[tuple[str, int, str]]) -> None:
         ["docker", "network", "create", "obm-net"], capture_output=True, check=False
     )
 
-    stale_containers = [f"obm-offload-{inst_id}" for inst_id, _, _ in endpoints]
+    stale_containers = [f"obm-offload-{inst_id}" for inst_id, *_ in endpoints]
     subprocess.run(
         ["docker", "rm", "-f", *stale_containers], capture_output=True, check=False
     )
 
 
 def spawn_terminal_tabs(
-    endpoints: list[tuple[str, int, str]],
+    endpoints: list[tuple[str, int, str, str, str]],
     offload_run_sh: Path,
     new_window: bool,
 ) -> None:
@@ -195,9 +222,9 @@ def spawn_terminal_tabs(
         sys.exit("Error: 'gnome-terminal' command not found in PATH.")
 
     tabs = []
-    for inst_id, port, device in endpoints:
-        title = f"Offload-{inst_id} ({port}/{device.upper()})"
-        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{device}" --skip-build'
+    for inst_id, port, decoding, composition, encoding in endpoints:
+        title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()})"
+        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" --skip-build'
         tabs.append({"title": title, "cmd": format_tab_command(title, run_cmd)})
 
     if new_window:

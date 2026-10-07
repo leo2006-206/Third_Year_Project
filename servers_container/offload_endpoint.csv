@@ -2,14 +2,12 @@
 # OBM Offload Cluster Endpoint Configuration
 #
 # Columns:
-#   id:     Unique worker instance identifier (e.g. 1, 2, 3)
-#   port:   TCP port exposed on host and bound by Rust offload server (1-65535)
-#   device: Rendering and acceleration tier (strictly one of 3 levels):
-#             - 'cpu'      : Level 1 - Pure software pipeline (SDL software blitter, CPU decoder, libx264)
-#             - 'llvmpipe' : Level 2 - CPU Software OpenGL rasterizer (Mesa llvmpipe, CPU decoder, libx264)
-#             - 'gpu'      : Level 3 - Full hardware GPU acceleration (Mesa DRI, VA-API decoder, libx264)
+#   id:          Unique worker instance identifier (e.g. 1, 2, 3)
+#   port:        TCP port exposed on host and bound by Rust offload server (1-65535)
+#   decoding:    Video decoding engine ('cpu' or 'gpu')
+#   composition: Rendering and scene composition tier ('cpu', 'llvmpipe', or 'gpu')
+#   encoding:    Video encoding engine ('cpu' only; GPU encoding is disabled/not supported)
 # ==============================================================================
-id, port, device
-1, 7010, gpu
-2, 7020, gpu
-3, 7030, gpu
+id, port, decoding, composition, encoding
+1, 7010, gpu, gpu, cpu
+2, 7020, gpu, gpu, cpu

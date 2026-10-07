@@ -387,7 +387,7 @@ def main():
     # pattern_fn = make_repeat_pattern(0)
 
     # 5. Containers to monitor CPU/memory for during run (or set to [] to disable)
-    containers = ["obm-offload-1", "obm-offload-2", "obm-offload-3"]
+    containers = ["obm-offload-1", "obm-offload-2"]
 
     # =========================================================================
     # Run Benchmark
