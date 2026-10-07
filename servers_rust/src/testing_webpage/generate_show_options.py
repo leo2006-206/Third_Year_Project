@@ -112,11 +112,18 @@ def generate_full_offload_urls(catalog: dict) -> list[str]:
             layers = variant.get("layers", [])
 
             # Cartesian product of layer options: [('race|race', 'driver|Sam', ...), ...]
-            layer_combos = list(
-                itertools.product(
-                    *[[f"{l['name']}|{opt}" for opt in l.get("options", [])] for l in layers]
+            layer_combos = (
+                list(
+                    itertools.product(
+                        *[
+                            [f"{l['name']}|{opt}" for opt in l.get("options", [])]
+                            for l in layers
+                        ]
+                    )
                 )
-            ) if layers else [()]
+                if layers
+                else [()]
+            )
 
             for combo in layer_combos:
                 tokens_str = "/".join(combo)
