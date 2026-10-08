@@ -73,14 +73,9 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
 
     let t_start = Instant::now();
 
-    let target_offload = balancer.select(None);
+    let target_offload = balancer.select(Some(path));
 
     let mut offload_steam = TcpStream::connect(target_offload.endpoint).await?;
-
-    println!(
-        "Forwarding req to offload site,\n req = {path},\n worker = {}",
-        target_offload.endpoint
-    );
 
     let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
@@ -128,6 +123,12 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     smol::io::copy(&mut offload_steam, &mut client_stream).await?;
     client_stream.flush().await?;
 
+    let message = format!(
+        "[OFFLOAD] -> {} | {}ms | {}",
+        target_offload.endpoint, elapsed, path
+    );
+    util::log_message(&message);
+
     target_offload.finish(None);
 
     Ok(())
@@ -167,6 +168,11 @@ fn main() -> io::Result<()> {
 
     // let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
     let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
+
+    println!(
+        "Load balancer type = {}",
+        std::any::type_name_of_val(&load_balancer)
+    );
 
     let balancer = Arc::new(load_balancer);
 

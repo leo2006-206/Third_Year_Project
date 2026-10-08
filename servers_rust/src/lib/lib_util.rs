@@ -2,10 +2,25 @@ use std::borrow::Cow;
 use std::fs::File;
 use std::io;
 use std::path::Path;
+use std::sync::LazyLock;
+use std::time::Instant;
 
 use smol::io::AsyncReadExt;
 
 use crate::lib_core_type as ct;
+
+static START_TIME: LazyLock<Instant> = LazyLock::new(Instant::now);
+
+pub fn log_message(message: &str) {
+    let elapsed = START_TIME.elapsed();
+    let total_secs = elapsed.as_secs();
+    let hours = total_secs / 3600;
+    let mins = (total_secs % 3600) / 60;
+    let secs = total_secs % 60;
+    let millis = elapsed.subsec_millis();
+
+    println!("[{hours:02}:{mins:02}:{secs:02}.{millis:03}]\t{message}");
+}
 
 /// [Dishonest / I/O Boundary Driver]
 /// Asynchronously reads incoming bytes from an external stream into a buffer
