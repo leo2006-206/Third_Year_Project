@@ -128,6 +128,8 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     smol::io::copy(&mut offload_steam, &mut client_stream).await?;
     client_stream.flush().await?;
 
+    target_offload.finish(None);
+
     Ok(())
 }
 
@@ -162,7 +164,11 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 
 fn main() -> io::Result<()> {
     const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
-    let balancer = Arc::new(lb::RoundRobinLB::new(OFFLOAD_URL));
+
+    // let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
+    let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
+
+    let balancer = Arc::new(load_balancer);
 
     smol::block_on(async {
         // Bind the server to a local port

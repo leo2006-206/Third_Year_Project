@@ -1,5 +1,6 @@
 .vscode/*
 
+docs/*.pdf
 docs_resource/*
 # *.sh
 */dana_runtime_copy

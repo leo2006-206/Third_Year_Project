@@ -53,8 +53,8 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
 }
 
 impl<P: LoadBalancerPolicy> SelectionGuard<'_, P> {
-    pub fn finish(mut self, feedback: &TimesFeedback) {
-        self.policy.complete(self.worker_idx, Some(feedback));
+    pub fn finish(mut self, feedback: Option<&TimesFeedback>) {
+        self.policy.complete(self.worker_idx, feedback);
         self.completed = true;
     }
 }
