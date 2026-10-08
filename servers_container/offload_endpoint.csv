@@ -1,13 +1,9 @@
-# ==============================================================================
-# OBM Offload Cluster Endpoint Configuration
-#
 # Columns:
-#   id:          Unique worker instance identifier (e.g. 1, 2, 3)
+#   id:          Unique worker instance identifier (e.g. 1,2,3)
 #   port:        TCP port exposed on host and bound by Rust offload server (1-65535)
 #   decoding:    Video decoding engine ('cpu' or 'gpu')
-#   composition: Rendering and scene composition tier ('cpu', 'llvmpipe', or 'gpu')
+#   composition: Rendering and scene composition tier ('cpu','llvmpipe',or 'gpu')
 #   encoding:    Video encoding engine ('cpu' only; GPU encoding is disabled/not supported)
-# ==============================================================================
-id, port, decoding, composition, encoding
-1, 7010, gpu, gpu, cpu
-2, 7020, gpu, gpu, cpu
+id,port,decoding,composition,encoding
+1,7010,gpu,gpu,cpu
+2,7020,gpu,gpu,cpu

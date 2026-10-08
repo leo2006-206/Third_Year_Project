@@ -27,7 +27,19 @@ T_\text{network} = T_\text{forward} + T_\text{return}
 T_\text{work} = T_\text{render} + T_\text{encode}
 $$
 
-
+08/10/2026 rethinked timing formula (end-to-end offload pipeline):
+$$
+T_\text{total} = T_\text{main rtt} + T_\text{load balance} + T_\text{offload}
+$$
+$$
+T_\text{offload} = T_\text{offload rtt} + T_\text{queue} + T_\text{asset} + T_\text{work}
+$$
+$$
+T_\text{work} = T_\text{decode} + T_\text{render} + T_\text{encode}
+$$
+$$
+T_\text{net} = T_\text{offload rtt} + T_\text{load balance}
+$$
 ## Approaches
 
 - Reactive vs Pro-active

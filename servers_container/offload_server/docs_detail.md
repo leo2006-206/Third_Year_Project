@@ -44,17 +44,22 @@ Use `servers_container/run_all_offload.py` to parse `offload_endpoint.csv`, chec
 ```
 
 ### B. Run a Specific Offload Instance Manually
-You can launch a specific offload instance by passing its `ID`, `PORT`, and hardware acceleration tier (`gpu`, `llvmpipe`, or `cpu`):
+You can launch a specific offload instance by passing its `ID`, `PORT`, `DECODING` (`cpu`|`gpu`), `COMPOSITION` (`cpu`|`llvmpipe`|`gpu`), and `ENCODING` (`cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [gpu|llvmpipe|cpu]
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu]
 ```
 
-*Example:*
+*Examples:*
 ```bash
-./servers_container/offload_server/run_sh.sh 1 7010 gpu
-./servers_container/offload_server/run_sh.sh 2 7020 llvmpipe
-./servers_container/offload_server/run_sh.sh 3 7030 cpu
+# Fastest combo: GPU decode, GPU composition, CPU encode (~3.2s)
+./servers_container/offload_server/run_sh.sh 1 7010 gpu gpu cpu
+
+# Software OpenGL combo: CPU decode, llvmpipe composition, CPU encode (~7.5s)
+./servers_container/offload_server/run_sh.sh 2 7020 cpu llvmpipe cpu
+
+# Pure software baseline: CPU decode, CPU SDL composition, CPU encode (~25s)
+./servers_container/offload_server/run_sh.sh 3 7030 cpu cpu cpu
 ```
 
 ---
@@ -76,35 +81,48 @@ Press `Ctrl + C` in the terminal tab. The container entrypoint traps the interru
 
 ## 5. Component Configuration & Pipeline Analysis
 
-Dana's offload rendering pipeline consists of several distinct stages: video decoding, 2D canvas composition, pixel readback, and video encoding. Below is a comprehensive breakdown of the available configurations, their performance/functional impacts, and their required dependencies:
+Dana's offload rendering pipeline consists of a decoupled 3-stage execution flow (matching the project presentation specification):
 
 ```
 ┌────────────────────────────────────────────────────────────────────────────────────────┐
-│                                DANA OFFLOAD PIPELINE                                    │
+│                              DANA OFFLOADING PIPELINE                                   │
 │                                                                                        │
-│  [Source Video] ──► 1. DECODING ──► 2. COMPOSITION ──► 3. READBACK ──► 4. ENCODING     │
-│                     (GPU vs CPU)     (OpenGL vs CPU)    (GPU vs CPU)   (x264 vs VA-API)│
+│  [Source Video] ──► 1. DECODING ────────► 2. COMPOSITION & READBACK ──► 3. ENCODING   │
+│                     (cpu, gpu)               (cpu, llvmpipe, gpu)           (cpu)      │
+│                     libavcodec vs VA-API     SDL vs LLVMpipe vs OpenGL      libx264    │
 └────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
+- **Fastest Combination**: `gpu, gpu, cpu` => **~3.2s** per 10-second segment (segment-dependent).
+- **Stage Performance Summary**:
+  - **Decoding**:
+    - `cpu` (`libavcodec` software decoding)
+    - `gpu` (VA-API hardware acceleration via `Decoder.h264va`, saves **3 to 4s**)
+  - **Composition & Readback**:
+    - `cpu` (SDL software blitter + memory clone) => **21 to 25s**
+    - `llvmpipe` (Mesa CPU software OpenGL rasterizer) => **5 to 8s** (multi-threaded across CPU cores)
+    - `gpu` (VirtualGL + hardware DRI OpenGL) => **3 to 7s**
+  - **Encoding**:
+    - `cpu` (Multi-threaded `libx264` software encoding, ~350ms). Note: GPU encoding is disabled/unsupported in Dana.
+
 ### A. 2D Scene Composition (Canvas Blitting & Scaling)
 * **Available Configurations**:
-  * **Tier 1: Pure CPU Software (`SDL_RENDER_DRIVER=software`)**: Uses SDL's CPU software rasterizer without OpenGL.
-  * **Tier 2: CPU Software OpenGL (`SDL_RENDER_DRIVER=opengl`, `LIBGL_ALWAYS_SOFTWARE=1`)**: Uses Mesa's `llvmpipe` CPU rasterizer with OpenGL shaders.
-  * **Tier 3: Physical GPU Direct Rendering (VirtualGL + Mesa DRI)**: Direct hardware-accelerated OpenGL rendering via VirtualGL (`vglrun -d "$GPU_CARD"`) communicating with the host KMS/DRI graphics card (`/dev/dri/card*`).
+  * **Option 1: Pure CPU Software (`cpu`, `SDL_RENDER_DRIVER=software`)**: Uses SDL's CPU software rasterizer without OpenGL.
+  * **Option 2: CPU Software OpenGL (`llvmpipe`, `SDL_RENDER_DRIVER=opengl`, `LIBGL_ALWAYS_SOFTWARE=1`)**: Uses Mesa's `llvmpipe` CPU rasterizer with OpenGL shaders.
+  * **Option 3: Physical GPU Direct Rendering (`gpu`, VirtualGL + Mesa DRI)**: Direct hardware-accelerated OpenGL rendering via VirtualGL (`vglrun -d "$GPU_CARD"`) communicating with host KMS/DRI graphics card (`/dev/dri/card*`).
 * **Performance / Functional Impact**:
-  * Tier 1 (CPU Software): **~16,000 ms – 29,000 ms** (64 – 115 ms/frame) — major bottleneck, limits throughput to ~10 fps.
-  * Tier 2 (Mesa llvmpipe): **~7,000 ms – 8,000 ms** (28 – 32 ms/frame) — multi-threaded software OpenGL rasterization.
-  * Tier 3 (Physical GPU VirtualGL): **~3,200 ms – 4,700 ms** (13 – 19 ms/frame) — **fastest**, offloads 3D rendering and compositing to the physical GPU.
+  * Option 1 (CPU Software): **~21,000 ms – 25,000 ms** — major bottleneck, limits throughput to ~10 fps.
+  * Option 2 (Mesa llvmpipe): **~5,000 ms – 8,000 ms** — multi-threaded software OpenGL rasterization (scales up to 9 CPU cores).
+  * Option 3 (Physical GPU VirtualGL): **~3,000 ms – 7,000 ms** — offloads 3D rendering and compositing to the physical GPU.
 * **Strict Startup Pre-Flight Assertions (`entrypoint.sh`)**:
-  To guarantee that containers strictly run on the requested device tier without silent software fallbacks:
-  - When started with tier `gpu`, the container probes VirtualGL (`vglrun -d "$GPU_CARD" glxinfo -B`) and VA-API (`vainfo --display drm --device "$RENDER_DEV"`). If the renderer detects `llvmpipe`, `software`, or fails to find hardware decoding (`VAEntrypointVLD`), it **immediately prints a fatal error and terminates (`exit 1`)**.
-  - When started with tier `llvmpipe`, it asserts that `glxinfo` reports `llvmpipe`. If not, it halts (`exit 1`).
+  To guarantee that containers strictly run on the requested configuration without silent software fallbacks:
+  - When started with composition `gpu`, the container probes VirtualGL (`vglrun -d "$GPU_CARD" glxinfo -B`) and asserts DRI hardware rendering. If the renderer detects `llvmpipe`, `software`, or fails, it **immediately prints a fatal error and terminates (`exit 1`)**.
+  - When started with composition `llvmpipe`, it asserts that `glxinfo` reports `llvmpipe`. If not, it halts (`exit 1`).
 * **Dependencies & Settings Required**:
   1. Virtual X11 display: `Xvfb :99 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &`
   2. Environment variables: `DISPLAY=:99`, `SDL_VIDEODRIVER=x11`, `SDL_RENDER_DRIVER=opengl`
   3. System packages: `virtualgl` (3.1.5), `xvfb`, `libgl1`, `libglu1-mesa`, `libgl1-mesa-dri`, `mesa-utils`, `libxtst6`, `libxv1`
-  4. Docker device mount (Tier 3 only): `--device /dev/dri:/dev/dri`
+  4. Docker device mount (GPU only): `--device /dev/dri:/dev/dri`
   5. Native library patch: `UIPlaneLib[deb.x64].dnl` is patched at Docker build time to initialize at $1280 \times 720$.
 
 ### B. Video Decoding (Prepare Stage)
