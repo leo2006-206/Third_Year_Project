@@ -6,6 +6,7 @@ Models request patterns over time (duration & total_requests) using `requests`.
 
 import concurrent.futures
 import json
+import math
 import re
 import subprocess
 import threading
@@ -102,49 +103,105 @@ def parse_timing_headers(headers: dict[str, str]) -> dict[str, int]:
     return timings
 
 
+class MeanStd:
+    """[Honest / Pure Domain Logic]
+    Statistical accumulator tracking count, sum, sum_sq, min, and max.
+    Computes mean, variance, and standard deviation.
+    """
+
+    def __init__(self):
+        self.count: int = 0
+        self.sum: float = 0.0
+        self.sum_sq: float = 0.0
+        self.min_val: float = float("inf")
+        self.max_val: float = float("-inf")
+
+    def add(self, x: float | int):
+        val = float(x)
+        self.count += 1
+        self.sum += val
+        self.sum_sq += val * val
+        if val < self.min_val:
+            self.min_val = val
+        if val > self.max_val:
+            self.max_val = val
+
+    def reset(self):
+        self.count = 0
+        self.sum = 0.0
+        self.sum_sq = 0.0
+        self.min_val = float("inf")
+        self.max_val = float("-inf")
+
+    def get_mean(self) -> float:
+        return (self.sum / self.count) if self.count > 0 else 0.0
+
+    def get_var(self) -> float:
+        if self.count == 0:
+            return 0.0
+        mean = self.sum / self.count
+        mean_of_squares = self.sum_sq / self.count
+        variance = mean_of_squares - (mean * mean)
+        return max(0.0, variance)
+
+    def get_std(self) -> float:
+        return math.sqrt(self.get_var())
+
+    def get_min(self) -> float:
+        return self.min_val if self.count > 0 else 0.0
+
+    def get_max(self) -> float:
+        return self.max_val if self.count > 0 else 0.0
+
+    def as_dict(self) -> dict[str, float]:
+        return {
+            "avg": round(self.get_mean(), 1),
+            "min": round(self.get_min(), 1),
+            "max": round(self.get_max(), 1),
+            "std": round(self.get_std(), 1),
+        }
+
+
+def parse_mem_str_to_mb(mem_str: str) -> float:
+    """[Honest] Parses memory string (e.g. '432.6MiB', '1.2GiB') into megabytes."""
+    used = mem_str.split("/")[0].strip().lower()
+    num = float(re.sub(r"[^\d.]", "", used) or 0)
+    if "gib" in used or "gb" in used:
+        return num * 1024.0
+    elif "kib" in used or "kb" in used:
+        return num / 1024.0
+    return num
+
+
+METRICS = [
+    ("duration", "Latency (total)", "duration_ms"),
+    ("work", "Render (work)", "work_ms"),
+    ("asset", "Asset (asset)", "asset_ms"),
+    ("queue", "Queue (queue)", "queue_ms"),
+    ("net", "Server Net (net)", "net_ms"),
+    ("client_net", "Client Net (c_net)", "client_net_ms"),
+]
+
+
 def compute_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
     """[Honest] Computes statistical summary across all completed request results."""
     if not results:
         return {}
 
     successful = [r for r in results if r["status"] == 200]
-    latencies = [r["duration_ms"] for r in successful]
+    stats_map = {key: MeanStd() for key, _, _ in METRICS}
 
-    return {
+    for r in successful:
+        for key, _, field in METRICS:
+            stats_map[key].add(r[field])
+
+    summary = {
         "total": len(results),
         "successful": len(successful),
         "failed": len(results) - len(successful),
-        "avg_duration_ms": round(sum(latencies) / len(latencies), 1)
-        if latencies
-        else 0,
-        "min_duration_ms": min(latencies) if latencies else 0,
-        "max_duration_ms": max(latencies) if latencies else 0,
-        "avg_work_ms": (
-            round(sum(r["work_ms"] for r in successful) / len(successful), 1)
-            if successful
-            else 0
-        ),
-        "avg_asset_ms": (
-            round(sum(r["asset_ms"] for r in successful) / len(successful), 1)
-            if successful
-            else 0
-        ),
-        "avg_queue_ms": (
-            round(sum(r["queue_ms"] for r in successful) / len(successful), 1)
-            if successful
-            else 0
-        ),
-        "avg_net_ms": (
-            round(sum(r["net_ms"] for r in successful) / len(successful), 1)
-            if successful
-            else 0
-        ),
-        "avg_client_net_ms": (
-            round(sum(r["client_net_ms"] for r in successful) / len(successful), 1)
-            if successful
-            else 0
-        ),
     }
+    summary.update({k: v.as_dict() for k, v in stats_map.items()})
+    return summary
 
 
 # ==============================================================================
@@ -153,63 +210,87 @@ def compute_summary(results: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 class ContainerMonitor:
-    """[Dishonest I/O] Background thread sampling docker stats for offload containers."""
+    """[Dishonest I/O] Background thread streaming docker stats for offload containers."""
 
     def __init__(
         self,
         containers: list[str],
-        sample_interval: float = 1.0,
-        live_print: bool = True,
     ):
         self.containers = containers
-        self.sample_interval = sample_interval
-        self.live_print = live_print
-        self._stop_event = threading.Event()
+        self._proc: subprocess.Popen | None = None
         self._thread: threading.Thread | None = None
         self.snapshots: list[dict[str, Any]] = []
+        self.start_time: float | None = None
 
     def start(self):
-        self._stop_event.clear()
+        self.start_time = time.time()
+        cmd = ["docker", "stats", "--format", "{{json .}}"] + self.containers
+        try:
+            self._proc = subprocess.Popen(
+                ["stdbuf", "-oL"] + cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+        except FileNotFoundError:
+            self._proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL,
+                text=True,
+                bufsize=1,
+            )
+
         self._thread = threading.Thread(target=self._run, daemon=True)
         self._thread.start()
 
     def stop(self):
-        self._stop_event.set()
+        if self._proc:
+            try:
+                self._proc.terminate()
+                self._proc.wait(timeout=2.0)
+            except Exception:
+                try:
+                    self._proc.kill()
+                except Exception:
+                    pass
         if self._thread:
-            self._thread.join(timeout=2.0)
+            self._thread.join(timeout=1.0)
 
     def _run(self):
-        while not self._stop_event.is_set():
+        if not self._proc or not self._proc.stdout:
+            return
+        sample = {}
+        ansi_re = re.compile(r"\x1b\[[0-9;]*[a-zA-Z]")
+        while True:
+            line = self._proc.stdout.readline()
+            if not line:
+                break
+            clean = ansi_re.sub("", line).strip()
+            if not clean or not clean.startswith("{") or not clean.endswith("}"):
+                continue
             try:
-                cmd = [
-                    "docker",
-                    "stats",
-                    "--no-stream",
-                    "--format",
-                    "{{json .}}",
-                ] + self.containers
-                proc = subprocess.run(cmd, capture_output=True, text=True, timeout=2.0)
-                if proc.returncode == 0:
-                    entry = {"time": time.time(), "containers": {}}
-                    for line in proc.stdout.strip().splitlines():
-                        if not line:
-                            continue
-                        data = json.loads(line)
-                        entry["containers"][data.get("Name", "")] = {
-                            "cpu": data.get("CPUPerc", "0%"),
-                            "mem": data.get("MemUsage", "0"),
-                        }
-                    self.snapshots.append(entry)
-
-                    if self.live_print and entry["containers"]:
-                        status_parts = [
-                            f"{name.replace('obm-', '')}: {st['cpu']} ({st['mem'].split('/')[0].strip()})"
-                            for name, st in sorted(entry["containers"].items())
-                        ]
-                        print(f"  [Live Stats] {' | '.join(status_parts)}")
+                data = json.loads(clean)
+                name = data.get("Name", "")
+                if name:
+                    sample[name] = {
+                        "cpu": data.get("CPUPerc", "0%"),
+                        "mem": data.get("MemUsage", "0"),
+                    }
+                    if len(sample) >= len(self.containers):
+                        now = time.time()
+                        elapsed = (now - self.start_time) if self.start_time else 0.0
+                        self.snapshots.append(
+                            {
+                                "elapsed": elapsed,
+                                "time": now,
+                                "containers": sample.copy(),
+                            }
+                        )
+                        sample.clear()
             except Exception:
                 pass
-            time.sleep(self.sample_interval)
 
 
 def send_single_request(req_id: int, url: str) -> dict[str, Any]:
@@ -220,7 +301,9 @@ def send_single_request(req_id: int, url: str) -> dict[str, Any]:
         duration_ms = round((time.perf_counter() - t0) * 1000)
         timings = parse_timing_headers(dict(resp.headers))
 
-        all_offload_t = timings["work"] + timings["asset"] + timings["queue"] + timings["net"]
+        all_offload_t = (
+            timings["work"] + timings["asset"] + timings["queue"] + timings["net"]
+        )
         client_net = max(0, duration_ms - all_offload_t)
 
         result = {
@@ -282,7 +365,7 @@ def run_benchmark(
 
     monitor = None
     if monitor_containers:
-        monitor = ContainerMonitor(monitor_containers, sample_interval=1.0)
+        monitor = ContainerMonitor(monitor_containers)
         monitor.start()
 
     start_time = time.perf_counter()
@@ -318,41 +401,76 @@ def run_benchmark(
     print("-" * 75)
     print("Benchmark Summary:")
     print(
-        f"  Requests Total:   {summary.get('total', 0)} (Success: {summary.get('successful', 0)}, Failed: {summary.get('failed', 0)})"
+        f"  Requests Total:   {summary.get('total', 0)} (Success: {summary.get('successful', 0)}, Failed: {summary.get('failed', 0)})\n"
     )
-    print(f"  Avg Latency:      {summary.get('avg_duration_ms', 0)} ms")
-    print(
-        f"  Min / Max:        {summary.get('min_duration_ms', 0)} ms / {summary.get('max_duration_ms', 0)} ms"
-    )
-    print(f"  Avg Render(work): {summary.get('avg_work_ms', 0)} ms")
-    print(f"  Avg Asset(asset): {summary.get('avg_asset_ms', 0)} ms")
-    print(f"  Avg Queue(queue): {summary.get('avg_queue_ms', 0)} ms")
-    print(f"  Avg Network(net): {summary.get('avg_net_ms', 0)} ms")
-    print(f"  Avg Client(c_net): {summary.get('avg_client_net_ms', 0)} ms")
+    metric_labels = [(label, key) for key, label, _ in METRICS]
+    print(f"  {'Metric':<20} {'Avg':<12} {'Min':<12} {'Max':<12} {'Std':<12}")
+    print("  " + "-" * 68)
+    for label, key in metric_labels:
+        st = summary.get(key, {})
+        print(
+            f"  {label:<20} {st.get('avg', 0.0):.1f} ms   "
+            f"{st.get('min', 0.0):.1f} ms   "
+            f"{st.get('max', 0.0):.1f} ms   "
+            f"{st.get('std', 0.0):.1f} ms"
+        )
 
     if monitor and monitor.snapshots:
+        all_cnames = sorted(
+            {c for snap in monitor.snapshots for c in snap["containers"]}
+        )
+
+        # 1. Timeline Log (Sampled ~0.5s buffered in memory, formatted as SS.MS)
+        print("\nOffload Container Utilization Timeline:")
+        hdr = f"  {'Time':<8} " + " ".join(
+            f"{c.replace('obm-', ''):<24}" for c in all_cnames
+        )
+        print(hdr)
+        print("  " + "-" * max(len(hdr) - 2, 57))
+        for snap in monitor.snapshots:
+            elapsed = snap.get("elapsed", 0.0)
+            t_str = f"{elapsed:04.1f}s"
+            row_items = []
+            for c in all_cnames:
+                st = snap["containers"].get(c, {})
+                cpu = st.get("cpu", "0%")
+                mem = st.get("mem", "0").split("/")[0].strip()
+                row_items.append(f"{cpu} ({mem})")
+            print(f"  {t_str:<8} " + " ".join(f"{item:<24}" for item in row_items))
+
+        # 2. Utilization Aggregate Summary using MeanStd
         print("\nOffload Container Utilization Summary:")
         print(
-            f"  {'Container':<18} {'Peak CPU':<12} {'Avg CPU':<12} {'Peak Memory':<15}"
+            f"  {'Container':<18} {'Avg CPU':<12} {'Min CPU':<12} {'Peak CPU':<12} {'Std CPU':<12} {'Peak Memory':<15}"
         )
-        print("  " + "-" * 57)
-        container_stats: dict[str, list[float]] = {}
-        container_mems: dict[str, str] = {}
+        print("  " + "-" * 81)
+        container_stats: dict[str, MeanStd] = {}
+        container_peak_mems: dict[str, float] = {}
+
         for snap in monitor.snapshots:
             for name, stats in snap["containers"].items():
                 try:
                     cpu_val = float(stats["cpu"].rstrip("%"))
-                    container_stats.setdefault(name, []).append(cpu_val)
-                    container_mems[name] = stats["mem"].split("/")[0].strip()
+                    container_stats.setdefault(name, MeanStd()).add(cpu_val)
+                    mem_mb = parse_mem_str_to_mb(stats["mem"])
+                    if mem_mb > container_peak_mems.get(name, 0.0):
+                        container_peak_mems[name] = mem_mb
                 except ValueError:
                     pass
 
         for name in sorted(container_stats.keys()):
-            cpus = container_stats[name]
-            peak_cpu = f"{max(cpus):.1f}%"
-            avg_cpu = f"{(sum(cpus) / len(cpus)):.1f}%"
-            peak_mem = container_mems.get(name, "-")
-            print(f"  {name:<18} {peak_cpu:<12} {avg_cpu:<12} {peak_mem:<15}")
+            cpu_acc = container_stats[name]
+            avg_cpu = f"{cpu_acc.get_mean():.1f}%"
+            min_cpu = f"{cpu_acc.get_min():.1f}%"
+            peak_cpu = f"{cpu_acc.get_max():.1f}%"
+            std_cpu = f"{cpu_acc.get_std():.1f}%"
+            peak_mb = container_peak_mems.get(name, 0.0)
+            peak_mem = (
+                f"{peak_mb / 1024:.2f}GiB" if peak_mb >= 1024 else f"{peak_mb:.1f}MiB"
+            )
+            print(
+                f"  {name:<18} {avg_cpu:<12} {min_cpu:<12} {peak_cpu:<12} {std_cpu:<12} {peak_mem:<15}"
+            )
 
     print("-" * 75)
     return results, summary
@@ -374,8 +492,8 @@ def main():
     # 2. Timing and request volume
     #    e.g. duration = 10.0 and total_requests = 10 -> 1 request every 1.0s
     #    e.g. duration = 10.0 and total_requests = 100 -> 10 requests every 1.0s
-    duration = 30.0
-    total_requests = 10
+    duration = 10
+    total_requests = 3
 
     # 3. List of request paths to benchmark (defaults to all URLs from requests.txt)
     requests_list = load_requests_file()
