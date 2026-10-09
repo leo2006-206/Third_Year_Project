@@ -140,7 +140,7 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
     const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
     const APP_JS: &str = include_str!("../testing_webpage/app.js");
     const STYLE_CSS: &str = include_str!("../testing_webpage/style.css");
-    const SHOW_OPTIONS: &str = include_str!("../testing_webpage/show_options.json");
+    const SHOW_OPTIONS: &str = include_str!("../../../servers_benchmark/show_options.json");
 
     const HEADERS: [(&str, &str); 2] = [
         ("Cache-Control", "no-cache, no-store, must-revalidate"),
@@ -164,10 +164,11 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
+    // const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
     const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
 
-    // let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
-    let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
+    let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
+    // let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
 
     println!(
         "Load balancer type = {}",

@@ -16,16 +16,24 @@ def compute_dag_root_count(raw_layers: list[dict]) -> int:
     """[Honest / Pure Domain Logic]
     Computes the exact number of DAG root nodes (renderable screen nodes)
     built by Dana's Experience.dn.
-    Source layers create root nodes; transform layers wrap existing child nodes
-    (children == 1 wraps the preceding node; children == 0 wraps all nodes).
+    In Dana, absent 'children' in JSON defaults to 0 (default integer in Dana).
+    - source / source-multi: appends 1 node to graph.
+    - transform with children == 1: wraps the preceding node (graph length unchanged).
+    - transform with children == 0: wraps all preceding nodes (graph length becomes 1).
     """
     root_count = 0
     for layer in raw_layers:
+        sense = layer.get("sense", "visual")
+        if sense == "audio":
+            continue
         ltype = layer.get("type", "source")
         if ltype in ("source", "source-multi"):
             root_count += 1
-        elif ltype == "transform" and layer.get("children", 1) == 0:
-            root_count = 1
+        elif ltype == "transform":
+            children = layer.get("children", 0)  # In Dana, absent int defaults to 0
+            if children == 0:
+                root_count = 1
+            # if children == 1: wraps preceding node, root_count unchanged
     return root_count
 
 
@@ -62,6 +70,9 @@ def transform_show(filename: str, raw: dict) -> dict | None:
             "name": v.get("name", "core"),
             "style": v.get("style", "landscape"),
             "default": v.get("default", False),
+            "width": v.get("width", first_var.get("width", 1280)),
+            "height": v.get("height", first_var.get("height", 720)),
+            "length_frames": v.get("length_frames", first_var.get("length_frames", 600)),
             "total_layers": compute_dag_root_count(raw_layers),
             "layers": catalog_layers,
         }
@@ -96,18 +107,19 @@ def generate_full_offload_urls(catalog: dict) -> list[str]:
 
     for show in catalog.get("shows", []):
         show_id = show["id"]
-        width = show.get("width", 1280)
-        height = show.get("height", 720)
         fps = show.get("fps", 25)
-        length_frames = show.get("length_frames", 600)
         seg_sec = show.get("segment_length_sec", 10)
-
-        # Total 10-second segments covering valid show duration
-        total_segs = (length_frames + (seg_sec * fps) - 1) // (seg_sec * fps)
 
         for variant in show.get("variants", []):
             var_name = variant.get("name", "core")
             var_style = variant.get("style", "landscape")
+            width = variant.get("width", show.get("width", 1280))
+            height = variant.get("height", show.get("height", 720))
+            length_frames = variant.get("length_frames", show.get("length_frames", 600))
+
+            # Total 10-second segments covering valid show duration
+            total_segs = (length_frames + (seg_sec * fps) - 1) // (seg_sec * fps)
+
             total_layers = variant.get("total_layers", len(variant.get("layers", [])))
             layers = variant.get("layers", [])
 
@@ -186,7 +198,7 @@ def generate_show_options(shows_dir, output_file=None, requests_file=None):
 
 if __name__ == "__main__":
     # Default to the obm/shows directory in this repository
-    default_shows_dir = Path(__file__).resolve().parents[3] / "obm" / "shows"
+    default_shows_dir = Path(__file__).resolve().parent.parent / "obm" / "shows"
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else default_shows_dir
     target_out = sys.argv[2] if len(sys.argv) > 2 else None

@@ -13,6 +13,9 @@
           "name": "race",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 4,
           "layers": [
             {
@@ -57,7 +60,10 @@
           "name": "race",
           "style": "portrait",
           "default": false,
-          "total_layers": 4,
+          "width": 720,
+          "height": 1280,
+          "length_frames": 2100,
+          "total_layers": 3,
           "layers": [
             {
               "name": "race",
@@ -113,6 +119,9 @@
           "name": "track",
           "style": "landscape",
           "default": false,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 3,
           "layers": [
             {
@@ -149,6 +158,9 @@
           "name": "driver",
           "style": "landscape",
           "default": false,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 2,
           "layers": [
             {
@@ -172,7 +184,10 @@
           "name": "driver",
           "style": "portrait",
           "default": false,
-          "total_layers": 2,
+          "width": 720,
+          "height": 1280,
+          "length_frames": 2100,
+          "total_layers": 1,
           "layers": [
             {
               "name": "driver",
@@ -220,6 +235,9 @@
           "name": "race",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 4,
           "layers": [
             {
@@ -264,6 +282,9 @@
           "name": "race",
           "style": "portrait",
           "default": false,
+          "width": 720,
+          "height": 1280,
+          "length_frames": 2100,
           "total_layers": 4,
           "layers": [
             {
@@ -320,6 +341,9 @@
           "name": "track",
           "style": "landscape",
           "default": false,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 3,
           "layers": [
             {
@@ -356,6 +380,9 @@
           "name": "driver",
           "style": "landscape",
           "default": false,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2100,
           "total_layers": 2,
           "layers": [
             {
@@ -379,7 +406,10 @@
           "name": "driver",
           "style": "portrait",
           "default": false,
-          "total_layers": 2,
+          "width": 720,
+          "height": 1280,
+          "length_frames": 2100,
+          "total_layers": 1,
           "layers": [
             {
               "name": "driver",
@@ -427,6 +457,9 @@
           "name": "core",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 2075,
           "total_layers": 4,
           "layers": [
             {
@@ -484,6 +517,9 @@
           "name": "core",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 600,
           "total_layers": 4,
           "layers": [
             {
@@ -552,6 +588,9 @@
           "name": "core",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 600,
           "total_layers": 5,
           "layers": [
             {
@@ -635,6 +674,9 @@
           "name": "main",
           "style": "landscape",
           "default": true,
+          "width": 1280,
+          "height": 720,
+          "length_frames": 1300,
           "total_layers": 2,
           "layers": [
             {

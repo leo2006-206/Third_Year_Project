@@ -28,16 +28,20 @@ if [ "$ENCODING" != "cpu" ]; then
     exit 1
 fi
 
+SHUTTING_DOWN=0
+
 # Forward SIGINT (Ctrl+C) and SIGTERM to all child processes
 cleanup() {
     echo ""
     echo "Shutting down offload server $ID (port $PORT, decoding $DECODING, composition $COMPOSITION, encoding $ENCODING)..."
+    SHUTTING_DOWN=1
     if [ -n "$RUST_PID" ]; then
         kill -TERM "$RUST_PID" 2>/dev/null || true
     fi
-    if [ -n "$DANA_PID" ]; then
-        kill -TERM "$DANA_PID" 2>/dev/null || true
+    if [ -n "$DANA_LOOP_PID" ]; then
+        kill -TERM "$DANA_LOOP_PID" 2>/dev/null || true
     fi
+    pkill -f "dana.*OffloadSite_new" 2>/dev/null || true
     if [ -n "$XVFB_PID" ]; then
         kill -TERM "$XVFB_PID" 2>/dev/null || true
     fi
@@ -181,14 +185,26 @@ fi
 echo "=== Starting Dana Offload Site on internal port 9009 (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING) ==="
 cd /app/obm
 
-if [ "$COMPOSITION" = "gpu" ]; then
-    echo "Launching Dana with VirtualGL on $GPU_CARD..."
-    vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new &
-else
-    echo "Launching Dana..."
-    dana "${DANA_ARGS[@]}" OffloadSite_new &
-fi
-DANA_PID=$!
+run_dana_loop() {
+    while [ "$SHUTTING_DOWN" != "1" ]; do
+        if [ "$COMPOSITION" = "gpu" ]; then
+            echo "[Dana Supervisor] Launching Dana with VirtualGL on $GPU_CARD..."
+            vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new
+        else
+            echo "[Dana Supervisor] Launching Dana..."
+            dana "${DANA_ARGS[@]}" OffloadSite_new
+        fi
+        EXIT_CODE=$?
+        if [ "$SHUTTING_DOWN" = "1" ]; then
+            break
+        fi
+        echo "[Dana Supervisor] Dana worker process exited (code $EXIT_CODE). Clean restart in 50ms..."
+        sleep 0.05
+    done
+}
+
+run_dana_loop &
+DANA_LOOP_PID=$!
 
 # 3. Start Rust Offload Server on port $PORT
 echo "=== Starting Rust Offload Server $ID on port $PORT ==="
@@ -196,4 +212,4 @@ echo "=== Starting Rust Offload Server $ID on port $PORT ==="
 RUST_PID=$!
 
 # Wait for both background processes
-wait "$RUST_PID" "$DANA_PID"
+wait "$RUST_PID" "$DANA_LOOP_PID"

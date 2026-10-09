@@ -62,6 +62,9 @@ data RenderTask {
 	int t_asset_start
 	int t_asset
 	int t_work
+	int t_decode
+	int t_render
+	int t_encode
 }
 
 data Chunk {
@@ -182,7 +185,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 			{
 			//normal REST responsive mode
 			restListener = new TCPServerSocket()
-			if (!restListener.bind(ipAddress, port)) return 1
+			if (!restListener.bind(ipAddress, port, true)) return 1
 			asynch::serverThread(restListener)
 			}
 			else
@@ -220,6 +223,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 		byte pixelFormat = window.getPixelFormat()
 
 		EncodedFrame framesEnc[] = null
+		int reqHandled = 0
 
 		while (!quit)
 			{
@@ -317,8 +321,13 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							//render the time segment
 							if (!batchMode)
 								{
+								int t_dec = cal.getMS()
 								rt.exp.prepare(window, frameIndex)
+								rt.t_decode += cal.getMS() - t_dec
+
+								int t_rnd = cal.getMS()
 								rt.exp.render(canvas)
+								rt.t_render += cal.getMS() - t_rnd
 								}
 								else
 								{
@@ -326,6 +335,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 								if ((frameIndex % batchSize) == 0)
 									{
 									//out.println("batch pre-prep")
+									int t_dec = cal.getMS()
 									rt.exp.batchPrepPre(window, 50)
 									int start = frameIndex
 									int len = 10
@@ -341,13 +351,16 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 										{
 										workers[i].join()
 										}
-									
+									rt.t_decode += cal.getMS() - t_dec
 									//out.println("worker threads joined")
 									}
 
+								int t_rnd = cal.getMS()
 								rt.exp.batchRenderFrame(canvas, frameIndex)
+								rt.t_render += cal.getMS() - t_rnd
 								}
 							
+							int t_enc = cal.getMS()
 							PixelMap pixels = window.getPixels(pixelFormat)
 							PixelMapYUV pixelsYUV = imgTransform.rgbaToYUV(pixels, pixelFormat)
 							framesEnc = rt.encoder.encode(pixelsYUV, keyFrame)
@@ -355,6 +368,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 								{
 								rt.frames.add(framesEnc[i])
 								}
+							rt.t_encode += cal.getMS() - t_enc
 							keyFrame = false
 							frameIndex ++
 							out.print("\rframe $(frameIndex)/$(frameEnd)")
@@ -379,11 +393,13 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 						{
 						//out.println(" -- finishing encoding, $(rt.frames.getLength()) frames so far")
 
+						int t_enc_fin = cal.getMS()
 						framesEnc = rt.encoder.finish()
 						for (int i = 0; i < framesEnc.arrayLength; i++)
 							{
 							rt.frames.add(framesEnc[i])
 							}
+						rt.t_encode += cal.getMS() - t_enc_fin
 						
 						//out.println(" -- wrapping $(rt.frames.getLength()) encoded frames ($(frames.arrayLength) from finish)")
 
@@ -418,7 +434,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 						int end_ms = cal.getMS()
 						rt.t_work = end_ms - start_ms
 						
-						out.println("\n -- render/encode took $(rt.t_work)ms (queue: $(rt.t_queue)ms, asset: $(rt.t_asset)ms)")
+						out.println("\n -- render/encode took $(rt.t_work)ms (queue: $(rt.t_queue)ms, asset: $(rt.t_asset)ms, decode: $(rt.t_decode)ms, render: $(rt.t_render)ms, encode: $(rt.t_encode)ms)")
 						out.println(" -- sending response")
 
 						if (opMode == M_LISTEN)
@@ -431,6 +447,15 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							else if (opMode == M_DIRECT)
 							{
 							writeDataChunks(rt.file, "h264", totalLength, list)
+							}
+
+						reqHandled ++
+						if (opMode == M_LISTEN && reqHandled >= 10)
+							{
+							out.println(" -- handled $(reqHandled) requests, recycling Dana worker...")
+							quit = true
+							restListener.unbind()
+							return 0
 							}
 						}
 						else
@@ -486,8 +511,8 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 		rt.socket.send("Server: Media Offload Server 0.1\r\n")
 		rt.socket.send("Content-length: $len\r\n")
 		rt.socket.send("Content-type: $contentType\r\n")
-		rt.socket.send("X-Dana-Timings: queue=$(rt.t_queue);asset=$(rt.t_asset);work=$(rt.t_work)\r\n")
-		rt.socket.send("Server-Timing: queue;dur=$(rt.t_queue), asset;dur=$(rt.t_asset), work;dur=$(rt.t_work)\r\n")
+		rt.socket.send("X-Dana-Timings: queue=$(rt.t_queue);asset=$(rt.t_asset);work=$(rt.t_work);decode=$(rt.t_decode);render=$(rt.t_render);encode=$(rt.t_encode)\r\n")
+		rt.socket.send("Server-Timing: queue;dur=$(rt.t_queue), asset;dur=$(rt.t_asset), work;dur=$(rt.t_work), decode;dur=$(rt.t_decode), render;dur=$(rt.t_render), encode;dur=$(rt.t_encode)\r\n")
 		rt.socket.send("Access-Control-Expose-Headers: X-Dana-Timings, Server-Timing\r\n")
 		rt.socket.send("Connection: close\r\n")
 		rt.socket.send("\r\n")

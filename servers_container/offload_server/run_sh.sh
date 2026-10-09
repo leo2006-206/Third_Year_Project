@@ -93,6 +93,8 @@ echo "-------------------------------------------------------------"
 docker run -it --rm \
     --init \
     --network obm-net \
+    --memory="3.5g" \
+    --memory-swap="3.5g" \
     "${DOCKER_GPU_ARGS[@]}" \
     -p "${PORT}:${PORT}" \
     --name "$CONTAINER_NAME" \

@@ -46,8 +46,29 @@ async fn serve_dana_proxy(
     dana_addr: &str,
 ) -> io::Result<()> {
     const OFFLOAD_AGENT: &str = "OBM Offload site/1.0";
+    const MAX_RETRIES: usize = 10;
+    const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
 
-    let mut dana_stream = TcpStream::connect(dana_addr).await?;
+    let mut dana_stream = {
+        let mut attempt = 0;
+        loop {
+            match TcpStream::connect(dana_addr).await {
+                Ok(stream) => break stream,
+                Err(e) if attempt < MAX_RETRIES => {
+                    attempt += 1;
+                    eprintln!(
+                        "[offload_server] Dana not reachable (attempt {attempt}/{MAX_RETRIES}): {e}. Retrying in {:?}...",
+                        RETRY_DELAY
+                    );
+                    smol::Timer::after(RETRY_DELAY).await;
+                }
+                Err(e) => {
+                    eprintln!("[offload_server] Dana connection failed after {MAX_RETRIES} attempts: {e}");
+                    return Err(e);
+                }
+            }
+        }
+    };
 
     // Forward the GET request to Dana
     let req = http::request_get(offload_path, dana_addr, OFFLOAD_AGENT, &[]);
