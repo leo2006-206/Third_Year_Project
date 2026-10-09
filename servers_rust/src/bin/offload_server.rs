@@ -8,6 +8,7 @@ use smol::{
 };
 
 use servers_rust::lib_http as http;
+use servers_rust::lib_server_offload as offl;
 use servers_rust::lib_util as util;
 
 async fn handle_client(
@@ -45,9 +46,15 @@ async fn serve_dana_proxy(
     offload_path: &str,
     dana_addr: &str,
 ) -> io::Result<()> {
+    use std::time::Instant;
+
     const OFFLOAD_AGENT: &str = "OBM Offload site/1.0";
-    const MAX_RETRIES: usize = 10;
+    const MAX_RETRIES: usize = 100;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+
+    let t_queue_start = Instant::now();
+    let _gate = offl::dana_gate_acquire().await;
+    let t_queue = t_queue_start.elapsed().as_millis().to_string();
 
     let mut dana_stream = {
         let mut attempt = 0;
@@ -63,15 +70,19 @@ async fn serve_dana_proxy(
                     smol::Timer::after(RETRY_DELAY).await;
                 }
                 Err(e) => {
-                    eprintln!("[offload_server] Dana connection failed after {MAX_RETRIES} attempts: {e}");
+                    eprintln!(
+                        "[offload_server] Dana connection failed after {MAX_RETRIES} attempts: {e}"
+                    );
                     return Err(e);
                 }
             }
         }
     };
 
+    // Simply send X-Queue-Time to Dana in the GET request:
+    let extra_headers = [("X-Queue-Time", t_queue.as_str())];
     // Forward the GET request to Dana
-    let req = http::request_get(offload_path, dana_addr, OFFLOAD_AGENT, &[]);
+    let req = http::request_get(offload_path, dana_addr, OFFLOAD_AGENT, &extra_headers);
 
     dana_stream.write_all(&req).await?;
     dana_stream.flush().await?;

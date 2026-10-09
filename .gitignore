@@ -1,9 +1,12 @@
 .vscode/*
 
+*.png
+
 docs/*.pdf
 docs_resource/*
 # *.sh
 */dana_runtime_copy
+*/temp_server
 */target/*
 local_host.txt
 set_ssh.sh

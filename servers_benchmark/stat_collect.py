@@ -70,6 +70,38 @@ def parse_timing_headers(headers: dict[str, str]) -> dict[str, int]:
     return timings
 
 
+def is_valid_timing_row(row: dict[str, Any]) -> bool:
+    """[Honest] Validates that a CSV row has non-empty request and valid positive timings."""
+    req = str(row.get("request", "")).strip()
+    if not req:
+        return False
+    for key in ("duration_ms", "work_ms"):
+        val = str(row.get(key, "")).strip()
+        if not val.isdigit() or int(val) <= 0:
+            return False
+    return True
+
+
+def filter_pending_tasks(
+    requests_list: list[str],
+    repetitions: int,
+    existing_rows: list[dict[str, Any]],
+) -> tuple[list[tuple[str, int]], set[tuple[str, int]]]:
+    """[Honest] Determines which (request, run_idx) tasks still need to be executed."""
+    completed = {
+        (str(row["request"]).strip(), int(row["run_idx"]))
+        for row in existing_rows
+        if str(row.get("run_idx", "")).strip().isdigit()
+    }
+    pending = [
+        (path, run_idx)
+        for path in requests_list
+        for run_idx in range(1, repetitions + 1)
+        if (path, run_idx) not in completed
+    ]
+    return pending, completed
+
+
 # ==============================================================================
 # 2. Dishonest Functions (I/O Drivers & Boundary Adapters)
 # ==============================================================================
@@ -149,6 +181,23 @@ def fetch_request(
         sys.exit(1)
 
 
+def load_existing_results(csv_path: Path) -> list[dict[str, Any]]:
+    """[Dishonest I/O] Reads existing CSV and returns rows with valid timing data."""
+    if not csv_path.is_file() or csv_path.stat().st_size == 0:
+        return []
+    valid_rows: list[dict[str, Any]] = []
+    try:
+        with csv_path.open("r", newline="", encoding="utf-8") as f:
+            reader = csv.DictReader(f)
+            for row in reader:
+                if is_valid_timing_row(row):
+                    valid_rows.append(row)
+    except Exception as e:
+        print(f"[Warning] Failed reading existing CSV {csv_path}: {e}", file=sys.stderr)
+        return []
+    return valid_rows
+
+
 def collect_statistics(
     base_url: str,
     requests_list: list[str],
@@ -160,24 +209,37 @@ def collect_statistics(
     sorts rows by request string, and writes output to CSV.
     """
     total_tasks = len(requests_list) * repetitions
+    existing_rows = load_existing_results(output_csv_path)
+    tasks, _ = filter_pending_tasks(requests_list, repetitions, existing_rows)
+
     print("=" * 75)
     print("Starting OBM Statistics Collection")
     print(f"Target Base URL:     {base_url}")
     print(f"Unique URLs:         {len(requests_list)}")
     print(f"Repetitions Per URL: {repetitions}")
     print(f"Total Requests:      {total_tasks}")
+    if existing_rows:
+        print(f"Resumed from CSV:    {len(existing_rows)} valid tasks already recorded")
+        print(f"Remaining to Run:    {len(tasks)}")
     print(f"Worker Concurrency:  {num_offloads} (limited by active offloads)")
     print(f"Output CSV File:     {output_csv_path}")
     print("=" * 75)
 
-    # Build task list: each URL repeated `repetitions` times
-    tasks: list[tuple[str, int]] = []
-    for path in requests_list:
-        for run_idx in range(1, repetitions + 1):
-            tasks.append((path, run_idx))
+    if not tasks:
+        print(
+            f"All {total_tasks} requests already completed in {output_csv_path}. Nothing to do!"
+        )
+        print("=" * 75)
+        return
 
     results: list[dict[str, Any]] = []
     start_time = time.perf_counter()
+
+    # Initialize CSV file with headers only if the file does not exist or is empty
+    if not output_csv_path.exists() or output_csv_path.stat().st_size == 0:
+        with output_csv_path.open("w", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+            writer.writeheader()
 
     with requests.Session() as session:
         with concurrent.futures.ThreadPoolExecutor(
@@ -192,17 +254,12 @@ def collect_statistics(
                     path,
                     run_idx,
                     i,
-                    total_tasks,
+                    len(tasks),
                 )
                 future_to_task[f] = (path, run_idx)
 
             batch_buffer: list[dict[str, Any]] = []
             BATCH_SIZE = 10
-
-            # Initialize CSV file with headers
-            with output_csv_path.open("w", newline="", encoding="utf-8") as f:
-                writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
-                writer.writeheader()
 
             for future in concurrent.futures.as_completed(future_to_task):
                 row = future.result()
@@ -225,18 +282,20 @@ def collect_statistics(
     total_time = time.perf_counter() - start_time
     print("-" * 75)
     print(
-        f"Completed {len(results)}/{total_tasks} requests successfully in {total_time:.2f}s."
+        f"Completed {len(results)} remaining requests successfully in {total_time:.2f}s."
     )
     print("Sorting collected data by request URL...")
 
+    # Combine existing valid rows + newly collected rows
+    all_results = existing_rows + results
     # Sort dataset by request string, then by run_idx
-    results.sort(key=lambda r: (r["request"], r["run_idx"]))
+    all_results.sort(key=lambda r: (r["request"], int(r["run_idx"])))
 
-    print(f"Writing {len(results)} sorted rows to {output_csv_path}...")
+    print(f"Writing {len(all_results)} sorted rows to {output_csv_path}...")
     with output_csv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
         writer.writeheader()
-        writer.writerows(results)
+        writer.writerows(all_results)
 
     print(f"[Done] CSV saved successfully to: {output_csv_path.resolve()}")
     print("=" * 75)
@@ -256,7 +315,7 @@ def main():
     base_url = "https://obm_main.leowong.space"
 
     # 2. Number of times each request URL is executed
-    repetitions = 3
+    repetitions = 1
 
     # 3. Number of active offload servers (limits concurrent in-flight requests)
     num_offloads = 2

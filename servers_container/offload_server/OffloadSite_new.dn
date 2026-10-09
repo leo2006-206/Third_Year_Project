@@ -12,6 +12,8 @@
 
 uses media.video.H264Parser
 uses media.PixelFormat
+uses ui.Rect2D
+uses ui.Color
 
 const int INACTIVE_WAIT_MS = 10
 const int RESOURCE_TIMEOUT_MS = 5000
@@ -234,7 +236,8 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 
 				if (rt.mode == RenderTask.M_INIT)
 					{
-					rt.t_queue = cal.getMS() - rt.t_arrive
+					if (rt.t_queue == 0)
+						rt.t_queue = cal.getMS() - rt.t_arrive
 					rt.t_asset_start = cal.getMS()
 					rt.exp = new Experience(new WH(rt.screenWidth, rt.screenHeight), ASSET_HOST, "shows/$(rt.showID)")
 					sinkevent ExpEvents(rt.exp)
@@ -262,14 +265,33 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					int frameStart = timeStart * FPS
 					int frameEnd = (timeEnd * FPS) - 1
 
+					for (int i = 0; i < rt.variants.arrayLength; i++)
+						{
+						if (rt.variants[i].name == rt.config.variantName && (rt.config.styleName == null || rt.variants[i].style == null || rt.variants[i].style == rt.config.styleName))
+							{
+							if (rt.variants[i].lengthFrames > 0 && frameEnd >= rt.variants[i].lengthFrames)
+								{
+								frameEnd = rt.variants[i].lengthFrames - 1
+								}
+							break
+							}
+						}
+
 					int frameCount = 0
 					int frameIndex = frameStart
 
+					int initTimeTaken = 0
 					ResourceInfo rinfo = rt.exp.resource(window, frameIndex)
 					//out.println("[ready-check: $(rinfo.ready)]")
 					while (!rinfo.ready)
 						{
 						timer.sleep(INACTIVE_WAIT_MS)
+						initTimeTaken += INACTIVE_WAIT_MS
+						if (initTimeTaken >= RESOURCE_TIMEOUT_MS)
+							{
+							out.println(" -- timeout waiting for initial resources")
+							break
+							}
 						rinfo = rt.exp.resource(window, frameIndex)
 						}
 					
@@ -326,6 +348,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 								rt.t_decode += cal.getMS() - t_dec
 
 								int t_rnd = cal.getMS()
+								canvas.rect(new Rect2D(0, 0, rt.screenWidth, rt.screenHeight, new Color(0, 0, 0, 255)))
 								rt.exp.render(canvas)
 								rt.t_render += cal.getMS() - t_rnd
 								}
@@ -356,6 +379,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 									}
 
 								int t_rnd = cal.getMS()
+								canvas.rect(new Rect2D(0, 0, rt.screenWidth, rt.screenHeight, new Color(0, 0, 0, 255)))
 								rt.exp.batchRenderFrame(canvas, frameIndex)
 								rt.t_render += cal.getMS() - t_rnd
 								}
@@ -450,9 +474,9 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							}
 
 						reqHandled ++
-						if (opMode == M_LISTEN && reqHandled >= 10)
+						if (opMode == M_LISTEN && reqHandled >= 10 && requests.getLength() == 0 && pending.getLength() == 0)
 							{
-							out.println(" -- handled $(reqHandled) requests, recycling Dana worker...")
+							out.println(" -- handled $(reqHandled) requests, queue empty, recycling Dana worker...")
 							quit = true
 							restListener.unbind()
 							return 0
@@ -613,7 +637,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 		return headers
 		}
 	
-	void queueRequest(String subTokens[], TCPSocket socket, File fd, int bitrate)
+	void queueRequest(String subTokens[], TCPSocket socket, File fd, int bitrate, opt int queueTime)
 		{
 		RenderTask rt = new RenderTask(subTokens[2].string, subTokens[3].string.intFromString(), subTokens[4].string.intFromString(), subTokens[5].string.intFromString(), subTokens[6].string.intFromString(), bitrate, RenderTask.M_INIT, socket, fd)
 
@@ -632,7 +656,9 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 		
 		rt.config = rcfg
 		rt.t_arrive = cal.getMS()
-		out.println(" -- request queued")
+		if (isset queueTime && queueTime > 0)
+			rt.t_queue = queueTime
+		out.println(" -- request queued (qTime: $(rt.t_queue)ms)")
 		requests.add(rt)
 		}
 
@@ -657,7 +683,17 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 
 					if (subTokens.arrayLength >= 8)
 						{
-						queueRequest(subTokens, socket, null, BITRATE_DEFAULT)
+						int qTime = 0
+						for (int i = 1; i < headers.arrayLength; i++)
+							{
+							if (headers[i].string.startsWith("X-Queue-Time"))
+								{
+								String qParts[] = headers[i].string.explode(":")
+								if (qParts.arrayLength >= 2)
+									qTime = stringUtil.trim(qParts[1].string).intFromString()
+								}
+							}
+						queueRequest(subTokens, socket, null, BITRATE_DEFAULT, qTime)
 						}
 						else
 						{
