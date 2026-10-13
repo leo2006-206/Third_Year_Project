@@ -5,6 +5,7 @@ Models request patterns over time (duration & total_requests) using `requests`.
 """
 
 import concurrent.futures
+import contextlib
 import json
 import math
 import re
@@ -116,15 +117,13 @@ class MeanStd:
         self.min_val: float = float("inf")
         self.max_val: float = float("-inf")
 
-    def add(self, x: float | int):
+    def add(self, x: float):
         val = float(x)
         self.count += 1
         self.sum += val
         self.sum_sq += val * val
-        if val < self.min_val:
-            self.min_val = val
-        if val > self.max_val:
-            self.max_val = val
+        self.min_val = min(self.min_val, val)
+        self.max_val = max(self.max_val, val)
 
     def reset(self):
         self.count = 0
@@ -250,11 +249,9 @@ class ContainerMonitor:
             try:
                 self._proc.terminate()
                 self._proc.wait(timeout=2.0)
-            except Exception:
-                try:
+            except (subprocess.SubprocessError, OSError):
+                with contextlib.suppress(OSError):
                     self._proc.kill()
-                except Exception:
-                    pass
         if self._thread:
             self._thread.join(timeout=1.0)
 
@@ -270,7 +267,7 @@ class ContainerMonitor:
             clean = ansi_re.sub("", line).strip()
             if not clean or not clean.startswith("{") or not clean.endswith("}"):
                 continue
-            try:
+            with contextlib.suppress(json.JSONDecodeError, KeyError, ValueError):
                 data = json.loads(clean)
                 name = data.get("Name", "")
                 if name:
@@ -289,8 +286,6 @@ class ContainerMonitor:
                             }
                         )
                         sample.clear()
-            except Exception:
-                pass
 
 
 def send_single_request(req_id: int, url: str) -> dict[str, Any]:
@@ -325,7 +320,7 @@ def send_single_request(req_id: int, url: str) -> dict[str, Any]:
             f"net={timings['net']}ms c_net={client_net}ms"
         )
         return result
-    except Exception as e:
+    except (requests.RequestException, KeyError, ValueError) as e:
         duration_ms = round((time.perf_counter() - t0) * 1000)
         print(f"[Req #{req_id:02d}] FAILED after {duration_ms}ms: {e}")
         return {

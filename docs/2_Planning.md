@@ -47,49 +47,72 @@ Looking at the real metadata, several critical factors were missing:
    * Decoded pixels $\sum (W_{\text{in}} \times H_{\text{in}})$ are often different from Output canvas pixels $(W_{\text{out}} \times H_{\text{out}})$ (e.g. F1 decodes $1920\times 1080$ main + $640\times 368$ PIP, but encodes $1280 \times 720$).
 
 #### Refined Multi-Stage Feature Representation:
-Instead of one big vector, we can write **three stage-specific vectors**:
+Instead of one big vector, we decouple the pipeline into **three stage-specific structural vectors**:
 
-$$\mathbf{x}_{\text{decode}} = \begin{bmatrix} N_{\text{video\_streams}} & \sum \text{DecodedMegapixels} \end{bmatrix}$$
+$$\mathbf{x}_{\text{decode}} = \begin{bmatrix} 1 & N_{\text{video\_streams}} & \sum \text{DecodedMegapixels} & \text{InputSegmentMB} \end{bmatrix}$$
 
-$$\mathbf{x}_{\text{render}} = \begin{bmatrix} N_{\text{chroma}} & N_{\text{alpha}} & N_{\text{anim\_img}} & N_{\text{reframe}} & N_{\text{total\_layers}} \end{bmatrix}$$
+$$\mathbf{x}_{\text{render}} = \begin{bmatrix} 1 & N_{\text{chroma}} & N_{\text{alpha}} & N_{\text{anim\_img}} & N_{\text{reframe}} & N_{\text{total\_layers}} \end{bmatrix}$$
 
-$$\mathbf{x}_{\text{encode}} = \begin{bmatrix} \text{OutputMegapixels} & \text{FPS} \end{bmatrix}$$
-
----
-
-### 3. Reconstructing the Layer Costs: Two Practical Options
-
-#### Option A: Direct Controlled A/B Deltas (Marginal Costs)
-We can query the CSV for requests that differ by **exactly one parameter** to measure real marginal cost:
-* **F1 Sam PIP ($640 \times 368$)**:
-  * `driver|Off`: $1415.7\text{ms}$ decode, $226.9\text{ms}$ render.
-  * `driver|Sam`: $1597.8\text{ms}$ decode, $275.1\text{ms}$ render.
-  * $\to \Delta \text{Decode} = \mathbf{+182.1\text{ms}}$, $\Delta \text{Render} = \mathbf{+48.2\text{ms}}$.
-* **Forest Leaves Alpha Mask**:
-  * `leaves_alpha|Off`: $1786.3\text{ms}$ render.
-  * `leaves_alpha|alpha`: $2962.0\text{ms}$ render.
-  * $\to \Delta \text{Render (1 Alpha Mask)} = \mathbf{+1175.7\text{ms}}$.
-* **Weather Chromakey**:
-  * Base render time without chromakey $\approx 0.2\text{s} - 0.5\text{s}$.
-  * Weather render with `chromakey`: $5190\text{ms}$.
-  * $\to \Delta \text{Render (1 Chromakey)} \approx \mathbf{+4700\text{ms}}$.
-
-#### Option B: Global Multivariate Linear Regression (OLS)
-We construct the feature matrix $\mathbf{X}$ for all 1,281 runs using the JSON parameters and fit the unit weights:
-$$\mathbf{w}_{\text{render}} = (\mathbf{X}^T \mathbf{X})^{-1} \mathbf{X}^T \mathbf{y}_{\text{render}}$$
-This yields universal coefficients:
-* $w_{\text{chromakey}} \approx 4.7\text{s}$
-* $w_{\text{alphamask}} \approx 1.1\text{s}$
-* $w_{\text{anim\_img}} \approx 0.05\text{s}$
-* $w_{\text{decode\_1080p}} \approx 1.1\text{s}$
-* $w_{\text{decode\_360p}} \approx 0.18\text{s}$
+$$\mathbf{x}_{\text{encode}} = \begin{bmatrix} 1 & \text{OutputMegapixels} & N_{\text{total\_layers}} & N_{\text{video\_streams}} & (N_{\text{video}} \times N_{\text{anim}}) \end{bmatrix}$$
 
 ---
 
-### 4. What Would You Like to Explore Next?
-1. **Compute the exact A/B Marginal Cost Table** across all available toggles from `request_timings.csv`?
-2. **Fit the regression model ($\mathbf{w}$)** in Python and evaluate prediction accuracy ($R^2$, RMSE) on the dataset?
-3. **Draft the cost model section** directly into [`docs/2_Planning.md`](file:///home/leowong/SCC/Project/ThirdYearProject/docs/2_Planning.md)?
+### 3. Empirical Benchmark Results (All 1,281 Runs, All 6 Shows)
+
+Fitted via Ordinary Least Squares (OLS) on the complete multi-show dataset:
+* `f1.json` (594 runs)
+* `f1_full.json` (594 runs)
+* `forecast.json` (72 runs)
+* `forest720.json` (3 runs)
+* `forest720_leaves.json` (6 runs)
+* `spiders.json` (12 runs)
+
+#### A. Stage-by-Stage Performance & Physical Coefficients
+
+| Pipeline Stage | Features Used | $R^2$ Score | Mean Absolute Error (MAE) | Learned Physical Coefficients ($\boldsymbol{\beta}$) |
+| :--- | :--- | :--- | :--- | :--- |
+| **Decode Stage** | $[1, N_{\text{vid}}, \text{DecMP}, \text{InputMB}]$ | **$0.915$** | **$116.8\text{ ms}$** | • Base intercept: $+90.5\text{ ms}$<br>• Decoded Megapixels: **$+462.8\text{ ms / MP}$**<br>• Input data throughput: **$+41.8\text{ ms / MB}$** |
+| **Render Stage** | $[1, N_{\text{chr}}, N_{\alpha}, N_{\text{anim}}, N_{\text{ref}}, N_{\text{tot}}]$ | **$0.960$** | **$76.0\text{ ms}$** | • Base intercept: $+103.7\text{ ms}$<br>• Chromakey (CPU pixel distance): **$+4,941.3\text{ ms}$**<br>• Alpha Mask (per-pixel blend): **$+421.3\text{ ms}$**<br>• Layer composition density: **$+82.6\text{ ms / layer}$** |
+| **Encode Stage** | $[1, \text{OutMP}, N_{\text{tot}}, N_{\text{vid}}, N_{\text{vid}} \cdot N_{\text{anim}}]$ | **$0.133$** | **$267.3\text{ ms}$** | • Base intercept: $+1,107.9\text{ ms}$<br>• Output Megapixels: **$+1,021.0\text{ ms / MP}$**<br>• Active video streams: $+161.6\text{ ms}$<br>• Overlay visual entropy: **$+114.3\text{ ms}$** |
+| **Total Work Time** | $\sum(\text{Decode} + \text{Render} + \text{Encode})$ | **$0.793$** | **$393.6\text{ ms}$** | **$11.7\%$ Relative Error (MAPE)** across entire dataset |
+
+#### B. Generalization Across Shows (Zero-Shot / Unseen Shows)
+* **`f1.json` (unseen test set)**: $\text{MAE} = 357.6\text{ ms}$ ($\text{MAPE} = 11.6\%$)
+* **`f1_full.json` (unseen test set)**: $\text{MAE} = 530.0\text{ ms}$ ($\text{MAPE} = 14.1\%$)
+* **Out-of-sample 20% random test set**: $\text{MAE} = 387.0\text{ ms}$ ($\text{MAPE} = 12.4\%$, $R^2 = 0.751$)
+
+---
+
+### 4. Why Does the Encode Stage Have Lower $R^2$? (What Was Missing)
+
+While `decode_ms` ($R^2 = 0.915$) and `render_ms` ($R^2 = 0.960$) fit cleanly, `encode_ms` has a lower $R^2$ ($0.133$). Analysis of `servers_container/offload_server/OffloadSite_new.dn` (lines 387–395) and the media asset specs reveals why:
+
+#### 1. What `t_encode` Physically Measures
+Inside the server loop, `t_encode` is **not just video encoding**. It measures three operations per frame:
+1. `window.getPixels()`: **GPU-to-CPU memory copy** (`glReadPixels` transferring $1280 \times 720 \times 4$ bytes over PCIe from VRAM to RAM on every frame).
+2. `rgbaToYUV()`: **CPU color-space conversion** for 600 frames.
+3. `encoder.encode()`: Actual **H.264 CPU software compression**.
+
+#### 2. The "Constant Feature" Trap in Benchmark Data
+The toy model relied on $\mathbf{x}_{\text{encode}} = [\text{OutputMegapixels}, \text{FPS}]$. However:
+* In `request_timings.csv`, almost 100% of the runs output $1280 \times 720$ (landscape) or $720 \times 1280$ (portrait). Both equal identically **$0.9216\text{ Megapixels}$**.
+* FPS is identically **$25\text{ FPS}$** across all runs.
+* **Mathematical consequence:** A feature with near-zero variance cannot explain target variance. Without resolution variation in the dataset, linear regression can only predict the mean.
+
+#### 3. What Was Missing from the Spec & Meta Information
+1. **Content Motion Complexity & Entropy**:
+   * Pure animated graphics (`variant: track`) encode in **$1,395\text{ ms}$** because H.264 uses zero-motion skip macroblocks.
+   * Full 1080p race video with PIP (`variant: race`) encodes in **$3,800\text{--}4,045\text{ ms}$** due to high-frequency texture noise and full motion vector searches.
+   * *Required feature*: $N_{\text{video\_streams}}$ and $(N_{\text{video}} \times N_{\text{anim}})$ to represent composite visual entropy.
+2. **Input Video Bitrate / Segment File Size**:
+   * Asset file sizes on disk (`seg_*.h264`) vary from $6.56\text{ MB}$ to $8.76\text{ MB}$ across 10-second segments of the same show. Incorporating $\text{InputSegmentMB}$ captures this chunk-level temporal motion complexity.
+3. **Narrow Target Dynamic Range**:
+   * Unlike `render_ms` (which spans $13\text{ ms}$ to $6,000\text{ ms}$, dynamic range $> 400\times$), `encode_ms` is clustered tightly around $1,800 \pm 250\text{ ms}$.
+   * An MAE of $267\text{ ms}$ corresponds to a relative error of only **$\approx 14\%$**, meaning the absolute prediction error is small even though $R^2$ is bounded by OS/thread noise.
+
+---
+
+### 5. Reconstructing Layer Costs: Practical Summary
 
 
 

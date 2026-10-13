@@ -72,7 +72,9 @@ def transform_show(filename: str, raw: dict) -> dict | None:
             "default": v.get("default", False),
             "width": v.get("width", first_var.get("width", 1280)),
             "height": v.get("height", first_var.get("height", 720)),
-            "length_frames": v.get("length_frames", first_var.get("length_frames", 600)),
+            "length_frames": v.get(
+                "length_frames", first_var.get("length_frames", 600)
+            ),
             "total_layers": compute_dag_root_count(raw_layers),
             "layers": catalog_layers,
         }

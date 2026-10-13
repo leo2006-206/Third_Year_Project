@@ -173,7 +173,7 @@ def fetch_request(
             "encode_ms": timings["encode"],
             "client_net_ms": client_net,
         }
-    except Exception as e:
+    except (requests.RequestException, KeyError, ValueError) as e:
         print(
             f"\n[FATAL ERROR] Request {path} (Run #{run_idx}) failed with exception: {e}",
             file=sys.stderr,
@@ -192,7 +192,7 @@ def load_existing_results(csv_path: Path) -> list[dict[str, Any]]:
             for row in reader:
                 if is_valid_timing_row(row):
                     valid_rows.append(row)
-    except Exception as e:
+    except (OSError, csv.Error) as e:
         print(f"[Warning] Failed reading existing CSV {csv_path}: {e}", file=sys.stderr)
         return []
     return valid_rows
@@ -241,43 +241,43 @@ def collect_statistics(
             writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
             writer.writeheader()
 
-    with requests.Session() as session:
-        with concurrent.futures.ThreadPoolExecutor(
-            max_workers=num_offloads
-        ) as executor:
-            future_to_task = {}
-            for i, (path, run_idx) in enumerate(tasks, start=1):
-                f = executor.submit(
-                    fetch_request,
-                    session,
-                    base_url,
-                    path,
-                    run_idx,
-                    i,
-                    len(tasks),
-                )
-                future_to_task[f] = (path, run_idx)
+    with (
+        requests.Session() as session,
+        concurrent.futures.ThreadPoolExecutor(max_workers=num_offloads) as executor,
+    ):
+        future_to_task = {}
+        for i, (path, run_idx) in enumerate(tasks, start=1):
+            f = executor.submit(
+                fetch_request,
+                session,
+                base_url,
+                path,
+                run_idx,
+                i,
+                len(tasks),
+            )
+            future_to_task[f] = (path, run_idx)
 
-            batch_buffer: list[dict[str, Any]] = []
-            BATCH_SIZE = 10
+        batch_buffer: list[dict[str, Any]] = []
+        BATCH_SIZE = 10
 
-            for future in concurrent.futures.as_completed(future_to_task):
-                row = future.result()
-                results.append(row)
-                batch_buffer.append(row)
+        for future in concurrent.futures.as_completed(future_to_task):
+            row = future.result()
+            results.append(row)
+            batch_buffer.append(row)
 
-                if len(batch_buffer) >= BATCH_SIZE:
-                    with output_csv_path.open("a", newline="", encoding="utf-8") as f:
-                        writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
-                        writer.writerows(batch_buffer)
-                    batch_buffer.clear()
-
-            # Flush any remaining rows in the buffer
-            if batch_buffer:
+            if len(batch_buffer) >= BATCH_SIZE:
                 with output_csv_path.open("a", newline="", encoding="utf-8") as f:
                     writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
                     writer.writerows(batch_buffer)
                 batch_buffer.clear()
+
+        # Flush any remaining rows in the buffer
+        if batch_buffer:
+            with output_csv_path.open("a", newline="", encoding="utf-8") as f:
+                writer = csv.DictWriter(f, fieldnames=CSV_HEADERS)
+                writer.writerows(batch_buffer)
+            batch_buffer.clear()
 
     total_time = time.perf_counter() - start_time
     print("-" * 75)
