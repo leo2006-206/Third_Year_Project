@@ -153,15 +153,15 @@ def plot_statistics(stats: dict, output_path: Path) -> None:
         capthick=1.2,
     )
 
-    # Value annotations on top of bars
+    # Value annotations on top of bars (Mean ± Std)
     for i, (m, s) in enumerate(zip(work_means, work_stds)):
         ax.text(
             i,
-            m + s + 0.25,
-            f"{m:.2f}s",
+            m + s + 0.2,
+            f"{m:.2f} ± {s:.2f}s",
             ha="center",
             va="bottom",
-            fontsize=9,
+            fontsize=8.5,
             fontweight="bold",
         )
 
@@ -175,8 +175,8 @@ def plot_statistics(stats: dict, output_path: Path) -> None:
     )
     ax.set_xticks(x)
     ax.set_xticklabels(labels, fontsize=11, fontweight="bold")
-    ax.set_ylim(0, 10.5)
-    ax.set_yticks(np.arange(0, 11, 1))
+    ax.set_ylim(0, 11.0)
+    ax.set_yticks(np.arange(0, 12, 1))
 
     # Paper-style horizontal grid lines
     ax.yaxis.grid(True, linestyle="--", alpha=0.5, color="gray")

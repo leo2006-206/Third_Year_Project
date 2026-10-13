@@ -80,7 +80,6 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
-    // 1. Read initial chunk (contains headers + first video slice)
     let mut buf = vec![0u8; 4096];
     let n = util::buf_read(&mut offload_steam, &mut buf).await?;
 
@@ -169,6 +168,7 @@ fn main() -> io::Result<()> {
 
     let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
     // let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
+    // let load_balancer = lb::RandomLB::new(OFFLOAD_URL);
 
     println!(
         "Load balancer type = {}",

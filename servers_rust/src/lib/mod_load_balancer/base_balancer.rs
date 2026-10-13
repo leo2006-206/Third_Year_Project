@@ -1,7 +1,8 @@
 // use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
-pub trait LoadBalancerPolicy: Send + Sync + Default {
+pub trait LoadBalancerPolicy: Send + Sync {
+    fn new<S: AsRef<str>>(endpoints: &[S]) -> Self;
     fn select(&self, key: Option<&str>, num_workers: usize) -> usize;
     fn complete(&self, _worker_idx: usize, _feedback: Option<&TimesFeedback>) {}
 }
@@ -28,8 +29,8 @@ pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
 
 impl<P: LoadBalancerPolicy> LoadBalancer<P> {
     pub fn new<'a>(addrs: impl IntoIterator<Item = &'a str>) -> Self {
-        let policy = P::default();
         let addrs: Vec<String> = addrs.into_iter().map(String::from).collect();
+        let policy = P::new(&addrs);
 
         assert!(!addrs.is_empty(), "addrs must not empty");
         // for addr in &addrs {

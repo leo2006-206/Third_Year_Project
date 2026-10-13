@@ -306,6 +306,7 @@ dependencies = [
 name = "servers_rust"
 version = "0.1.0"
 dependencies = [
+ "fastrand",
  "smol",
 ]
 
