@@ -21,7 +21,7 @@ ______________________________________________________________________
 - **Networking**:
   - **Local (Same host)**: Docker network `obm-net` (containers resolve each other directly by name, e.g. `obm-offload-1:7010`, `obm-offload-2:7020`, `obm-offload-3:7030`).
   - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication across hosts.
-  - **Public Access**: Cloudflare Tunnel routing `https://obm_main.leowong.space/` to `localhost:7000`.
+  - **Public Access (Self-Hosted Edge Tunnel)**: Cloud VPS (Caddy on `195.58.134.234`) with automatic Let's Encrypt TLS terminating at `https://obm-main.leowong.space/` and proxying over Tailscale to local port `7000` (bypassing Cloudflare's 100 MB cap and 100s streaming timeouts).
 
 ______________________________________________________________________
 
@@ -70,7 +70,9 @@ ______________________________________________________________________
    ```bash
    docker network create obm-net 2>/dev/null || true
    ```
-2. **Cloudflare Tunnel** (`cloudflared` installed on the host, if public access is needed).
+2. **Tailscale & Edge VPS** (for remote workers and public HTTPS):
+   - Local: Ensure Tailscale is running (`sudo systemctl start tailscaled && tailscale up`).
+   - Cloud Edge VPS (`195.58.134.234`): Runs Caddy reverse-proxying `https://obm-main.leowong.space/` to your local Tailscale IP (`100.x.y.z:7000`).
 
 ### A. Running the Offload Servers
 
@@ -102,18 +104,56 @@ You can launch an individual offload node by passing `ID`, `PORT`, `DECODING` (`
 
 ### B. Running the Main Server
 
-Run the automated build and startup script from the project root:
+The Main Server is a high-performance Rust web server that serves the UI harness, static show/asset files, and load-balances offload segment requests across available rendering worker nodes on port `7000`.
+
+#### 1. Interactive Mode (Compile, Build & Run)
+Run the automated runner from the project root:
 
 ```bash
 ./servers_container/main_server/run_sh.sh
 ```
 
-This compiles the Rust `main_server`, builds the lightweight Docker image, mounts `obm/assets` and `obm/shows` directly as read-only volumes, and starts the container on port `7000`.
+**What this script does:**
+1. Compiles the Rust server binary with `--release` optimizations (`cargo build --release --bin main_server`).
+2. Builds the lightweight Docker image `obm-main-server`.
+3. Cleans up any existing `obm-main-server` container.
+4. Mounts host directories directly via read-only volumes (no asset rebuilds required):
+   - `obm/assets/` $\rightarrow$ `/app/obm/assets:ro`
+   - `obm/shows/` $\rightarrow$ `/app/obm/shows:ro`
+5. Connects to `obm-net` and exposes host port `7000`.
+
+#### 2. Fast Startup (Skip Recompilation)
+If the Rust binary and Docker image are already compiled:
+
+```bash
+./servers_container/main_server/run_sh.sh --skip-build
+```
+
+#### 3. Background / Daemon Mode
+To run the Main Server continuously in the background:
+
+```bash
+# Start container in detached mode
+docker run -d --rm --init \
+    --network obm-net \
+    -p 7000:7000 \
+    -v "$PWD/obm/assets:/app/obm/assets:ro" \
+    -v "$PWD/obm/shows:/app/obm/shows:ro" \
+    --name obm-main-server \
+    obm-main-server
+
+# Inspect live logs
+docker logs -f obm-main-server
+
+# Stop the container
+docker stop obm-main-server
+```
 
 ### C. Accessing the System
 
-- **Local**: Open `http://localhost:7000/` in your browser.
-- **Public / Remote**: Start your Cloudflare Tunnel to access `https://obm_main.leowong.space/`.
+- **Local Machine**: `http://localhost:7000/`
+- **Private Tailnet (P2P)**: `http://<LOCAL_TAILSCALE_IP>:7000/`
+- **Public Domain (via Edge VPS)**: `https://obm-main.leowong.space/`
 
 ______________________________________________________________________
 
@@ -148,8 +188,46 @@ ______________________________________________________________________
 
 ***
 
-## 6. Play Video
+## 6. Play Video (CLI Verification)
 
-1. Open a directory
-2. run `curl -s "https://obm_main.leowong.space/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam" -o segment.h264 `
-3. run `ffplay -f h264 -autoexit segment.h264`
+Test offloaded segment generation and video playback directly from the command line:
+
+1. Request and stream a 10-second composited H.264 segment:
+   ```bash
+   curl -s "https://obm-main.leowong.space/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam" -o segment.h264
+   ```
+2. Play the downloaded segment with `ffplay`:
+   ```bash
+   ffplay -f h264 -autoexit segment.h264
+   ```
+
+______________________________________________________________________
+
+## 7. Self-Hosted Edge Tunnel (VPS + Caddy + Tailscale)
+
+To eliminate third-party tunnel quotas (such as Cloudflare Tunnel's 100 MB request ceiling and 100-second execution timeouts), public access is routed through a private cloud edge VPS:
+
+```
+[Public Client] ──HTTPS──> [VPS: 195.58.134.234 (Caddy)] ──Tailscale (WireGuard)──> [Local Host: 100.x.y.z:7000]
+```
+
+### VPS Configuration Reference:
+- **Cloudflare DNS**: An `A` record pointing `obm-main.leowong.space` to `195.58.134.234` with **DNS Only** (Grey Cloud).
+- **Caddy Configuration** (`/etc/caddy/Caddyfile` on the VPS):
+  ```caddyfile
+  obm-main.leowong.space {
+      reverse_proxy 100.75.221.63:7000 {
+          transport http {
+              response_header_timeout 600s
+          }
+      }
+  }
+  ```
+- **Management Commands on VPS**:
+  ```bash
+  systemctl restart caddy    # Apply config changes
+  systemctl status caddy     # Verify TLS certificates and proxy status
+  journalctl -u caddy -f     # Inspect live access and error logs
+  tailscale status           # Verify P2P connection to local machine
+  ```
+

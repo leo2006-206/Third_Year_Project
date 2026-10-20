@@ -1,0 +1,278 @@
+\documentclass[11pt,a4paper]{article}
+
+% Core typography & layout
+\usepackage[english]{babel}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage[parfill]{parskip}
+\usepackage[a4paper, margin=2.5cm]{geometry}
+
+% Section styling & lists
+\usepackage{titlesec}
+\titleformat{\section}{\large\bfseries\sffamily}{\thesection}{1em}{}
+\titleformat{\subsection}{\normalsize\bfseries\sffamily}{\thesubsection}{1em}{}
+\titleformat{\subsubsection}{\small\bfseries\sffamily}{\thesubsubsection}{1em}{}
+
+\usepackage{enumitem}
+\setlist{noitemsep, topsep=3pt, parsep=2pt}
+
+% Tables & Math
+\usepackage{booktabs}
+\usepackage{tabularx}
+\usepackage{amsmath}
+
+% Citations & Hyperlinks
+\usepackage{cite}
+\usepackage{xcolor}
+\usepackage[colorlinks=true, allcolors=blue!70!black]{hyperref}
+
+\title{\textbf{Compute Offload Framework for Cloud/Edge Media Rendering in Object-Based Media}}
+\author{\textbf{Leo Wong} \quad (Student ID: 39435377) \\[0.2em] \small \textbf{Project Supervisor:} Barry Porter}
+\date{}
+
+\begin{document}
+
+\maketitle
+
+\section{Introduction}
+\label{sec:Introduction}
+
+Media services have become increasingly popular with growing volumes of video uploaded across various platforms.
+Alongside this trend, there is a rising demand for customisable media where viewers can select their preferred element combinations.
+However, traditional streamed media cannot efficiently deliver such personalised content due to the extreme storage required by all possible combinations.
+Object-based media (OBM) is an emerging paradigm which offers higher flexibility and customisability by separating media objects until delivery ~\cite{doi:10.1049/ib.2014.0038}.
+
+However, an OBM WebAssembly player requires considerable computational power on the viewer's device to composite and display the final video. 
+To address this, an offloading framework is needed to reduce the computational pressure of the viewer's device by pre-rendering the requested combination into a video segment ~\cite{10.1145/3793853.3795762}.
+In order to minimise the viewer perceived latency and maintain reasonable offload site utilisation,
+this project is proposed to investigate OBM-specific load-balancing strategies and offloading features that improve overall user experience under realistic workloads.
+
+\section{Background}
+\label{sec:Background}
+
+\subsection{OBM Offloading Pipeline \& Request Heterogeneity}
+
+The OBM offload site is mainly responsible for rendering the client's requested combination into a 10-second video segment at 25\,fps ~\cite{10.1145/3793853.3795762}.
+The rendering pipeline consists of three stages, each with a distinct purpose and execution backend:
+
+\begin{table}[htbp]
+\centering
+\caption{Dana Offloading Pipeline Overview}
+\label{tab:offload-pipeline}
+\begin{tabularx}{\textwidth}{l >{\raggedright\arraybackslash}X >{\raggedright\arraybackslash}p{5.5cm}}
+\toprule
+\textbf{Stage} & \textbf{Purpose} & \textbf{Device / Backend} \\
+\midrule
+1. Decoding & Decompressing incoming video assets and resources & CPU (libavcodec), GPU (VA-API) \\
+\addlinespace
+2. Composition \& Readback & Layer compositing, rasterization, and framebuffer extraction & CPU (SDL), CPU software rasterizer (Mesa llvmpipe), GPU (OpenGL) \\
+\addlinespace
+3. Encoding & Final stream and frame compression & CPU, GPU \\
+\bottomrule
+\end{tabularx}
+\label{tab:offload-pipeline-table}
+\end{table}
+
+In addition to hardware differences across offload sites,
+the computational workload of each video request is highly dependent on the selected combination of layers.
+This dual heterogeneity of worker hardware and task combination creates a wide range in task completion times, even before accounting for networking factors.
+On the other hand, networking factors like latency and bandwidth are also significant determinants of the system performance,
+driven by the multi-round inter-server communication and the vast volume of video segment and asset transfers constrained by link bandwidth.
+
+For instance, rendering lightweight 2D overlays only requires under 50ms on a GPU, whereas full-frame chroma-keying on a CPU exceeds 5000ms.
+
+\subsection{Load-Balancing \& Optimisation Complexity}
+
+Due to the multidimensional complexity of OBM offloading,
+traditional static load balancing (SLB) algorithms such as Round Robin, Randomisation and IP Hash are insufficient to capture the system loads.
+This limitation arises from the assumption of uniform task sizes and their lack of runtime feedback.
+Furthermore, simple dynamic load balancing (DLB) algorithms like Throttled, Equally Spread Current Execution and Minimum Execution Time,
+focus solely on a single system variable~\cite{SHAFIQ20223910, LB111, BRAUN2001810},
+often producing unbalanced scheduling decisions that lead to worker underload or overload.
+To resolve the problem, we require DLB mechanisms capable of capturing multi-variables including worker makespan, processing power and networking factors.
+
+Beyond load balancing, certain computational optimisations are needed to reduce repeated work and client perceived latency.
+However, regular caching is ineffective due to the excessive amount of combinations and large volume of video data.
+To address this, we propose caching the commonly shared computationally heavy partial segment,
+which preserving the flexibility of OBM with reasonable storage requirement.
+Especially given the irregular processing cost across combinations ~\cite{11217518}.
+Beside caching, other approaches such as proactive prediction and request coalescing represent promising optimisation directions ~\cite{10.1145/3793853.3795762}.
+
+\subsection{User Behaviors \& Preference}
+
+
+Krishnan and Sitaraman~\cite{10.1145/2398776.2398799} established a causal relationship between streaming latency and viewer abandonment. 
+Crucially, their findings show that viewer patience begins to decline rapidly once startup delay exceeds 2 seconds. 
+Beyond this 2-second threshold, every additional 1-second delay results in approximately 5.8\% increase in viewer abandonment. 
+Furthermore, playback interruptions and rebuffering severely degrade engagement; 
+even a 1\% normalized rebuffer delay causes viewers to watch 5.02\% less of the video~\cite{10.1145/2398776.2398799}. 
+In an OBM offload environment, where compute-intensive rendering times can easily span several seconds,
+keeping client perceived latency strictly within this 2-second window is key to preventing immediate user abandonment.
+
+Cha et al.~\cite{inproceedings} analysed user access distributions and demonstrated that video popularity follows extreme Pareto skewness (the 80--20 rule). 
+Their measurements revealed that access patterns are even more concentrated than classic Pareto distributions;
+the top 10\% to 20\% of popular video items account for nearly 80\% of aggregate viewer requests,
+while the remaining content receives very few views~\cite{inproceedings}. 
+In the context of OBM, while combinatorial flexibility allows hundreds of unique layer permutations,
+actual viewer choices similarly cluster around a small set of popular default combinations.
+
+\section{The Proposed Project}
+
+\subsection{Objectives}
+
+This project aims to investigate the optimisation space of an OBM offload rendering framework.
+In order to understand the interaction between different system variables, the following objectives are defined:
+\begin{itemize}
+    \item Develop a \textbf{distributed OBM system} incorporating various \textbf{load balancing algorithms} and \textbf{computational optimisations}.
+    \item Conduct \textbf{real-world experiments} and \textbf{software simulations} to evaluate the system performance under \textbf{realistic client workloads}.
+    \item Analyse the collected data to \textbf{identify the key performance determinants} within the system.
+\end{itemize}
+
+\subsection{Methodology}
+
+This quantitative research is structured into four sequential stages:
+
+\subsubsection{Initial Scoping}
+\label{sec:Scoping}
+
+The system consists of a central load balance server (main server) and a number of heterogeneous, distributed offload sites.
+In the real-world experiments, each system node runs within a containerised environment alongside network emulation tool to model realistic conditions.
+
+The load balancing strategies will be deployed in both the real-world experiments and software simulations,
+coupled  with a set of targeted optimisation features.
+For certain load balancing algorithms, a task duration prediction model is required.
+
+The initial load balancing algorithms candidates include:
+\begin{itemize}
+    \item Round Robin~\cite{SHAFIQ20223910}
+    \item Interleaved Weighted Round Robin~\cite{DBLP:journals/corr/abs-2003-08372}
+    \item Equally Spread Current Execution~\cite{SHAFIQ20223910}
+    \item Minimum Completion Time~\cite{BRAUN2001810}
+    \item Max-Min \& Min-Min~\cite{SHAFIQ20223910,BRAUN2001810}
+    \item Ant Colony Optimisation~\cite{SHAFIQ20223910,LB111}
+\end{itemize}
+The initial computational optimizations include:
+\begin{itemize}
+    \item Regular Segment and Asset Caching (LRU / LFU)
+    \item Request Coalescing
+    \item Proactive Request Prediction
+    \item Partial Segment Caching with Greedy Dual Size Frequency (GDSF) policy~\cite{WGDSF}
+\end{itemize}
+
+The project will use generated request sequences across both the real-world experiment and the simulation.
+These sequences will be produced using an exponential probability density function for request interval and
+a Zipf function with an exponential cutoff for video selection~\cite{inproceedings}.
+
+Throughout the project, the following metrics will be used to evaluate the system performance:
+\begin{itemize}
+\item Server Utilisation Ratio (Execution Duty Cycle) = $\frac{\text{Active Execution Time}} {(\text{Active Execution Time + Idle Time})}$, \\ paired with the execution pipeline specification.
+\item Client Perceived Latency (Average, P50, P90, P99)
+\item Caching cost (Memory or storage usage)
+\end{itemize}
+
+
+The following time measurements will be used to analyze internal system interactions and decompose end-to-end latency:
+\begin{itemize}
+    \item $T_\text{asset}$: Time spent by the offload site retrieving and loading required media assets.
+    \item $T_\text{queuing}$: Duration that a request waits in the offload site's scheduling queue.
+    \item $T_\text{work} = T_\text{decode} + T_\text{render} + T_\text{encode}$: Active computational time on the offload site, \\ decomposed into:
+    \begin{itemize}
+        \item $T_\text{decode}$: Decompressing input video bitstreams.
+        \item $T_\text{render}$: Compositing layers, rasterizing overlays, and applying pixel transformations.
+        \item $T_\text{encode}$: Compressing the composited frames into the final output video segment.
+    \end{itemize}
+    \item $T_\text{offload-RTT}$: Network round-trip time between the main server and the selected edge offload site + the load balancing decision overhead.
+    \item $T_\text{client-RTT}$: Network round-trip time between the client playback device and the main server.
+\end{itemize}
+
+\subsubsection{Real-World Experiment}
+\label{sec:Experiment}
+
+In this stage, the prototype system is implemented and evaluated on a physical distributed infrastructure to gather formative performance data.
+
+The software stack contains:
+\begin{itemize}
+    \item Central Main Server: A containerised asynchronous Rust web server that handles public requests and make load balancing decisions.
+    \item Offload Site Nodes: Heterogeneous containerised environments running a Rust proxy next to the Dana rendering engine with configurable execution pipelines (see \autoref{tab:offload-pipeline-table}).
+    \item Network Infrastructure: A private point-to-point VPN (via Tailscale) interconnecting offload sites with the central server, alongside a cloud VM tunnel to expose public HTTPS endpoints.
+\end{itemize}
+
+To evaluate the load balancing algorithms and optimisation features under realistic conditions,
+the experiment introduces controlled environmental variables:
+\begin{enumerate}
+    \item Hardware Heterogeneity: The offload site cluster specifications are controlled to construct both heterogeneous and homogeneous clusters across the distributed system.
+    \item Network Emulation: The Linux Traffic Control (\texttt{tc/netem}) utility is applied to create near and far offload clusters.
+    \item Request Sequences Skewness: The Zipf exponent $\alpha$ is substituted with $0.5$ and $1.2$  to produce a uniform sequence and a strongly concentrated sequence.
+\end{enumerate}
+During each experiment, server side timing data is collected from HTTP response headers including
+$T_\text{asset}$, $T_\text{queuing}$, $T_\text{decode}$, $T_\text{render}$, $T_\text{encode}$ and $T_\text{offload-RTT}$.
+The $T_\text{client-RTT}$ will be measured on the client side by recording $T_\text{total} - \text{Sum}(\text{server side timings})$.
+
+\subsubsection{Software Simulation}
+\label{sec:Simulation}
+
+While real-world experiments provide essential validation,
+they are naturally constrained in scale and cannot easily evaluate large clusters of heterogeneous offload nodes under sustained high-concurrency loads.
+
+To overcome this scalability constraint, this stage develops a dedicated discrete-event simulator.
+This allows experiment to continue with large number of workload and offload sites, 
+which create a significant scalability evaluation for load balancing algorithms and optimisation features.
+All event durations will be based on the formative data from the real-world experiments.
+
+\subsubsection{Analysis and Reflection}
+\label{sec:Analysis}
+
+The final stage will analyse the findings from both physical experiments and simulation runs to determine key engineering conclusions:
+\begin{itemize}
+    \item Cross Validation: The simulation outputs will be compared against the physical measurements to verify the simulator's accuracy and reliability.
+    \item Bottleneck Analysis: The timing data will be analysed to identify common bottlenecks under various system conditions.  
+    \item Trade-Off Evaluation: The load balancing algorithms and optimisation features will be mapped across a Pareto frontier balancing three distinct objectives:
+    \begin{enumerate}
+        \item Client-perceived latency: Maintain latency within a certain user abandonment threshold.
+        \item Server utilisation: Maintain reasonable offload site computational workloads and avoid work underload or overload.
+        \item Cache cost: Avoid excessive caching leading to memory or storage shortages.
+    \end{enumerate}
+    \item Design Recommendations: These recommendations will be based on the previous analysis results and provide promising directions 
+    for the OBM offload framework, focusing on load balancing algorithms and optimisation features.
+\end{itemize}
+
+\section{Programme of Work}
+
+This project will run from early October 2026 until March 2027.
+
+\subsection{Timeline and Time Scale}
+
+\begin{description}[leftmargin=3.4cm, labelwidth=3.0cm, labelsep=0.4cm, font=\normalfont\bfseries]
+    \item[Week 1 to 2:]   Initial Scoping ($\approx \text{44 hours}$) (Section~\ref{sec:Scoping})
+    \item[Week 3 to 7:]   Real-World Experiment ($\approx \text{112 hours}$) (Section~\ref{sec:Experiment})
+    \item[Week 8 to 12:]  Software Simulation ($\approx \text{112 hours}$) (Section~\ref{sec:Simulation})
+    \item[Week 13 to 15:] Analysis and Reflection ($\approx \text{66 hours}$) (Section~\ref{sec:Analysis})
+    \item[Week 16 to 18:] Final Report Writing ($\approx \text{66 hours}$)
+\end{description}
+
+\subsection{BCS Accreditation}
+
+Throughout the project, I will apply a number of computing, critical thinking and communication skills into the project.
+
+During the project, I will apply communication skills from \textbf{SCC.200: Group Project} to coordinate with my supervisor.
+
+For stage 1 Initial Scoping, I will apply the algorithmic knowledge from \textbf{SCC.121: Fundamentals of Computer Science}
+and critical thinking from \textbf{SCC.231: Computer Networks and Systems}.
+
+For stage 2 Real-World Experiment and stage 3 Software Simulation, 
+I will apply the software development principles from \textbf{SCC.111: Software Development \& SCC.211: Software Design}, 
+as well as the practical experience from \textbf{SCC.200: Group Project}.
+
+For stage 4 Analysis and Reflection, 
+I will apply the data analysis skills from \textbf{SCC.222: Artificial Intelligence Concepts \& SCCM6220: Machine Learning}. 
+
+For stage 5 Final Report Writing,
+I will apply the writing skills from \textbf{SCC.141: Professionalism in Practice}.
+
+
+
+\bibliographystyle{alpha}
+\bibliography{references}
+
+\end{document}

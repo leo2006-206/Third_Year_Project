@@ -12,3 +12,22 @@ local_host.txt
 set_ssh.sh
 obm
 __pycache__
+
+# LaTeX auxiliary and generated files
+*.aux
+*.bbl
+*.blg
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.synctex
+*.toc
+*.lof
+*.lot
+*.nav
+*.snm
+*.vrb
+*.bcf
+*.run.xml

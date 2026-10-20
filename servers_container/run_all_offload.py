@@ -262,10 +262,10 @@ def spawn_terminal_tabs(
             )
             time.sleep(0.3)
 
-    print("\n✓ All offload server nodes successfully launched!")
+    print("\nAll offload server nodes successfully launched!")
     for tab in tabs:
         print(f"   • {tab['title']}")
-    print("\nTip: To stop all offload containers when done, run:")
+    print("\nTo stop all offload containers when done, run:")
     print("  docker rm -f $(docker ps -q --filter name=obm-offload-)")
 
 

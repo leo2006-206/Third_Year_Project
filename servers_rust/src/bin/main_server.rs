@@ -163,8 +163,13 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    // const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
-    const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
+    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
+    // const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
+    // const OFFLOAD_URL: [&str; 3] = [
+    //     "obm-offload-1:7010",
+    //     "obm-offload-2:7020",
+    //     "obm-offload-2:7020",
+    // ];
 
     let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
     // let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);

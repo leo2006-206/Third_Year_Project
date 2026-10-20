@@ -3,7 +3,6 @@
 #   port:        TCP port exposed on host and bound by Rust offload server (1-65535)
 #   decoding:    Video decoding engine ('cpu' or 'gpu')
 #   composition: Rendering and scene composition tier ('cpu','llvmpipe',or 'gpu')
-#   encoding:    Video encoding engine ('cpu' only; GPU encoding is disabled/not supported)
+#   encoding:    Video encoding engine ('cpu' only, no 'gpu')
 id,port,decoding,composition,encoding
 1,7010,gpu,gpu,cpu
-2,7020,gpu,gpu,cpu
