@@ -2,11 +2,57 @@
 use std::sync::Arc;
 
 pub trait LoadBalancerPolicy: Send + Sync {
-    fn new<S: AsRef<str>>(endpoints: &[S]) -> Self;
+    fn new(offloads: &[OffloadSite]) -> Self;
     fn select(&self, key: Option<&str>, num_workers: usize) -> usize;
     fn complete(&self, _worker_idx: usize, _feedback: Option<&TimesFeedback>) {}
 }
 
+pub mod config {
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Decode {
+        Cpu,
+        Gpu,
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Render {
+        Cpu,
+        Llvmpipe,
+        Gpu,
+    }
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum Encode {
+        Cpu,
+        Gpu,
+    }
+    #[derive(Debug, Clone, Copy)]
+    pub struct Config {
+        pub decode: Decode,
+        pub render: Render,
+        pub encode: Encode,
+    }
+    impl Config {
+        pub const fn new(decode: Decode, render: Render, encode: Encode) -> Self {
+            Self {
+                decode,
+                render,
+                encode,
+            }
+        }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct OffloadSite {
+    pub endpoint: String,
+    pub config: config::Config,
+}
+impl OffloadSite {
+    pub fn new(endpoint: impl Into<String>, config: config::Config) -> Self {
+        Self {
+            endpoint: endpoint.into(),
+            config,
+        }
+    }
+}
 pub struct TimesFeedback {
     // all used i64 for ms
     pub t_net: i64,
@@ -16,7 +62,7 @@ pub struct TimesFeedback {
 }
 
 pub struct LoadBalancer<P: LoadBalancerPolicy> {
-    workers: Vec<String>, //vec of endpoint
+    workers: Vec<OffloadSite>, //vec of endpoint
     policy: Arc<P>,
 }
 
@@ -28,8 +74,8 @@ pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
 }
 
 impl<P: LoadBalancerPolicy> LoadBalancer<P> {
-    pub fn new<'a>(addrs: impl IntoIterator<Item = &'a str>) -> Self {
-        let addrs: Vec<String> = addrs.into_iter().map(String::from).collect();
+    pub fn new<'a>(addrs: impl IntoIterator<Item = OffloadSite>) -> Self {
+        let addrs: Vec<OffloadSite> = addrs.into_iter().collect();
         let policy = P::new(&addrs);
 
         assert!(!addrs.is_empty(), "addrs must not empty");
@@ -45,7 +91,7 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
     pub fn select(&self, key: Option<&str>) -> SelectionGuard<'_, P> {
         let idx = self.policy.select(key, self.workers.len());
         SelectionGuard {
-            endpoint: &self.workers[idx],
+            endpoint: &self.workers[idx].endpoint,
             worker_idx: idx,
             policy: Arc::clone(&self.policy),
             completed: false,

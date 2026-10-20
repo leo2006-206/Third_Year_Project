@@ -30,7 +30,7 @@ async fn handle_client(
         return Ok(());
     };
 
-    dbg!(&method, &path);
+    // dbg!(&method, &path);
 
     if path.starts_with("/offload") || path.starts_with("/times/offload") {
         serve_dana_proxy(client_stream, path, dana_addr).await
@@ -64,8 +64,7 @@ async fn serve_dana_proxy(
                 Err(e) if attempt < MAX_RETRIES => {
                     attempt += 1;
                     eprintln!(
-                        "[offload_server] Dana not reachable (attempt {attempt}/{MAX_RETRIES}): {e}. Retrying in {:?}...",
-                        RETRY_DELAY
+                        "[offload_server] Dana not reachable (attempt {attempt}/{MAX_RETRIES}): {e}."
                     );
                     smol::Timer::after(RETRY_DELAY).await;
                 }

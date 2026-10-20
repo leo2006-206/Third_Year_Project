@@ -104,9 +104,10 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let extra_headers = [
         ("X-OBM-Net", t_net_str.as_str()),
         ("Server-Timing", server_timing_str.as_str()),
+        ("X-OBM-Worker", target_offload.endpoint),
         (
             "Access-Control-Expose-Headers",
-            "X-Dana-Timings, Server-Timing, X-OBM-Net",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Worker",
         ),
     ];
     let modified_headers = http::response_append(&header_str, &extra_headers);
@@ -163,17 +164,25 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    const OFFLOAD_URL: [&str; 1] = ["obm-offload-1:7010"];
-    // const OFFLOAD_URL: [&str; 2] = ["obm-offload-1:7010", "obm-offload-2:7020"];
-    // const OFFLOAD_URL: [&str; 3] = [
-    //     "obm-offload-1:7010",
-    //     "obm-offload-2:7020",
-    //     "obm-offload-2:7020",
-    // ];
+    use rust_obm::mod_load_balancer::config::*;
 
-    let load_balancer = lb::RoundRobinLB::new(OFFLOAD_URL);
-    // let load_balancer = lb::KeyHashLB::new(OFFLOAD_URL);
-    // let load_balancer = lb::RandomLB::new(OFFLOAD_URL);
+    let offload_url = [
+        lb::OffloadSite::new(
+            "obm-offload-1:7010",
+            Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu),
+        ),
+        lb::OffloadSite::new(
+            "obm-offload-2:7020",
+            Config::new(Decode::Gpu, Render::Llvmpipe, Encode::Cpu),
+        ),
+        lb::OffloadSite::new(
+            "obm-offload-3:7030",
+            Config::new(Decode::Gpu, Render::Cpu, Encode::Cpu),
+        ),
+    ];
+
+    // let load_balancer = lb::RoundRobinLB::new(offload_url);
+    let load_balancer = lb::InterleavedWeightedRRLB::new(offload_url);
 
     println!(
         "Load balancer type = {}",

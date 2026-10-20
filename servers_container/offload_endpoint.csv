@@ -6,3 +6,5 @@
 #   encoding:    Video encoding engine ('cpu' only, no 'gpu')
 id,port,decoding,composition,encoding
 1,7010,gpu,gpu,cpu
+2,7020,gpu,llvmpipe,cpu
+3,7030,gpu,cpu,cpu

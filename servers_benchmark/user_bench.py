@@ -482,7 +482,7 @@ def main():
     # =========================================================================
 
     # 1. Target server base URL
-    base_url = "https://obm_main.leowong.space"
+    base_url = "https://obm-main.leowong.space"
 
     # 2. Timing and request volume
     #    e.g. duration = 10.0 and total_requests = 10 -> 1 request every 1.0s

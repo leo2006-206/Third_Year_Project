@@ -1,13 +1,13 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use super::base_balancer::{LoadBalancer, LoadBalancerPolicy};
+use super::base_balancer::*;
 
 pub struct RoundRobin {
     counter: AtomicUsize,
 }
 
 impl LoadBalancerPolicy for RoundRobin {
-    fn new<S: AsRef<str>>(_endpoints: &[S]) -> Self {
+    fn new(_offloads: &[OffloadSite]) -> Self {
         Self {
             counter: AtomicUsize::default(),
         }
