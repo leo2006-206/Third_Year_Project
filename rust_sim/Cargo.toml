@@ -1,0 +1,8 @@
+[package]
+name = "rust_sim"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+rust_obm = { path = "../rust_obm" }
+

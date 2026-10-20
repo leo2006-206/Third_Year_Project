@@ -71,7 +71,7 @@ RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/o
     dnc media/video/Decoder.h264va.dn
 
 # Copy pre-compiled Rust offload_server binary
-COPY --chmod=755 servers_rust/target/release/offload_server /usr/local/bin/offload_server
+COPY --chmod=755 target/release/offload_server /usr/local/bin/offload_server
 
 # Copy entrypoint script for launching both processes and handling signals cleanly
 COPY --chmod=755 servers_container/offload_server/entrypoint.sh /usr/local/bin/entrypoint.sh

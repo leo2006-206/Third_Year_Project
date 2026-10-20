@@ -169,14 +169,14 @@ def load_and_validate_endpoints(
     return endpoints
 
 
-def build_rust_offload(servers_rust_dir: Path) -> None:
+def build_rust_offload(project_root: Path) -> None:
     """[Dishonest / Build Driver]
     Compiles the optimized Rust offload server binary.
     """
     print("\n=== [1/3] Pre-compiling Rust Offload Server (--release) ===")
     subprocess.run(
         ["cargo", "build", "--release", "--bin", "offload_server"],
-        cwd=servers_rust_dir,
+        cwd=project_root,
         check=True,
     )
 
@@ -286,8 +286,6 @@ def main(argv: list[str] | None = None) -> None:
     csv_file = script_dir / "offload_endpoint.csv"
     offload_run_sh = script_dir / "offload_server" / "run_sh.sh"
     dockerfile = script_dir / "offload_server" / "dockerfile"
-    servers_rust_dir = project_root / "servers_rust"
-
     # Validate prerequisite files
     for path, desc in [
         (csv_file, "Endpoint CSV"),
@@ -303,7 +301,7 @@ def main(argv: list[str] | None = None) -> None:
     endpoints = load_and_validate_endpoints(csv_file)
 
     # 2. Pre-compile Rust offload binary
-    build_rust_offload(servers_rust_dir)
+    build_rust_offload(project_root)
 
     # 3. Pre-build Docker image
     build_offload_image(dockerfile, project_root)

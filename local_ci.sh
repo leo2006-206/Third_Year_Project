@@ -1,15 +1,13 @@
 #!/usr/bin/env bash
 set -e
 
-echo "=== 1. Checking Rust (servers_rust) ==="
-cd servers_rust
+echo "=== 1. Checking Rust (Workspace) ==="
 echo "-> cargo fmt..."
-cargo fmt --check
+cargo fmt --check --all
 echo "-> cargo clippy..."
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --workspace --all-targets --all-features -- -D warnings
 echo "-> cargo test..."
-cargo test
-cd ..
+cargo test --workspace
 
 echo "=== 2. Checking Python ==="
 

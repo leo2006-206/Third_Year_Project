@@ -290,6 +290,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "rust_obm"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+]
+
+[[package]]
+name = "rust_server"
+version = "0.1.0"
+dependencies = [
+ "fastrand",
+ "rust_obm",
+ "smol",
+]
+
+[[package]]
+name = "rust_sim"
+version = "0.1.0"
+dependencies = [
+ "rust_obm",
+]
+
+[[package]]
 name = "rustix"
 version = "1.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -300,14 +323,6 @@ dependencies = [
  "libc",
  "linux-raw-sys",
  "windows-sys",
-]
-
-[[package]]
-name = "servers_rust"
-version = "0.1.0"
-dependencies = [
- "fastrand",
- "smol",
 ]
 
 [[package]]

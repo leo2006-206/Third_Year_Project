@@ -18,7 +18,7 @@ WORKDIR /app/obm
 RUN mkdir -p /app/obm/shows /app/obm/assets
 
 # 3. Copy pre-compiled Rust main_server binary
-COPY --chmod=755 servers_rust/target/release/main_server /usr/local/bin/main_server
+COPY --chmod=755 target/release/main_server /usr/local/bin/main_server
 
 # 4. Copy entrypoint script for clean SIGINT / Ctrl+C handling
 COPY --chmod=755 servers_container/main_server/entrypoint.sh /usr/local/bin/entrypoint.sh

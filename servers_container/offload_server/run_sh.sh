@@ -55,7 +55,7 @@ if [ "$SKIP_BUILD_FLAG" = "1" ] || [ "${SKIP_BUILD:-0}" = "1" ]; then
     echo "=== Skipping build step (already pre-built) ==="
 else
     echo "=== [1/3] Compiling Rust Offload Server with Optimizations (--release) ==="
-    cd "$PROJECT_ROOT/servers_rust"
+    cd "$PROJECT_ROOT"
     cargo build --release --bin offload_server
 
     echo "=== [2/3] Building Docker Image: $IMAGE_NAME ==="

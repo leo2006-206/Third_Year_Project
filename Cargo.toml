@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "rust_server",
+    "rust_obm",
+    "rust_sim",
+]
+resolver = "2"
+

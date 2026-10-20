@@ -1,5 +1,5 @@
 [package]
-name = "servers_rust"
+name = "rust_server"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,5 +7,7 @@ edition = "2024"
 path = "src/lib/lib.rs"
 
 [dependencies]
+rust_obm = { path = "../rust_obm" }
 smol = "2.0"
 fastrand = "2.5"
+

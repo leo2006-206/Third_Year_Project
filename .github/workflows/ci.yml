@@ -10,9 +10,6 @@ jobs:
   rust:
     name: Rust Checks
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: servers_rust
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -24,20 +21,18 @@ jobs:
 
       - name: Rust Cache
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: servers_rust
 
       - name: Check formatting
-        run: cargo fmt --check
+        run: cargo fmt --check --all
 
       - name: Build
-        run: cargo build --verbose
+        run: cargo build --verbose --workspace
 
       - name: Run Clippy (Fail on warnings)
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
       - name: Run tests
-        run: cargo test --verbose
+        run: cargo test --workspace --verbose
 
   python:
     name: Python Linting

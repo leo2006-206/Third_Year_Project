@@ -166,7 +166,7 @@ ______________________________________________________________________
    2,7020,gpu,gpu,cpu
    3,7030,cpu,llvmpipe,cpu
    ```
-2. **Register in Main Server** (`servers_rust/src/bin/main_server.rs`):
+2. **Register in Main Server** (`rust_server/src/bin/main_server.rs`):
    - Add `"obm-offload-3:7030"` to the offload server pool / load balancer list.
 3. **Launch the cluster**:
    ```bash

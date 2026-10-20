@@ -44,7 +44,7 @@ def load_requests_file(file_path: Path | str | None = None) -> list[str]:
         Path(file_path) if file_path else None,
         Path(__file__).resolve().parent / "requests.txt",
         Path(__file__).resolve().parents[1]
-        / "servers_rust"
+        / "rust_server"
         / "src"
         / "testing_webpage"
         / "requests.txt",

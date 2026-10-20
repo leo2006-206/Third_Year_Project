@@ -7,9 +7,9 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::lib_http as http;
-use servers_rust::lib_server_offload as offl;
-use servers_rust::lib_util as util;
+use rust_server::lib_http as http;
+use rust_server::lib_server_offload as offl;
+use rust_server::lib_util as util;
 
 async fn handle_client(
     mut client_stream: TcpStream,

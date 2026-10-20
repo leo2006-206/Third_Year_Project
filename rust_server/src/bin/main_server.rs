@@ -7,11 +7,11 @@ use smol::{
     prelude::*,
 };
 
-use servers_rust::lib_http as http;
-use servers_rust::lib_server_main as sm;
-use servers_rust::lib_util as util;
-use servers_rust::mod_load_balancer as lb;
-use servers_rust::mod_load_balancer::base_balancer as blb;
+use rust_obm::mod_load_balancer as lb;
+use rust_obm::mod_load_balancer::base_balancer as blb;
+use rust_server::lib_http as http;
+use rust_server::lib_server_main as sm;
+use rust_server::lib_util as util;
 
 async fn handle_client<P: blb::LoadBalancerPolicy>(
     mut client_stream: TcpStream,
