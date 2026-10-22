@@ -2,6 +2,30 @@
 # Dockerfile for OBM Offload Server Node
 # Co-located Rust Offload Server & Dana Offload Engine (Port 9009)
 # ==============================================================================
+
+# ------------------------------------------------------------------------------
+# Stage 1: Download the Dana runtime (pinned version + checksum)
+# projectdana.com serves an incomplete TLS chain, so curl uses -k;
+# integrity is instead guaranteed by the pinned SHA-256 below.
+# ------------------------------------------------------------------------------
+FROM ubuntu:22.04 AS dana_download
+
+ARG DANA_VERSION=273
+ARG DANA_SHA256=81d71801e4048a3c5eb76fca309ad62cbfdb95adc1fd5abf0f6210e28f7f40ce
+
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN curl -fsSLk -o /tmp/dana.zip "https://www.projectdana.com/download/ubu_x86-64/${DANA_VERSION}" \
+    && echo "${DANA_SHA256}  /tmp/dana.zip" | sha256sum -c - \
+    && mkdir -p /opt/dana \
+    && unzip -q /tmp/dana.zip -d /opt/dana \
+    && chmod 755 /opt/dana/dana /opt/dana/dnc \
+    && rm -f /tmp/dana.zip
+
+# ------------------------------------------------------------------------------
+# Stage 2: Offload server image
+# ------------------------------------------------------------------------------
 FROM ubuntu:22.04
 
 # Prevent interactive dialogs during apt installation
@@ -34,14 +58,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV DANA_HOME=/opt/dana
 ENV PATH="${PATH}:${DANA_HOME}"
 
-# Copy Dana runtime engine and standard components (cached permanently)
+# Copy Dana runtime engine and standard components from the download stage (cached permanently)
 WORKDIR /opt/dana
-COPY --chmod=755 servers_container/dana_runtime_copy/ /opt/dana/
+COPY --from=dana_download /opt/dana/ /opt/dana/
 
 # Patch Dana UIPlaneLib default window size from 640x480 to target 1280x720 (0x0280x01e0 -> 0x0500x02d0).
 # This guarantees 1:1 OpenGL viewport and projection matrix alignment from initialization,
 # preventing viewport squashing, memory readback noise, and inverted texture blitting under Xvfb/Mesa.
-RUN perl -0777 -pi -e 's/\x48\xb9\x80\x02\x00\x00\xe0\x01\x00\x00/\x48\xb9\x00\x05\x00\x00\xd0\x02\x00\x00/g' \
+# Fails the build if the byte pattern is not found exactly once (e.g. a Dana update changed the library).
+RUN perl -0777 -pi -e '$n = s/\x48\xb9\x80\x02\x00\x00\xe0\x01\x00\x00/\x48\xb9\x00\x05\x00\x00\xd0\x02\x00\x00/g; die "UIPlaneLib patch matched $n times (expected 1)\n" unless $n == 1' \
     /opt/dana/components/resources-ext/UIPlaneLib\[deb.x64\].dnl
 
 # Set working directory to the OBM application root

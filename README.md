@@ -183,7 +183,7 @@ ______________________________________________________________________
 | `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, `DECODING`, `COMPOSITION`, and `ENCODING`. |
 | `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding`). |
 | `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
-| `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`) used during Docker builds. |
+| `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`), used only by `original_obm_main/`. The offload server image downloads Dana v273 from projectdana.com (pinned SHA-256) instead. |
 | `original_obm_main/` | Legacy standalone Dana server (`dana ws.core -p 7000`) used for comparative baseline benchmarks. |
 
 ***
