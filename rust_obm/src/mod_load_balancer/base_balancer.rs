@@ -74,7 +74,7 @@ pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
 }
 
 impl<P: LoadBalancerPolicy> LoadBalancer<P> {
-    pub fn new<'a>(addrs: impl IntoIterator<Item = OffloadSite>) -> Self {
+    pub fn new(addrs: impl IntoIterator<Item = OffloadSite>) -> Self {
         let addrs: Vec<OffloadSite> = addrs.into_iter().collect();
         let policy = P::new(&addrs);
 

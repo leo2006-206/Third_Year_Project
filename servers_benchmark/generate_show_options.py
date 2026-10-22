@@ -3,7 +3,10 @@
 generate_show_options.py
 
 Scans a directory containing OBM show definition files (*.json)
-and generates / updates show_options.json in place for the evaluation testing webpage.
+and generates:
+- show_options.json: show catalog for the testing webpage and main_server
+- video_duration.csv: max duration (in seconds) for each video
+- request_kind.txt: unique offload request templates using placeholder '/x/y/'
 """
 
 import itertools
@@ -151,10 +154,81 @@ def generate_full_offload_urls(catalog: dict) -> list[str]:
     return urls
 
 
-def generate_show_options(shows_dir, output_file=None, requests_file=None):
+def generate_request_kinds(catalog: dict) -> list[str]:
+    """[Honest / Pure Domain Logic]
+    Generates unique offload request templates across all shows in the catalog.
+    Replaces the time segment part with placeholder
+    to eliminate duplicate segment copies while preserving all layer combinations.
+    """
+    kinds: list[str] = []
+
+    for show in catalog.get("shows", []):
+        show_id = show["id"]
+
+        for variant in show.get("variants", []):
+            var_name = variant.get("name", "core")
+            var_style = variant.get("style", "landscape")
+            width = variant.get("width", show.get("width", 1280))
+            height = variant.get("height", show.get("height", 720))
+            total_layers = variant.get("total_layers", len(variant.get("layers", [])))
+            layers = variant.get("layers", [])
+
+            # Cartesian product of layer options: [('race|race', 'driver|Sam', ...), ...]
+            layer_combos = (
+                list(
+                    itertools.product(
+                        *[
+                            [f"{l['name']}|{opt}" for opt in l.get("options", [])]
+                            for l in layers
+                        ]
+                    )
+                )
+                if layers
+                else [()]
+            )
+
+            for combo in layer_combos:
+                tokens_str = "/".join(combo)
+                base = f"/offload/show/{show_id}/t_start/t_end/{width}/{height}/{var_name}/{var_style}/{total_layers}"
+                url = f"{base}/{tokens_str}" if tokens_str else base
+                kinds.append(url)
+
+    return kinds
+
+
+def compute_video_durations(catalog: dict) -> list[tuple[str, int]]:
+    """[Honest / Pure Domain Logic]
+    Computes the maximum duration in seconds for each video in the catalog
+    based on its valid segment ranges (e.g. if the last segment is 80/90, duration is 90).
+    """
+    durations: list[tuple[str, int]] = []
+
+    for show in catalog.get("shows", []):
+        show_id = show["id"]
+        fps = show.get("fps", 25)
+        seg_sec = show.get("segment_length_sec", 10)
+        max_duration = 0
+
+        for variant in show.get("variants", []):
+            length_frames = variant.get("length_frames", show.get("length_frames", 600))
+            total_segs = (length_frames + (seg_sec * fps) - 1) // (seg_sec * fps)
+            max_duration = max(max_duration, total_segs * seg_sec)
+
+        durations.append((show_id, max_duration))
+
+    return sorted(durations, key=lambda x: x[0])
+
+
+def generate_show_options(
+    shows_dir,
+    output_file=None,
+    request_kind_file=None,
+    duration_file=None,
+):
     """[Dishonest / I/O Boundary Adapter]
-    Reads show JSON files from `shows_dir`, writes 'show_options.json', and writes
-    all valid full-offload request URLs to 'requests.txt'.
+    Reads show JSON files from `shows_dir`, writes 'show_options.json',
+    writes 'video_duration.csv', and writes template request URLs to
+    'request_kind.txt' (leaving original 'requests.txt' untouched).
     """
     shows_path = Path(shows_dir).resolve()
     if not shows_path.is_dir():
@@ -165,10 +239,15 @@ def generate_show_options(shows_dir, output_file=None, requests_file=None):
         if output_file is None
         else Path(output_file).resolve()
     )
-    requests_path = (
-        output_path.parent / "requests.txt"
-        if requests_file is None
-        else Path(requests_file).resolve()
+    request_kind_path = (
+        output_path.parent / "request_kind.txt"
+        if request_kind_file is None
+        else Path(request_kind_file).resolve()
+    )
+    duration_path = (
+        output_path.parent / "video_duration.csv"
+        if duration_file is None
+        else Path(duration_file).resolve()
     )
 
     catalog = {"shows": []}
@@ -189,11 +268,24 @@ def generate_show_options(shows_dir, output_file=None, requests_file=None):
         f"Successfully generated {output_path} from {shows_path} ({len(catalog['shows'])} shows)."
     )
 
-    urls = generate_full_offload_urls(catalog)
-    requests_path.write_text("\n".join(urls) + "\n", encoding="utf-8")
+    # 1. Generate video_duration.csv (2 columns: video,duration)
+    durations = compute_video_durations(catalog)
+    duration_lines = ["video,duration"] + [f"{vid},{dur}" for vid, dur in durations]
+    duration_path.write_text("\n".join(duration_lines) + "\n", encoding="utf-8")
+    print(f"Successfully generated {duration_path} ({len(durations)} video durations).")
+
+    # 2. Generate request_kind.txt (/x/y/ template URLs)
+    kinds = generate_request_kinds(catalog)
+    kinds_content = "\n".join(kinds) + "\n"
+    request_kind_path.write_text(kinds_content, encoding="utf-8")
     print(
-        f"Successfully generated {requests_path} ({len(urls)} full offload requests)."
+        f"Successfully generated {request_kind_path} ({len(kinds)} unique request templates)."
     )
+
+    # If using default path, also write reqeust_kind.txt so both spellings exist
+    if request_kind_file is None:
+        alt_path = output_path.parent / "reqeust_kind.txt"
+        alt_path.write_text(kinds_content, encoding="utf-8")
 
     return catalog
 
@@ -204,6 +296,7 @@ if __name__ == "__main__":
 
     target_dir = sys.argv[1] if len(sys.argv) > 1 else default_shows_dir
     target_out = sys.argv[2] if len(sys.argv) > 2 else None
-    target_req = sys.argv[3] if len(sys.argv) > 3 else None
+    target_kind = sys.argv[3] if len(sys.argv) > 3 else None
+    target_dur = sys.argv[4] if len(sys.argv) > 4 else None
 
-    generate_show_options(target_dir, target_out, target_req)
+    generate_show_options(target_dir, target_out, target_kind, target_dur)

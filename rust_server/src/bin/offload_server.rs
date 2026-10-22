@@ -25,7 +25,7 @@ async fn handle_client(
         return Ok(());
     };
 
-    let Some((method, path)) = util::parse_method_path(&req_str, Some("?")) else {
+    let Some((_method, path)) = util::parse_method_path(&req_str, Some("?")) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };

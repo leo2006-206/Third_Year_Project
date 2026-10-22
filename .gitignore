@@ -13,6 +13,7 @@ local_host.txt
 set_ssh.sh
 obm
 __pycache__
+**/temp/
 
 # LaTeX auxiliary and generated files
 *.aux
