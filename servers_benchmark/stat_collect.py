@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
 """
-OBM Request Statistics Collector
-Dispatches each URL from requests.txt 3 times with worker-limited concurrency
-(matching the number of active offload servers to avoid queueing).
+OBM Request Statistics Collector (per offload site calibration)
+Sends the first segment (0/10) of each request kind in request_kind.txt
+directly to one offload site at http://localhost:<port>, one at a time (no queueing).
+For the slow 'cpu' composition tier, only a predefined set of 8 representative kinds is sent.
 Extracts fine-grained timing breakdowns (decode, render, encode, etc.),
-sorts the dataset by request URL, and writes directly to CSV.
+sorts the dataset by request URL, and writes to <port>_<config>_timing.csv.
+
+Usage: ./stat_collect.py <port> <cpu|llvm|gpu>
 """
 
+import argparse
 import concurrent.futures
 import csv
 import sys
@@ -32,6 +36,31 @@ CSV_HEADERS = [
     "render_ms",
     "encode_ms",
     "client_net_ms",
+]
+
+FIRST_SEGMENT = "/0/10/"
+SEGMENT_PLACEHOLDER = "/t_start/t_end/"
+REQUEST_TIMEOUT_S = 300.0
+
+# Representative kinds for the 'cpu' composition tier (~20s+ per request),
+# one per distinct composition workload (cpu composition scales each type differently):
+CPU_REQUEST_KINDS = [
+    # 1. animation only, no video composite (lightest f1, ~2.1s on gpu)
+    "/offload/show/f1.json/t_start/t_end/1280/720/track/landscape/3/track|race/drivers|Sam/driver|Off",
+    # 2. single 1080p video + driver sprites (typical f1, ~3.8s)
+    "/offload/show/f1.json/t_start/t_end/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Sam",
+    # 3. video + PIP video + track overlay (heaviest f1_full, ~4.9s)
+    "/offload/show/f1_full.json/t_start/t_end/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam",
+    # 4. portrait reframe transforms + PIP + track (~3.8s)
+    "/offload/show/f1.json/t_start/t_end/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam",
+    # 5. video + full-frame animated overlay, different show (~2.3s)
+    "/offload/show/spiders.json/t_start/t_end/1280/720/main/landscape/2/main|race/spider_blocker|nospiders",
+    # 6. 4 videos + 3 alpha masks (~5.3s)
+    "/offload/show/forest720_leaves.json/t_start/t_end/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off",
+    # 7. 4 videos + 4 alpha masks (~6.1s)
+    "/offload/show/forest720_leaves.json/t_start/t_end/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha",
+    # 8. full-frame chroma key (heaviest overall, ~9.0s)
+    "/offload/show/forecast.json/t_start/t_end/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time",
 ]
 
 
@@ -102,13 +131,28 @@ def filter_pending_tasks(
     return pending, completed
 
 
+def select_request_kinds(all_kinds: list[str], config: str) -> list[str]:
+    """[Honest] Picks the kinds to benchmark: all kinds, or the 8 representatives for 'cpu'."""
+    if config != "cpu":
+        return all_kinds
+    missing = [k for k in CPU_REQUEST_KINDS if k not in all_kinds]
+    if missing:
+        raise ValueError(f"CPU_REQUEST_KINDS not found in request_kind.txt: {missing}")
+    return CPU_REQUEST_KINDS
+
+
+def first_segment_paths(kinds: list[str]) -> list[str]:
+    """[Honest] Replaces the segment placeholder with the first segment (0/10)."""
+    return [k.replace(SEGMENT_PLACEHOLDER, FIRST_SEGMENT, 1) for k in kinds]
+
+
 # ==============================================================================
 # 2. Dishonest Functions (I/O Drivers & Boundary Adapters)
 # ==============================================================================
 
 
 def load_requests_file(file_path: Path) -> list[str]:
-    """[Dishonest I/O] Reads request URLs from requests.txt."""
+    """[Dishonest I/O] Reads request kind templates from request_kind.txt."""
     if not file_path.is_file():
         print(f"[Error] requests file not found: {file_path}", file=sys.stderr)
         sys.exit(1)
@@ -138,7 +182,7 @@ def fetch_request(
     url = base_url.rstrip("/") + path
     t0 = time.perf_counter()
     try:
-        resp = session.get(url, timeout=30.0, verify=False)
+        resp = session.get(url, timeout=REQUEST_TIMEOUT_S, verify=False)
         duration_ms = round((time.perf_counter() - t0) * 1000)
 
         if resp.status_code != 200:
@@ -306,31 +350,57 @@ def collect_statistics(
 # ==============================================================================
 
 
+def parse_args() -> argparse.Namespace:
+    """[Dishonest I/O] Parses CLI arguments."""
+    parser = argparse.ArgumentParser(
+        description="Benchmark the first segment of each request kind on one offload site."
+    )
+    parser.add_argument(
+        "port", type=int, help="offload site port on localhost (e.g. 7010)"
+    )
+    parser.add_argument(
+        "config",
+        choices=["cpu", "llvm", "gpu"],
+        help="composition tier of the offload site ('cpu' runs only 8 representative kinds)",
+    )
+    args = parser.parse_args()
+    if not 1 <= args.port <= 65535:
+        parser.error(f"port must be 1-65535, got {args.port}")
+    return args
+
+
 def main():
+    args = parse_args()
+
     # =========================================================================
     # Configuration Variables (Edit directly here)
     # =========================================================================
 
-    # 1. Target server base URL (Main Server with Round-Robin Load Balancer)
-    base_url = "https://obm_main.leowong.space"
+    # 1. Target offload site, bypassing the main server load balancer
+    base_url = f"http://localhost:{args.port}"
 
     # 2. Number of times each request URL is executed
     repetitions = 1
 
-    # 3. Number of active offload servers (limits concurrent in-flight requests)
-    num_offloads = 2
+    # 3. One in-flight request at a time, so the site never queues
+    num_offloads = 1
 
     # 4. Input file path next to this script
     script_dir = Path(__file__).resolve().parent
-    requests_file = script_dir / "requests.txt"
+    requests_file = script_dir / "request_kind.txt"
 
-    # 5. Output CSV file path
-    output_csv = script_dir / "request_timings.csv"
+    # 5. Output CSV file path, separate per port/config (resume logic is per file)
+    output_csv = script_dir / f"{args.port}_{args.config}_timing.csv"
 
     # =========================================================================
     # Run Statistics Collection
     # =========================================================================
-    requests_list = load_requests_file(requests_file)
+    try:
+        kinds = select_request_kinds(load_requests_file(requests_file), args.config)
+    except ValueError as e:
+        print(f"[Error] {e}", file=sys.stderr)
+        sys.exit(1)
+    requests_list = first_segment_paths(kinds)
     collect_statistics(
         base_url=base_url,
         requests_list=requests_list,

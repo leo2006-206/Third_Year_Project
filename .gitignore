@@ -1,6 +1,7 @@
 .vscode/*
 
 *.png
+*.zip
 
 docs/*.pdf
 docs_resource/*
