@@ -231,3 +231,90 @@ To eliminate third-party tunnel quotas (such as Cloudflare Tunnel's 100 MB reque
   tailscale status           # Verify P2P connection to local machine
   ```
 
+
+______________________________________________________________________
+
+## 8. Lab Machine Setup (No Root, Redo Every Session)
+
+The university lab PC blocks software that registers itself with the system (apt packages, system services, Tailscale's `install.sh`). Everything below installs into your home directory and runs as your normal user, so it is allowed. If the lab wipes your home directory between sessions, repeat these steps every time.
+
+The lab PC only needs to **accept** connections from the main server on the laptop (offload ports `7010`, `7020`, ...). Assets are served by a local `obm-main-server` container on the lab PC, so nothing large crosses the network except the request and the returned video segment.
+
+### Step 1: Install Rust (user-local, via rustup)
+
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+source "$HOME/.cargo/env"
+cargo --version
+```
+
+### Step 2: Run Tailscale from the standalone binaries (no install, no root)
+
+Do **not** use Tailscale's `install.sh` (it adds an apt repository and a systemd service). The standalone tarball is just two programs; `--tun=userspace-networking` needs no root and creates no network interface. Run this inside `tmux` so it keeps running after you disconnect:
+
+```bash
+tmux new -s ts
+
+mkdir -p ~/ts && cd ~/ts
+curl -LO https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz
+tar xzf tailscale_1.104.2_amd64.tgz && cd tailscale_1.104.2_amd64
+
+# userspace networking: no root, no network interface created
+./tailscaled --tun=userspace-networking \
+  --state=$HOME/ts/tailscaled.state --socket=$HOME/ts/tailscaled.sock &
+
+./tailscale --socket=$HOME/ts/tailscaled.sock up --hostname=lab-pc   # prints a login URL
+./tailscale --socket=$HOME/ts/tailscaled.sock ip -4                  # the lab PC's 100.x address
+```
+
+- In userspace mode, incoming connections to the lab PC's `100.x` address are forwarded to its local ports, so Docker's published ports (`0.0.0.0:7010`) are reachable from the laptop at `<lab-100.x>:7010`.
+- **Skip the browser login:** create a reusable, **ephemeral** auth key in the Tailscale admin console and run `./tailscale --socket=$HOME/ts/tailscaled.sock up --hostname=lab-pc --authkey=tskey-...`. Ephemeral nodes are removed automatically when they go offline, so a fresh session does not end up as `lab-pc-1`, `lab-pc-2`, ...
+- **Check the connection type** (record it for the experiment): `./tailscale --socket=$HOME/ts/tailscaled.sock netcheck`. From the laptop, `tailscale ping lab-pc` shows `via <ip>:<port>` for a direct link or `via DERP(...)` when relayed (slower, bandwidth-limited).
+- Detach from tmux with `Ctrl+b d`; reattach with `tmux attach -t ts`.
+
+### Step 3: Get the project and the `obm/` folder
+
+```bash
+git clone <this repository> ThirdYearProject && cd ThirdYearProject
+# obm/ is gitignored: copy it into the project root (USB / scp from the laptop / clone barryfp/obm)
+```
+
+Docker must be usable without `sudo` (your user is in the `docker` group). Check with `docker ps`.
+
+### Step 4: Start the local asset server and the offload sites
+
+```bash
+./servers_container/main_server/run_sh.sh        # local obm-main-server (assets only), in its own terminal/tmux window
+./servers_container/run_all_offload.py           # builds and starts the sites in offload_endpoint.csv
+```
+
+Edit `servers_container/offload_endpoint.csv` first if the lab PC should run a different set of sites or caps.
+
+### Step 5: Verify from the laptop
+
+```bash
+tailscale ping lab-pc
+curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" \
+  "http://<lab-100.x>:7010/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|Off"
+```
+
+Then add the lab sites (`<lab-100.x>:7010`, ...) to the main server's offload list.
+
+### Fallback: reverse tunnel through the VPS
+
+If Tailscale cannot connect from the campus network, the lab PC can open an **outgoing** SSH tunnel to the VPS (already on the tailnet), and the main server connects to the VPS instead:
+
+```bash
+ssh -N -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes \
+  -R 17010:localhost:7010 -R 17020:localhost:7020 -R 17030:localhost:7030 root@195.58.134.234
+```
+
+The main server then uses `<vps-100.x>:17010`, ... Every request and segment goes through the VPS, so this adds latency; note it in the experiment method. For a tunnel that reconnects automatically, `cargo install rathole` (server on the VPS, client on the lab PC) works the same way.
+
+### Teardown
+
+```bash
+docker rm -f $(docker ps -q --filter name=obm-)          # offload sites + asset server
+./tailscale --socket=$HOME/ts/tailscaled.sock down        # from ~/ts/tailscale_1.104.2_amd64
+pkill -u "$USER" tailscaled
+```
