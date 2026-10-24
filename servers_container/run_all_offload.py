@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 OBM Offload Cluster Orchestrator
-Validates endpoints from offload_endpoint.csv, pre-compiles the Rust offload_server,
+Validates endpoints (incl. cpu/memory caps) from offload_endpoint.csv, pre-compiles the Rust offload_server,
 pre-builds the offload Docker image, and launches all offload worker nodes into
 separate tabs within GNOME Terminal.
 """
@@ -19,21 +19,36 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 
 
+Endpoint = tuple[str, int, str, str, str, str, str]  # id, port, dec, comp, enc, cpu, memory
+
+
+def parse_limit(value: str) -> float | None:
+    """[Honest / Pure Domain Logic]
+    Parses a resource limit: -1 (no cap) or a positive number. Returns None if invalid."""
+    try:
+        limit = float(value)
+    except ValueError:
+        return None
+    return limit if limit == -1 or limit > 0 else None
+
+
 def validate_endpoints(
     rows: Iterable[list[str]],
-) -> tuple[list[tuple[str, int, str, str, str]], list[str]]:
+) -> tuple[list[Endpoint], list[str]]:
     """[Honest / Pure Domain Logic]
-    Validates CSV rows for schema (id, port, decoding, composition, encoding),
+    Validates CSV rows for schema (id, port, decoding, composition, encoding, cpu, memory),
     port integer ranges, valid values:
       - decoding: 'cpu', 'gpu'
       - composition: 'cpu', 'llvmpipe', 'gpu'
       - encoding: 'cpu', 'gpu'
+      - cpu: CPU cores (docker --cpus), -1 = no cap
+      - memory: GB (docker --memory), -1 = no cap
     and duplicate IDs/ports.
     Returns a tuple of (valid_endpoints, errors).
     """
     seen_ids: dict[str, int] = {}
     seen_ports: dict[int, int] = {}
-    endpoints: list[tuple[str, int, str, str, str]] = []
+    endpoints: list[Endpoint] = []
     errors: list[str] = []
 
     for line_num, row in enumerate(rows, start=1):
@@ -52,13 +67,14 @@ def validate_endpoints(
         ):
             continue
 
-        if len(fields) < 5 or not all(fields[:5]):
+        if len(fields) < 7 or not all(fields[:7]):
             errors.append(
-                f"Line {line_num}: Invalid row format. Expected 'id, port, decoding, composition, encoding', got: {row}"
+                f"Line {line_num}: Invalid row format. Expected 'id, port, decoding, composition, encoding, cpu, memory', got: {row}"
             )
             continue
 
-        inst_id, port_str, decoding_str, composition_str, encoding_str = fields[:5]
+        (inst_id, port_str, decoding_str, composition_str, encoding_str,
+         cpu_str, memory_str) = fields[:7]
 
         # Validate port integer range
         if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
@@ -98,6 +114,18 @@ def validate_endpoints(
             )
             continue
 
+        # Validate resource caps (-1 = no cap)
+        if parse_limit(cpu_str) is None:
+            errors.append(
+                f"Line {line_num}: Invalid cpu '{cpu_str}'. Must be -1 (no cap) or a positive number."
+            )
+            continue
+        if parse_limit(memory_str) is None:
+            errors.append(
+                f"Line {line_num}: Invalid memory '{memory_str}'. Must be -1 (no cap) or a positive number of GB."
+            )
+            continue
+
         # Check duplicate ID
         if inst_id in seen_ids:
             errors.append(
@@ -114,7 +142,9 @@ def validate_endpoints(
         else:
             seen_ports[port] = line_num
 
-        endpoints.append((inst_id, port, decoding, composition, encoding))
+        endpoints.append(
+            (inst_id, port, decoding, composition, encoding, cpu_str, memory_str)
+        )
 
     return endpoints, errors
 
@@ -137,7 +167,7 @@ def format_tab_command(title: str, run_cmd: str) -> str:
 
 def load_and_validate_endpoints(
     csv_file: Path,
-) -> list[tuple[str, int, str, str, str]]:
+) -> list[Endpoint]:
     """[Dishonest / I/O Boundary Adapter]
     Reads endpoint definitions from CSV file, executes validation, and halts on error.
     """
@@ -195,7 +225,7 @@ def build_offload_image(
     )
 
 
-def setup_docker_environment(endpoints: list[tuple[str, int, str, str, str]]) -> None:
+def setup_docker_environment(endpoints: list[Endpoint]) -> None:
     """[Dishonest / Container Driver]
     Ensures the shared Docker bridge network exists and removes stale offload containers.
     """
@@ -210,7 +240,7 @@ def setup_docker_environment(endpoints: list[tuple[str, int, str, str, str]]) ->
 
 
 def spawn_terminal_tabs(
-    endpoints: list[tuple[str, int, str, str, str]],
+    endpoints: list[Endpoint],
     offload_run_sh: Path,
     new_window: bool,
 ) -> None:
@@ -222,9 +252,11 @@ def spawn_terminal_tabs(
         sys.exit("Error: 'gnome-terminal' command not found in PATH.")
 
     tabs = []
-    for inst_id, port, decoding, composition, encoding in endpoints:
-        title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()})"
-        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" --skip-build'
+    for inst_id, port, decoding, composition, encoding, cpu, memory in endpoints:
+        cpu_label = "nocap" if cpu == "-1" else f"{cpu}cpu"
+        mem_label = "nocap" if memory == "-1" else f"{memory}G"
+        title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()} {cpu_label}/{mem_label})"
+        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" "{cpu}" "{memory}" --skip-build'
         tabs.append({"title": title, "cmd": format_tab_command(title, run_cmd)})
 
     if new_window:

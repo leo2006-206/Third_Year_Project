@@ -77,7 +77,7 @@ ______________________________________________________________________
 ### A. Running the Offload Servers
 
 #### Cluster Mode (All Offload Nodes Automatically)
-Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal`:
+Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports and valid CPU/memory caps, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal`:
 
 ```bash
 ./servers_container/run_all_offload.py
@@ -87,19 +87,21 @@ Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports, 
 You can launch an individual offload node by passing `ID`, `PORT`, `DECODING` (`cpu`|`gpu`), `COMPOSITION` (`cpu`|`llvmpipe`|`gpu`), and `ENCODING` (`cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu]
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu] [CPU] [MEMORY_GB]
+# CPU / MEMORY_GB: docker --cpus / --memory caps, -1 = no cap (defaults: -1 / 3.5)
+# DETACH=1 runs the container in the background instead of interactively
 ```
 
 *Examples:*
 ```bash
 # Fastest combo: GPU decode, GPU composition, CPU encode (~3.2s)
-./servers_container/offload_server/run_sh.sh 1 7010 gpu gpu cpu
+./servers_container/offload_server/run_sh.sh 1 7010 gpu gpu cpu 2 1.5
 
 # Software OpenGL combo: CPU decode, llvmpipe composition, CPU encode (~7.5s)
-./servers_container/offload_server/run_sh.sh 2 7020 cpu llvmpipe cpu
+./servers_container/offload_server/run_sh.sh 2 7020 cpu llvmpipe cpu 8 1.5
 
 # Pure software baseline: CPU decode, CPU SDL composition, CPU encode (~25s)
-./servers_container/offload_server/run_sh.sh 3 7030 cpu cpu cpu
+./servers_container/offload_server/run_sh.sh 3 7030 cpu cpu cpu 2 1.5
 ```
 
 ### B. Running the Main Server
@@ -161,10 +163,10 @@ ______________________________________________________________________
 
 1. **Add an endpoint to [`servers_container/offload_endpoint.csv`](servers_container/offload_endpoint.csv)**:
    ```csv
-   id,port,decoding,composition,encoding
-   1,7010,gpu,gpu,cpu
-   2,7020,gpu,gpu,cpu
-   3,7030,cpu,llvmpipe,cpu
+   id,port,decoding,composition,encoding,cpu,memory
+   1,7010,gpu,gpu,cpu,2,1.5
+   2,7020,gpu,llvmpipe,cpu,8,1.5
+   3,7030,gpu,cpu,cpu,2,1.5
    ```
 2. **Register in Main Server** (`rust_server/src/bin/main_server.rs`):
    - Add `"obm-offload-3:7030"` to the offload server pool / load balancer list.
@@ -181,10 +183,8 @@ ______________________________________________________________________
 | :--- | :--- |
 | `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
 | `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, `DECODING`, `COMPOSITION`, and `ENCODING`. |
-| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding`). |
+| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap. |
 | `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
-| `dana_runtime_copy/` | Local Dana runtime binaries and compiler (`dana`, `dnc`), used only by `original_obm_main/`. The offload server image downloads Dana v273 from projectdana.com (pinned SHA-256) instead. |
-| `original_obm_main/` | Legacy standalone Dana server (`dana ws.core -p 7000`) used for comparative baseline benchmarks. |
 
 ***
 

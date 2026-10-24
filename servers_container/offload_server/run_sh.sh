@@ -3,8 +3,11 @@ set -e
 
 # -----------------------------------------------------------------------------
 # OBM Offload Server Build & Interactive Run Script
-# Usage: ./run_sh.sh [ID] [PORT] [DECODING] [COMPOSITION] [ENCODING] [--skip-build]
-# Example: ./run_sh.sh 1 7010 gpu gpu cpu
+# Usage: ./run_sh.sh [ID] [PORT] [DECODING] [COMPOSITION] [ENCODING] [CPU] [MEMORY] [--skip-build]
+#   CPU:    CPU cores the container may use (docker --cpus), -1 = no cap (default)
+#   MEMORY: memory limit in GB (docker --memory, swap disabled), -1 = no cap (default 3.5)
+#   DETACH=1 (env): run detached (-d) instead of interactive (-it), e.g. for benchmarks
+# Example: ./run_sh.sh 1 7010 gpu gpu cpu 2 1.5
 # -----------------------------------------------------------------------------
 
 ID="${1:-1}"
@@ -12,6 +15,8 @@ PORT="${2:-7010}"
 DECODING="cpu"
 COMPOSITION="cpu"
 ENCODING="cpu"
+CPU_LIMIT="-1"
+MEMORY_LIMIT="3.5"
 SKIP_BUILD_FLAG=0
 
 # Parse remaining arguments
@@ -28,6 +33,8 @@ if [ ${#POS_ARGS[@]} -ge 3 ]; then
     DECODING="${POS_ARGS[0]}"
     COMPOSITION="${POS_ARGS[1]}"
     ENCODING="${POS_ARGS[2]}"
+    CPU_LIMIT="${POS_ARGS[3]:-$CPU_LIMIT}"
+    MEMORY_LIMIT="${POS_ARGS[4]:-$MEMORY_LIMIT}"
 elif [ ${#POS_ARGS[@]} -eq 1 ]; then
     # Compatibility fallback if single device tier passed
     COMPOSITION="${POS_ARGS[0]}"
@@ -40,6 +47,17 @@ fi
 
 if [ "$ENCODING" != "cpu" ]; then
     echo "[FATAL ERROR] Invalid encoding '$ENCODING'. Only 'cpu' is supported." >&2
+    exit 1
+fi
+
+# CPU / MEMORY: -1 (no cap) or a positive number
+is_limit() { [ "$1" = "-1" ] || [[ "$1" =~ ^[0-9]*\.?[0-9]+$ && "$1" != "0" && ! "$1" =~ ^0*\.?0*$ ]]; }
+if ! is_limit "$CPU_LIMIT"; then
+    echo "[FATAL ERROR] Invalid CPU '$CPU_LIMIT'. Must be -1 (no cap) or a positive number." >&2
+    exit 1
+fi
+if ! is_limit "$MEMORY_LIMIT"; then
+    echo "[FATAL ERROR] Invalid MEMORY '$MEMORY_LIMIT'. Must be -1 (no cap) or a positive number of GB." >&2
     exit 1
 fi
 
@@ -85,16 +103,33 @@ if [ "$DECODING" = "gpu" ] || [ "$COMPOSITION" = "gpu" ]; then
     fi
 fi
 
-echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING) ==="
+# Resource caps
+DOCKER_RES_ARGS=()
+if [ "$CPU_LIMIT" != "-1" ]; then
+    DOCKER_RES_ARGS+=(--cpus="$CPU_LIMIT")
+    # llvmpipe spawns one raster thread per host core by default; match it to the CPU cap
+    if [ "$COMPOSITION" = "llvmpipe" ]; then
+        DOCKER_RES_ARGS+=(-e LP_NUM_THREADS="$(python3 -c "import math; print(max(1, math.ceil($CPU_LIMIT)))")")
+    fi
+fi
+if [ "$MEMORY_LIMIT" != "-1" ]; then
+    DOCKER_RES_ARGS+=(--memory="${MEMORY_LIMIT}g" --memory-swap="${MEMORY_LIMIT}g")
+fi
+
+DOCKER_MODE_ARGS=(-it)
+if [ "${DETACH:-0}" = "1" ]; then
+    DOCKER_MODE_ARGS=(-d)
+fi
+
+echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING, CPU: $CPU_LIMIT, Memory: ${MEMORY_LIMIT}GB) ==="
 echo "Container: $CONTAINER_NAME (Port $PORT)"
 echo "Press Ctrl+C to stop the server."
 echo "-------------------------------------------------------------"
 
-docker run -it --rm \
+docker run "${DOCKER_MODE_ARGS[@]}" --rm \
     --init \
     --network obm-net \
-    --memory="3.5g" \
-    --memory-swap="3.5g" \
+    "${DOCKER_RES_ARGS[@]}" \
     "${DOCKER_GPU_ARGS[@]}" \
     -p "${PORT}:${PORT}" \
     --name "$CONTAINER_NAME" \

@@ -6,8 +6,6 @@
 docs/*.pdf
 docs_resource/*
 # *.sh
-*/dana_runtime_copy
-*/temp_server
 target/
 */target/*
 local_host.txt

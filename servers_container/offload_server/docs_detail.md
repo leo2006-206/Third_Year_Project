@@ -181,7 +181,7 @@ Dana's offload rendering pipeline consists of a decoupled 3-stage execution flow
 Two specific code-level adaptations were made to Dana's engine and configuration to support high-performance containerized offloading:
 
 ### A. Window Initialization Resolution Patch ($640 \times 480 \to 1280 \times 720$)
-* **Target File**: `servers_container/dana_runtime_copy/components/resources-ext/UIPlaneLib[deb.x64].dnl` (Byte offset `0x39b68`).
+* **Target File**: `/opt/dana/components/resources-ext/UIPlaneLib[deb.x64].dnl` inside the image (Dana v273 downloaded by the dockerfile; patched by the `perl` step, which fails the build if the byte pattern is not found exactly once).
 * **Original Code**:
   In `UIPlaneLib.flow_makeWindow`:
   ```asm

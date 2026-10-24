@@ -4,7 +4,6 @@ This directory contains the Docker configuration and execution scripts for runni
 
 Dana has been completely decoupled from this container:
 - **Rust Main Server**: Runs in this container on port `7000`.
-- **Original Dana Web Server**: Available in `servers_container/original_obm_main` on port `7000`.
 
 ---
 

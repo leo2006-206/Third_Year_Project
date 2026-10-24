@@ -4,7 +4,9 @@
 #   decoding:    Video decoding engine ('cpu' or 'gpu')
 #   composition: Rendering and scene composition tier ('cpu','llvmpipe',or 'gpu')
 #   encoding:    Video encoding engine ('cpu' only, no 'gpu')
-id,port,decoding,composition,encoding
-1,7010,gpu,gpu,cpu
-2,7020,gpu,llvmpipe,cpu
-3,7030,gpu,cpu,cpu
+#   cpu:         CPU cores the container may use (docker --cpus), -1 = no cap
+#   memory:      Memory limit in GB (docker --memory, no swap), -1 = no cap
+id,port,decoding,composition,encoding,cpu,memory
+1,7010,gpu,gpu,cpu,4,2
+2,7020,gpu,llvmpipe,cpu,8,2
+3,7030,gpu,cpu,cpu,2,2
