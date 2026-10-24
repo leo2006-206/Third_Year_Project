@@ -3,11 +3,13 @@ set -e
 
 # -----------------------------------------------------------------------------
 # OBM Offload Server Build & Interactive Run Script
-# Usage: ./run_sh.sh [ID] [PORT] [DECODING] [COMPOSITION] [ENCODING] [CPU] [MEMORY] [--skip-build]
-#   CPU:    CPU cores the container may use (docker --cpus), -1 = no cap (default)
-#   MEMORY: memory limit in GB (docker --memory, swap disabled), -1 = no cap (default 3.5)
+# Usage: ./run_sh.sh [ID] [PORT] [DECODING] [COMPOSITION] [ENCODING] [CPU] [MEMORY] [DELAY_MS] [JITTER_MS] [--skip-build]
+#   CPU:       CPU cores the container may use (docker --cpus), -1 = no cap (default)
+#   MEMORY:    memory limit in GB (docker --memory, swap disabled), -1 = no cap (default 3.5)
+#   DELAY_MS:  netem delay added to all traffic the site sends (incl. asset downloads), 0 = none (default)
+#   JITTER_MS: netem jitter (normal distribution) around DELAY_MS, 0 = none (default)
 #   DETACH=1 (env): run detached (-d) instead of interactive (-it), e.g. for benchmarks
-# Example: ./run_sh.sh 1 7010 gpu gpu cpu 2 1.5
+# Example: ./run_sh.sh 1 7010 gpu gpu cpu 4 2 50 5
 # -----------------------------------------------------------------------------
 
 ID="${1:-1}"
@@ -17,6 +19,8 @@ COMPOSITION="cpu"
 ENCODING="cpu"
 CPU_LIMIT="-1"
 MEMORY_LIMIT="3.5"
+DELAY_MS="0"
+JITTER_MS="0"
 SKIP_BUILD_FLAG=0
 
 # Parse remaining arguments
@@ -35,6 +39,8 @@ if [ ${#POS_ARGS[@]} -ge 3 ]; then
     ENCODING="${POS_ARGS[2]}"
     CPU_LIMIT="${POS_ARGS[3]:-$CPU_LIMIT}"
     MEMORY_LIMIT="${POS_ARGS[4]:-$MEMORY_LIMIT}"
+    DELAY_MS="${POS_ARGS[5]:-$DELAY_MS}"
+    JITTER_MS="${POS_ARGS[6]:-$JITTER_MS}"
 elif [ ${#POS_ARGS[@]} -eq 1 ]; then
     # Compatibility fallback if single device tier passed
     COMPOSITION="${POS_ARGS[0]}"
@@ -58,6 +64,16 @@ if ! is_limit "$CPU_LIMIT"; then
 fi
 if ! is_limit "$MEMORY_LIMIT"; then
     echo "[FATAL ERROR] Invalid MEMORY '$MEMORY_LIMIT'. Must be -1 (no cap) or a positive number of GB." >&2
+    exit 1
+fi
+
+# DELAY_MS / JITTER_MS: non-negative integers (ms)
+if ! [[ "$DELAY_MS" =~ ^[0-9]+$ ]] || ! [[ "$JITTER_MS" =~ ^[0-9]+$ ]]; then
+    echo "[FATAL ERROR] Invalid DELAY_MS '$DELAY_MS' / JITTER_MS '$JITTER_MS'. Must be non-negative integers (ms)." >&2
+    exit 1
+fi
+if [ "$DELAY_MS" = "0" ] && [ "$JITTER_MS" != "0" ]; then
+    echo "[FATAL ERROR] JITTER_MS requires DELAY_MS > 0." >&2
     exit 1
 fi
 
@@ -116,12 +132,18 @@ if [ "$MEMORY_LIMIT" != "-1" ]; then
     DOCKER_RES_ARGS+=(--memory="${MEMORY_LIMIT}g" --memory-swap="${MEMORY_LIMIT}g")
 fi
 
+# Network emulation is applied by entrypoint.sh (tc netem), which needs NET_ADMIN in the container
+DOCKER_NET_ARGS=()
+if [ "$DELAY_MS" != "0" ]; then
+    DOCKER_NET_ARGS=(--cap-add NET_ADMIN -e NETEM_DELAY_MS="$DELAY_MS" -e NETEM_JITTER_MS="$JITTER_MS")
+fi
+
 DOCKER_MODE_ARGS=(-it)
 if [ "${DETACH:-0}" = "1" ]; then
     DOCKER_MODE_ARGS=(-d)
 fi
 
-echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING, CPU: $CPU_LIMIT, Memory: ${MEMORY_LIMIT}GB) ==="
+echo "=== [3/3] Starting Offload Server $ID ($CONTAINER_NAME) on Port $PORT (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING, CPU: $CPU_LIMIT, Memory: ${MEMORY_LIMIT}GB, Delay: ${DELAY_MS}ms ±${JITTER_MS}ms) ==="
 echo "Container: $CONTAINER_NAME (Port $PORT)"
 echo "Press Ctrl+C to stop the server."
 echo "-------------------------------------------------------------"
@@ -130,6 +152,7 @@ docker run "${DOCKER_MODE_ARGS[@]}" --rm \
     --init \
     --network obm-net \
     "${DOCKER_RES_ARGS[@]}" \
+    "${DOCKER_NET_ARGS[@]}" \
     "${DOCKER_GPU_ARGS[@]}" \
     -p "${PORT}:${PORT}" \
     --name "$CONTAINER_NAME" \

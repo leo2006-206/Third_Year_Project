@@ -16,7 +16,7 @@ uses ui.Rect2D
 uses ui.Color
 
 const int INACTIVE_WAIT_MS = 10
-const int RESOURCE_TIMEOUT_MS = 5000
+const int RESOURCE_TIMEOUT_MS = 60000 // generous: far sites (netem 100ms) need ~2-5s+ to fetch assets
 
 const int SEG_SIZE = 10
 const int FPS = 25

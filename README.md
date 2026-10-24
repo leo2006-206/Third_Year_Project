@@ -83,12 +83,16 @@ Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports a
 ./servers_container/run_all_offload.py
 ```
 
+#### Network Emulation (Near / Far Site Groups)
+A non-zero `delay_ms` makes the container apply `tc netem delay <delay_ms>ms <jitter_ms>ms distribution normal` to everything it sends, **including asset downloads** (asset acquisition is a large share of offload time). It is egress-only, so every round trip the site makes (main server, asset server) grows by `delay_ms`. The container gets `--cap-add NET_ADMIN`; startup aborts if netem cannot be applied (e.g. the host lacks the `sch_netem` module), so a site never silently runs without its delay.
+
 #### Individual Node (Manual Run)
 You can launch an individual offload node by passing `ID`, `PORT`, `DECODING` (`cpu`|`gpu`), `COMPOSITION` (`cpu`|`llvmpipe`|`gpu`), and `ENCODING` (`cpu`):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu] [CPU] [MEMORY_GB]
+./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu] [CPU] [MEMORY_GB] [DELAY_MS] [JITTER_MS]
 # CPU / MEMORY_GB: docker --cpus / --memory caps, -1 = no cap (defaults: -1 / 3.5)
+# DELAY_MS / JITTER_MS: tc netem delay/jitter on ALL traffic the site sends, incl. asset downloads (default 0 = none)
 # DETACH=1 runs the container in the background instead of interactively
 ```
 
@@ -163,10 +167,10 @@ ______________________________________________________________________
 
 1. **Add an endpoint to [`servers_container/offload_endpoint.csv`](servers_container/offload_endpoint.csv)**:
    ```csv
-   id,port,decoding,composition,encoding,cpu,memory
-   1,7010,gpu,gpu,cpu,2,1.5
-   2,7020,gpu,llvmpipe,cpu,8,1.5
-   3,7030,gpu,cpu,cpu,2,1.5
+   id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
+   1,7010,gpu,gpu,cpu,4,2,50,5
+   2,7020,gpu,llvmpipe,cpu,8,2,50,5
+   3,7030,gpu,cpu,cpu,2,2,100,10
    ```
 2. **Register in Main Server** (`rust_server/src/bin/main_server.rs`):
    - Add `"obm-offload-3:7030"` to the offload server pool / load balancer list.
@@ -183,7 +187,7 @@ ______________________________________________________________________
 | :--- | :--- |
 | `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
 | `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, `DECODING`, `COMPOSITION`, and `ENCODING`. |
-| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap. |
+| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap; `delay_ms`/`jitter_ms` add `tc netem` delay to all site traffic (near 50 ms / far 100 ms groups), `0` = none. |
 | `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
 
 ***

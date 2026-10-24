@@ -19,7 +19,9 @@ from pathlib import Path
 # -----------------------------------------------------------------------------
 
 
-Endpoint = tuple[str, int, str, str, str, str, str]  # id, port, dec, comp, enc, cpu, memory
+Endpoint = tuple[
+    str, int, str, str, str, str, str, str, str
+]  # id, port, dec, comp, enc, cpu, memory, delay_ms, jitter_ms
 
 
 def parse_limit(value: str) -> float | None:
@@ -36,13 +38,15 @@ def validate_endpoints(
     rows: Iterable[list[str]],
 ) -> tuple[list[Endpoint], list[str]]:
     """[Honest / Pure Domain Logic]
-    Validates CSV rows for schema (id, port, decoding, composition, encoding, cpu, memory),
+    Validates CSV rows for schema
+    (id, port, decoding, composition, encoding, cpu, memory, delay_ms, jitter_ms),
     port integer ranges, valid values:
       - decoding: 'cpu', 'gpu'
       - composition: 'cpu', 'llvmpipe', 'gpu'
       - encoding: 'cpu', 'gpu'
       - cpu: CPU cores (docker --cpus), -1 = no cap
       - memory: GB (docker --memory), -1 = no cap
+      - delay_ms / jitter_ms: netem delay/jitter on all site traffic, non-negative integers
     and duplicate IDs/ports.
     Returns a tuple of (valid_endpoints, errors).
     """
@@ -67,14 +71,14 @@ def validate_endpoints(
         ):
             continue
 
-        if len(fields) < 7 or not all(fields[:7]):
+        if len(fields) < 9 or not all(fields[:9]):
             errors.append(
-                f"Line {line_num}: Invalid row format. Expected 'id, port, decoding, composition, encoding, cpu, memory', got: {row}"
+                f"Line {line_num}: Invalid row format. Expected 'id, port, decoding, composition, encoding, cpu, memory, delay_ms, jitter_ms', got: {row}"
             )
             continue
 
         (inst_id, port_str, decoding_str, composition_str, encoding_str,
-         cpu_str, memory_str) = fields[:7]
+         cpu_str, memory_str, delay_str, jitter_str) = fields[:9]
 
         # Validate port integer range
         if not port_str.isdigit() or not (1 <= int(port_str) <= 65535):
@@ -126,6 +130,16 @@ def validate_endpoints(
             )
             continue
 
+        # Validate network emulation (ms, non-negative integers; jitter needs a delay)
+        if not delay_str.isdigit() or not jitter_str.isdigit():
+            errors.append(
+                f"Line {line_num}: Invalid delay_ms '{delay_str}' / jitter_ms '{jitter_str}'. Must be non-negative integers."
+            )
+            continue
+        if int(delay_str) == 0 and int(jitter_str) != 0:
+            errors.append(f"Line {line_num}: jitter_ms requires delay_ms > 0.")
+            continue
+
         # Check duplicate ID
         if inst_id in seen_ids:
             errors.append(
@@ -143,7 +157,8 @@ def validate_endpoints(
             seen_ports[port] = line_num
 
         endpoints.append(
-            (inst_id, port, decoding, composition, encoding, cpu_str, memory_str)
+            (inst_id, port, decoding, composition, encoding, cpu_str, memory_str,
+             delay_str, jitter_str)
         )
 
     return endpoints, errors
@@ -252,11 +267,12 @@ def spawn_terminal_tabs(
         sys.exit("Error: 'gnome-terminal' command not found in PATH.")
 
     tabs = []
-    for inst_id, port, decoding, composition, encoding, cpu, memory in endpoints:
+    for inst_id, port, decoding, composition, encoding, cpu, memory, delay, jitter in endpoints:
         cpu_label = "nocap" if cpu == "-1" else f"{cpu}cpu"
         mem_label = "nocap" if memory == "-1" else f"{memory}G"
-        title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()} {cpu_label}/{mem_label})"
-        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" "{cpu}" "{memory}" --skip-build'
+        net_label = f" {delay}±{jitter}ms" if delay != "0" else ""
+        title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()} {cpu_label}/{mem_label}{net_label})"
+        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" "{cpu}" "{memory}" "{delay}" "{jitter}" --skip-build'
         tabs.append({"title": title, "cmd": format_tab_command(title, run_cmd)})
 
     if new_window:

@@ -176,6 +176,29 @@ if ! grep -q "http://localhost:${PORT}/" /app/obm/OffloadSite_new.dn 2>/dev/null
     (cd /app/obm && dnc OffloadSite_new.dn)
 fi
 
+# Network emulation (near/far site groups): netem delay + jitter on everything the container sends,
+# including asset downloads (data movement is a large share of offload time). Egress-only, so every
+# round trip (main server <-> site, asset server <-> site) grows by NETEM_DELAY_MS.
+NETEM_DELAY_MS="${NETEM_DELAY_MS:-0}"
+NETEM_JITTER_MS="${NETEM_JITTER_MS:-0}"
+if [ "$NETEM_DELAY_MS" != "0" ]; then
+    NET_IF=$(ip route show default | awk '{print $5; exit}')
+    JITTER_ARGS=()
+    if [ "$NETEM_JITTER_MS" != "0" ]; then
+        JITTER_ARGS=("${NETEM_JITTER_MS}ms" distribution normal)
+    fi
+    echo "=== Network emulation on $NET_IF: delay ${NETEM_DELAY_MS}ms, jitter ${NETEM_JITTER_MS}ms (all egress traffic) ==="
+    if ! tc qdisc add dev "$NET_IF" root netem delay "${NETEM_DELAY_MS}ms" "${JITTER_ARGS[@]}"; then
+        echo "==========================================================================" >&2
+        echo "[FATAL ERROR] Failed to apply network emulation (needs --cap-add NET_ADMIN and the host's sch_netem module)." >&2
+        echo "Aborting startup so the site never runs without its configured delay." >&2
+        echo "==========================================================================" >&2
+        exit 1
+    fi
+    tc qdisc show dev "$NET_IF"
+    echo "=== [NETWORK VERIFIED] netem active ==="
+fi
+
 # 2. Start Dana Offload Site on internal port 9009
 DANA_ARGS=()
 if [ "$DECODING" = "gpu" ]; then

@@ -6,7 +6,9 @@
 #   encoding:    Video encoding engine ('cpu' only, no 'gpu')
 #   cpu:         CPU cores the container may use (docker --cpus), -1 = no cap
 #   memory:      Memory limit in GB (docker --memory, no swap), -1 = no cap
-id,port,decoding,composition,encoding,cpu,memory
-1,7010,gpu,gpu,cpu,4,2
-2,7020,gpu,llvmpipe,cpu,8,2
-3,7030,gpu,cpu,cpu,2,2
+#   delay_ms:    netem delay on all site traffic incl. asset downloads (near 50 / far 100), 0 = none
+#   jitter_ms:   netem jitter (normal distribution) around delay_ms, 0 = none
+id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
+1,7010,gpu,gpu,cpu,4,2,0,0
+2,7020,gpu,llvmpipe,cpu,8,2,0,0
+3,7030,gpu,cpu,cpu,2,2,0,0
