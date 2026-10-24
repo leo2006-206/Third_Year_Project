@@ -46,6 +46,11 @@ class SessionParams:
     p_like: float = 0.70  # request the next segment of the same kind
     p_switch: float = 0.15  # request segment 0 of another kind (else: leave)
     p_seek: float = 0.10  # a new video starts at a random segment instead of 0
+    # After the first segment watched of a video, viewers abandon/switch far more often
+    p_first_like: float = 0.40  # continue after the first segment of a video
+    p_first_switch: float = (
+        0.45  # switch after the first segment of a video (else: leave)
+    )
     min_gap_units: float = (
         5.0  # min time between one user's requests (mean inter-arrivals)
     )
@@ -57,6 +62,7 @@ class User:
     kind: int
     next_seg: int
     ready_at: float
+    segs_in_video: int = 0  # segments requested from the current video so far
 
 
 @dataclass
@@ -135,7 +141,9 @@ def assign_sessions(
     user_rng,
 ) -> list[Request]:
     """[Honest] Assigns each arrival to a waiting user (FIFO by ready time) or a new user,
-    then draws that user's next action: continue, switch video, or leave."""
+    then draws that user's next action: continue, switch video, or leave.
+    The first segment of each video uses p_first_like/p_first_switch (early abandonment);
+    the last segment turns "continue" into "switch" (end of video)."""
     n_kinds = len(seg_counts)
     pending: list[User] = []
     requests: list[Request] = []
@@ -161,14 +169,20 @@ def assign_sessions(
             next_uid += 1
 
         requests.append(Request(float(t), user.uid, user.kind, user.next_seg))
+        user.segs_in_video += 1
 
         # Decide this user's next request (a finished video turns "continue" into "switch")
+        if user.segs_in_video == 1:
+            p_like, p_switch = params.p_first_like, params.p_first_switch
+        else:
+            p_like, p_switch = params.p_like, params.p_switch
         r = user_rng.random()
         last_seg = user.next_seg + 1 >= seg_counts[user.kind]
-        if r < params.p_like and not last_seg:
+        if r < p_like and not last_seg:
             user.next_seg += 1
-        elif r < params.p_like + params.p_switch or (r < params.p_like and last_seg):
+        elif r < p_like + p_switch or (r < p_like and last_seg):
             user.kind, user.next_seg = new_video()
+            user.segs_in_video = 0
         else:
             continue  # user leaves
         user.ready_at = t + params.min_gap_units
@@ -338,7 +352,7 @@ def main(popularity_mode: str = "two_level", out_dir: Path | None = None):
 
     # 2. Replay window and target load
     duration_s = 300
-    rho = 0.7  # offered load as a fraction of cluster capacity
+    rho = 0.8  # offered load as a fraction of cluster capacity
 
     # 3. Clusters (machine, tier); service times come from stat/<machine>_<port>_<tier>_timing.csv
     clusters = [
