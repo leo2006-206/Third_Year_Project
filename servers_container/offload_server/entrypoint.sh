@@ -94,17 +94,9 @@ if [ "$COMPOSITION" = "gpu" ] || [ "$DECODING" = "gpu" ]; then
         exit 1
     fi
 
-    # Find render node for VA-API
-    for r in /dev/dri/renderD*; do
-        [ -e "$r" ] || continue
-        if [ "$(cat /sys/class/drm/$(basename $r)/device/vendor 2>/dev/null)" = "0x8086" ]; then
-            RENDER_DEV="$r"
-            break
-        fi
-    done
-    if [ -z "$RENDER_DEV" ]; then
-        RENDER_DEV=$(ls /dev/dri/renderD* 2>/dev/null | head -n 1)
-    fi
+    # Render node for VA-API: verify the FIRST node, because Dana's decoder (H264VALib, FFmpeg
+    # with no device given) opens the first one. run_sh.sh mounts the Intel GPU as renderD128.
+    RENDER_DEV=$(ls /dev/dri/renderD* 2>/dev/null | head -n 1)
 
     VAINFO_CMD="vainfo"
     if [ -n "$RENDER_DEV" ] && [ -e "$RENDER_DEV" ]; then

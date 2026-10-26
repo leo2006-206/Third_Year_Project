@@ -1,23 +1,28 @@
+# Build context for servers_container/main_server/dockerfile
+# (the offload image uses servers_container/offload_server/dockerfile.dockerignore)
+
 # Git directories
 .git
 **/.git
 
-# Documentation and planning
+# Documentation, planning, scratch
 docs
 docs_resource
+reports
 .old
 .ai
+temp
+stat
+servers_benchmark/sequences
 
 # Scripts & configs not needed in container
 local_host.txt
 set_ssh.sh
 
-# Rust build intermediates (only servers_rust/target/release/main_server is needed)
-servers_rust/src
-servers_rust/target/debug
-servers_rust/target/doc
-servers_rust/target/release/build
-servers_rust/target/release/deps
-servers_rust/target/release/incremental
-servers_rust/target/release/*.d
-servers_rust/target/release/*.rlib
+# Large media: mounted at runtime as volumes, never baked into images
+obm
+
+# Rust build output: only the release binaries are copied into images
+target
+!target/release/main_server
+!target/release/offload_server

@@ -1,6 +1,20 @@
-# Exclude large assets and show definitions from offload server image and build context
-obm/assets
-obm/assets/**
-obm/shows
-obm/shows/**
+# Build context for the offload image (replaces the root .dockerignore for this dockerfile)
 
+# Git directories
+.git
+**/.git
+
+# Large assets and show definitions: fetched at runtime from the asset server
+obm/assets
+obm/shows
+
+# Not needed in the image
+docs
+reports
+temp
+stat
+servers_benchmark
+
+# Rust build output: only the release binary is copied into the image
+target
+!target/release/offload_server

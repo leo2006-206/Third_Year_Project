@@ -110,8 +110,24 @@ docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
 DOCKER_GPU_ARGS=()
 if [ "$DECODING" = "gpu" ] || [ "$COMPOSITION" = "gpu" ]; then
     if [ -d "/dev/dri" ]; then
-        echo "Hardware GPU acceleration enabled: mounting /dev/dri into container."
-        DOCKER_GPU_ARGS=(--device /dev/dri:/dev/dri)
+        # Dana's VA-API decoder opens the default (first) render node, so on multi-GPU hosts
+        # (e.g. Intel iGPU + NVIDIA) expose only the Intel GPU, as card0/renderD128 in the container.
+        INTEL_CARD=""
+        INTEL_RENDER=""
+        for d in /sys/class/drm/card[0-9]* /sys/class/drm/renderD[0-9]*; do
+            n=$(basename "$d")
+            [[ "$n" =~ ^(card[0-9]+|renderD[0-9]+)$ ]] || continue
+            [ "$(cat "$d/device/vendor" 2>/dev/null)" = "0x8086" ] || continue
+            if [[ "$n" == card* ]] && [ -z "$INTEL_CARD" ]; then INTEL_CARD="/dev/dri/$n"; fi
+            if [[ "$n" == renderD* ]] && [ -z "$INTEL_RENDER" ]; then INTEL_RENDER="/dev/dri/$n"; fi
+        done
+        if [ -n "$INTEL_CARD" ] && [ -n "$INTEL_RENDER" ]; then
+            echo "Hardware GPU acceleration enabled: mounting Intel GPU $INTEL_CARD + $INTEL_RENDER as card0 + renderD128."
+            DOCKER_GPU_ARGS=(--device "$INTEL_CARD:/dev/dri/card0" --device "$INTEL_RENDER:/dev/dri/renderD128")
+        else
+            echo "Hardware GPU acceleration enabled: no Intel GPU found, mounting all of /dev/dri into container."
+            DOCKER_GPU_ARGS=(--device /dev/dri:/dev/dri)
+        fi
     else
         echo "ERROR: /dev/dri not found on host. Hardware GPU acceleration requires a physical GPU (/dev/dri)." >&2
         echo "Aborting startup for $CONTAINER_NAME." >&2

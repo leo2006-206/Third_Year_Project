@@ -3,10 +3,12 @@
 OBM Offload Cluster Orchestrator
 Validates endpoints (incl. cpu/memory caps) from offload_endpoint.csv, pre-compiles the Rust offload_server,
 pre-builds the offload Docker image, and launches all offload worker nodes into
-separate tabs within GNOME Terminal.
+separate tabs within GNOME Terminal
+(or as detached containers with --detach, or when gnome-terminal is not installed).
 """
 
 import csv
+import os
 import shutil
 import subprocess
 import sys
@@ -254,6 +256,24 @@ def setup_docker_environment(endpoints: list[Endpoint]) -> None:
     )
 
 
+def spawn_detached(endpoints: list[Endpoint], offload_run_sh: Path) -> None:
+    """[Dishonest / Container Runner]
+    Starts every offload node as a detached container (no terminal needed, e.g. over SSH).
+    """
+    print("\n=== [3/3] Starting Offload Server Nodes (detached) ===")
+    env = dict(os.environ, DETACH="1")
+    for inst_id, port, decoding, composition, encoding, cpu, memory, delay, jitter in endpoints:
+        subprocess.run(
+            [str(offload_run_sh), inst_id, str(port), decoding, composition, encoding,
+             cpu, memory, delay, jitter, "--skip-build"],
+            env=env,
+            check=True,
+        )
+    print("\nAll offload server nodes started in the background.")
+    print("Follow logs with:  docker logs -f obm-offload-<id>")
+    print("Stop all with:     docker rm -f $(docker ps -q --filter name=obm-offload-)")
+
+
 def spawn_terminal_tabs(
     endpoints: list[Endpoint],
     offload_run_sh: Path,
@@ -357,9 +377,12 @@ def main(argv: list[str] | None = None) -> None:
     # 4. Prepare network and clean up stale instances
     setup_docker_environment(endpoints)
 
-    # 5. Launch interactive terminal tabs
-    new_window = "--new-window" in args or "-w" in args
-    spawn_terminal_tabs(endpoints, offload_run_sh, new_window)
+    # 5. Launch nodes: terminal tabs, or detached containers (--detach / no gnome-terminal)
+    if "--detach" in args or "-d" in args or not shutil.which("gnome-terminal"):
+        spawn_detached(endpoints, offload_run_sh)
+    else:
+        new_window = "--new-window" in args or "-w" in args
+        spawn_terminal_tabs(endpoints, offload_run_sh, new_window)
 
 
 if __name__ == "__main__":
