@@ -1,0 +1,9 @@
+request,run_idx,duration_ms,net_ms,queue_ms,asset_ms,work_ms,decode_ms,render_ms,encode_ms,client_net_ms
+/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Sam,1,23319,0,26,209,23037,1577,19106,2318,47
+/offload/show/f1.json/0/10/1280/720/track/landscape/3/track|race/drivers|Sam/driver|Off,1,14190,0,7,234,13899,23,12558,1278,50
+/offload/show/f1.json/0/10/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam,1,17090,0,3,246,16803,1532,13658,1558,38
+/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam,1,32509,0,9,283,32109,1832,27963,2278,108
+/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time,1,41709,0,6,154,41395,1393,38793,1171,154
+/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off,1,28925,0,8,153,28704,2644,24082,1914,60
+/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha,1,28478,0,5,148,28232,2645,23604,1935,93
+/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|nospiders,1,12578,0,63,83,12391,789,10346,1232,41
