@@ -1,5 +1,5 @@
-alpha,cluster,rho,capacity_rps,lambda_rps,n_in_window,sec_per_t_unit,note
-0.5,case1,0.8,0.8750,0.7000,214,1.429,
-0.5,case2,0.8,0.8342,0.6674,205,1.498,"provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run"
-1.2,case1,0.8,0.9087,0.7270,220,1.376,
-1.2,case2,0.8,0.8634,0.6908,211,1.448,"provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run"
+alpha,cluster,rho,capacity_rps,lambda_req_rps,lambda_viewers_rps,mean_segments_per_viewer,n_in_window,viewers_in_window,note
+0.5,case1,0.7,0.7885,0.5533,0.05401,7.963,166,24,
+0.5,case2,0.7,0.7110,0.4967,0.05168,7.963,149,22,"provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run"
+1.2,case1,0.7,0.8809,0.6167,0.05438,8.003,185,25,
+1.2,case2,0.7,0.8375,0.5867,0.05296,8.003,176,25,"provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run"

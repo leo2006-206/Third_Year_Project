@@ -28,6 +28,8 @@ from stat_collect import parse_timing_headers  # noqa: E402
 
 CSV_HEADERS = [
     "req_idx",
+    "user_id",  # viewer in the generated sequence
+    "step",  # viewer's k-th request
     "kind_idx",
     "show",
     "seg_start",
@@ -78,6 +80,8 @@ def result_row(
     row: dict[str, Any] = {h: "" for h in CSV_HEADERS}
     row.update(
         req_idx=req["req_idx"],
+        user_id=req.get("user_id", ""),
+        step=req.get("step", ""),
         kind_idx=req["kind_idx"],
         show=req["show"],
         seg_start=req["seg_start"],

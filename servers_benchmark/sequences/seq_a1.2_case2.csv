@@ -1,212 +1,177 @@
-req_idx,t_ms,user_id,kind_idx,show,seg_start,seg_end,path
-0,645,0,125,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-1,695,1,86,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-2,1977,2,86,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-3,3647,3,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
-4,8327,0,143,spiders.json,0,10,/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|Off
-5,9500,1,136,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|hearing/presenter_chroma|chroma/time|time
-6,14128,2,120,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Off
-7,18820,3,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-8,18839,0,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-9,20377,1,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-10,22464,2,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-11,23683,4,71,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-12,24663,5,3,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Martin
-13,26929,3,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-14,29626,0,125,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-15,29934,1,140,forest720.json,10,20,/offload/show/forest720.json/10/20/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-16,32501,2,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-17,36383,4,71,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-18,36717,3,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-19,38923,0,36,f1.json,0,10,/offload/show/f1.json/0/10/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|track/drivers|Garcia
-20,41232,1,105,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-21,42170,2,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-22,42625,6,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-23,42992,7,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-24,45113,4,71,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-25,46239,3,134,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-26,46930,0,36,f1.json,10,20,/offload/show/f1.json/10/20/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|track/drivers|Garcia
-27,50888,6,140,forest720.json,10,20,/offload/show/forest720.json/10/20/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-28,51028,8,13,f1.json,20,30,/offload/show/f1.json/20/30/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
-29,51537,9,135,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
-30,51721,10,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-31,52564,4,71,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-32,54401,3,134,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-33,56162,0,36,f1.json,20,30,/offload/show/f1.json/20/30/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|track/drivers|Garcia
-34,58086,11,137,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-35,58212,6,140,forest720.json,20,30,/offload/show/forest720.json/20/30/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-36,59307,8,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-37,59528,9,135,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
-38,59867,10,130,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
-39,61304,4,71,f1_full.json,40,50,/offload/show/f1_full.json/40/50/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-40,62465,3,134,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-41,62965,12,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-42,63768,0,36,f1.json,30,40,/offload/show/f1.json/30/40/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|track/drivers|Garcia
-43,67011,11,24,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Martin
-44,67972,6,125,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-45,68631,8,133,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-46,68853,9,69,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Martin
-47,72167,10,130,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
-48,72914,4,71,f1_full.json,50,60,/offload/show/f1_full.json/50/60/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Schmidt
-49,74785,3,134,forecast.json,60,70,/offload/show/forecast.json/60/70/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-50,75421,12,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-51,76318,11,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-52,76782,6,125,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-53,77182,8,133,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-54,78335,9,17,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-55,81732,10,130,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
-56,82559,4,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-57,84174,3,134,forecast.json,70,80,/offload/show/forecast.json/70/80/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-58,86862,12,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-59,88060,11,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-60,91588,6,125,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-61,96149,8,133,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-62,96483,9,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
-63,96556,4,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-64,96986,3,134,forecast.json,80,90,/offload/show/forecast.json/80/90/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-65,97258,11,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-66,99852,6,125,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-67,100577,13,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-68,101004,14,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-69,101608,15,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-70,101847,16,95,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-71,102051,17,17,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-72,102860,18,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-73,103261,19,105,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-74,105614,9,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-75,108915,4,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-76,109497,3,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-77,109985,11,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-78,110262,6,125,f1_full.json,40,50,/offload/show/f1_full.json/40/50/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-79,110592,15,52,f1.json,70,80,/offload/show/f1.json/70/80/1280/720/track/landscape/3/track|race/drivers|Rossi/driver|Off
-80,113117,16,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-81,114929,17,17,f1.json,10,20,/offload/show/f1.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-82,115117,18,52,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/track/landscape/3/track|race/drivers|Rossi/driver|Off
-83,115650,19,91,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
-84,116566,9,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-85,117140,4,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-86,118578,3,27,f1.json,10,20,/offload/show/f1.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-87,118760,11,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-88,120526,6,125,f1_full.json,50,60,/offload/show/f1_full.json/50/60/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-89,121301,15,52,f1.json,80,90,/offload/show/f1.json/80/90/1280/720/track/landscape/3/track|race/drivers|Rossi/driver|Off
-90,121641,20,144,spiders.json,0,10,/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
-91,123700,17,17,f1.json,20,30,/offload/show/f1.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-92,124351,18,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-93,126241,19,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-94,128618,9,133,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-95,130175,11,105,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-96,132991,6,125,f1_full.json,60,70,/offload/show/f1_full.json/60/70/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-97,136708,15,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-98,140710,17,17,f1.json,30,40,/offload/show/f1.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-99,147007,19,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-100,147413,11,105,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-101,149059,6,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
-102,149343,15,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-103,151886,17,17,f1.json,40,50,/offload/show/f1.json/40/50/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-104,153027,21,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-105,155752,19,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-106,156779,11,105,f1_full.json,60,70,/offload/show/f1_full.json/60/70/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-107,157529,6,122,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
-108,157791,15,133,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-109,158481,22,95,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-110,160309,17,17,f1.json,50,60,/offload/show/f1.json/50/60/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-111,161753,21,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-112,162620,23,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-113,163313,19,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-114,165626,11,105,f1_full.json,70,80,/offload/show/f1_full.json/70/80/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-115,167620,6,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-116,168739,15,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-117,169085,22,95,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-118,170463,17,17,f1.json,60,70,/offload/show/f1.json/60/70/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-119,171608,21,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-120,172726,19,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-121,172914,11,105,f1_full.json,80,90,/offload/show/f1_full.json/80/90/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-122,173993,24,17,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-123,174048,25,98,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Martin
-124,175680,26,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-125,176155,27,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-126,176246,28,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-127,176666,22,95,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-128,177248,29,38,f1.json,0,10,/offload/show/f1.json/0/10/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Sam
-129,177645,30,125,f1_full.json,70,80,/offload/show/f1_full.json/70/80/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-130,178309,17,17,f1.json,70,80,/offload/show/f1.json/70/80/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-131,178604,31,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-132,178925,21,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-133,183043,19,91,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
-134,184340,24,94,f1_full.json,80,90,/offload/show/f1_full.json/80/90/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-135,184357,25,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-136,185301,26,137,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-137,188225,27,95,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-138,191117,28,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-139,191702,22,95,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-140,196898,29,134,forecast.json,60,70,/offload/show/forecast.json/60/70/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-141,197073,30,91,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
-142,197580,17,17,f1.json,80,90,/offload/show/f1.json/80/90/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Martin
-143,199037,31,45,f1.json,0,10,/offload/show/f1.json/0/10/720/1280/race/portrait/3/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Rossi
-144,201785,21,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-145,202638,19,91,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
-146,205119,24,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
-147,206071,25,27,f1.json,10,20,/offload/show/f1.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-148,206853,26,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-149,207008,27,144,spiders.json,0,10,/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
-150,207615,28,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-151,209315,22,95,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-152,209716,29,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-153,211131,30,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
-154,212350,17,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-155,212586,31,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-156,215389,21,132,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|hearing/presenter_chroma|chroma/time|time
-157,216008,19,132,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|hearing/presenter_chroma|chroma/time|time
-158,216308,24,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-159,221732,25,27,f1.json,20,30,/offload/show/f1.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-160,222693,26,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-161,223584,27,144,spiders.json,10,20,/offload/show/spiders.json/10/20/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
-162,224394,28,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-163,224513,22,95,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-164,234695,29,79,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
-165,235100,30,121,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
-166,236097,17,94,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-167,237916,31,133,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-168,240787,21,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-169,242694,25,27,f1.json,30,40,/offload/show/f1.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
-170,243049,26,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-171,243077,27,144,spiders.json,20,30,/offload/show/spiders.json/20/30/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
-172,244924,28,134,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-173,247236,22,95,f1_full.json,60,70,/offload/show/f1_full.json/60/70/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-174,250541,29,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-175,252041,30,130,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
-176,255258,17,94,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-177,255547,21,133,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-178,258537,25,86,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-179,258960,26,134,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-180,258994,22,95,f1_full.json,70,80,/offload/show/f1_full.json/70/80/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-181,259587,29,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-182,261782,32,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-183,263309,17,94,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-184,264130,21,133,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-185,265301,33,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
-186,265904,25,86,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-187,268038,26,134,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-188,268151,22,95,f1_full.json,80,90,/offload/show/f1_full.json/80/90/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
-189,268211,29,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-190,271842,32,142,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-191,272209,17,94,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-192,273528,21,133,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
-193,273714,33,77,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Smith
-194,275313,25,86,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-195,275929,26,134,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
-196,279128,29,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
-197,279757,32,142,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
-198,281069,17,94,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-199,281334,21,24,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Martin
-200,281603,33,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
-201,284752,25,86,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
-202,285167,34,125,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-203,286367,35,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
-204,286876,36,4,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|off/drivers|Smith
-205,290331,32,55,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
-206,290611,17,94,f1_full.json,60,70,/offload/show/f1_full.json/60/70/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
-207,295212,33,122,f1_full.json,80,90,/offload/show/f1_full.json/80/90/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
-208,296241,25,75,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Rossi
-209,296588,34,125,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
-210,297567,35,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+req_idx,t_ms,user_id,step,kind_idx,show,seg_start,seg_end,path
+0,770,23,4,105,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+1,3127,25,0,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
+2,7697,19,10,76,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+3,8446,24,2,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+4,10770,23,5,105,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+5,12149,26,0,125,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+6,13127,25,1,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+7,17697,19,11,76,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+8,18446,24,3,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+9,20770,23,6,125,f1_full.json,60,70,/offload/show/f1_full.json/60/70/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+10,22149,26,1,125,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+11,23127,25,2,139,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+12,27697,19,12,76,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+13,28446,24,4,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+14,30770,23,7,125,f1_full.json,70,80,/offload/show/f1_full.json/70/80/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+15,32149,26,2,125,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+16,33127,25,3,139,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+17,37697,19,13,76,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+18,38446,24,5,105,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+19,40770,23,8,125,f1_full.json,80,90,/offload/show/f1_full.json/80/90/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+20,42149,26,3,125,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+21,43127,25,4,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+22,47697,19,14,76,f1_full.json,40,50,/offload/show/f1_full.json/40/50/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+23,48446,24,6,105,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+24,50770,23,9,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+25,52149,26,4,144,spiders.json,0,10,/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
+26,53127,25,5,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+27,57697,19,15,76,f1_full.json,50,60,/offload/show/f1_full.json/50/60/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Martin
+28,58446,24,7,109,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+29,60770,23,10,133,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+30,62149,26,5,121,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
+31,63127,25,6,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+32,63769,27,0,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
+33,65602,28,0,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+34,67697,19,16,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+35,68446,24,8,109,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+36,72149,26,6,121,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
+37,72231,29,0,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+38,73127,25,7,125,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+39,73769,27,1,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
+40,74631,30,0,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+41,75602,28,1,130,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
+42,78446,24,9,109,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+43,82149,26,7,121,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
+44,82231,29,1,27,f1.json,10,20,/offload/show/f1.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+45,83127,25,8,125,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+46,83769,27,2,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+47,84631,30,1,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+48,85602,28,2,125,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+49,85630,31,0,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
+50,88446,24,10,109,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+51,92149,26,8,121,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Sam
+52,92231,29,2,27,f1.json,20,30,/offload/show/f1.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+53,93127,25,9,81,f1_full.json,30,40,/offload/show/f1_full.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Alex
+54,93769,27,3,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+55,94631,30,2,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+56,95602,28,3,125,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Schmidt/driver|Sam
+57,98446,24,11,109,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+58,102149,26,9,95,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
+59,102231,29,3,27,f1.json,30,40,/offload/show/f1.json/30/40/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+60,103127,25,10,81,f1_full.json,40,50,/offload/show/f1_full.json/40/50/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Alex
+61,103769,27,4,75,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Rossi
+62,104631,30,3,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+63,105602,28,4,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+64,108446,24,12,109,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+65,109592,32,0,75,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Rossi
+66,112149,26,10,95,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
+67,113769,27,5,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+68,114631,30,4,105,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+69,118446,24,13,109,f1_full.json,60,70,/offload/show/f1_full.json/60/70/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+70,119592,32,1,75,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Rossi
+71,123769,27,6,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+72,124631,30,5,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+73,128446,24,14,109,f1_full.json,70,80,/offload/show/f1_full.json/70/80/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+74,129592,32,2,75,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Rossi
+75,132568,33,0,91,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
+76,133769,27,7,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+77,134631,30,6,91,f1_full.json,40,50,/offload/show/f1_full.json/40/50/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
+78,138446,24,15,109,f1_full.json,80,90,/offload/show/f1_full.json/80/90/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|track/drivers|Sam
+79,139592,32,3,79,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
+80,142568,33,1,91,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
+81,148446,24,16,130,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
+82,149592,32,4,95,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Alex
+83,152568,33,2,91,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Smith
+84,157663,34,0,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+85,158446,24,17,139,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+86,159303,35,0,84,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Smith
+87,159592,32,5,105,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+88,162568,33,3,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
+89,167663,34,1,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+90,168446,24,18,139,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+91,169592,32,6,135,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+92,173591,36,0,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
+93,176468,37,0,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+94,177663,34,2,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+95,178446,24,19,133,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+96,179592,32,7,135,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+97,180888,38,0,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+98,187663,34,3,132,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|hearing/presenter_chroma|chroma/time|time
+99,188446,24,20,133,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+100,189592,32,8,135,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+101,190888,38,1,13,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Off/track|track/drivers|Garcia
+102,197663,34,4,132,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|hearing/presenter_chroma|chroma/time|time
+103,198446,24,21,133,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+104,199592,32,9,135,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+105,199635,39,0,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+106,200888,38,2,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+107,207663,34,5,137,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+108,208446,24,22,133,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_colour/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+109,209592,32,10,135,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+110,209635,39,1,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+111,210888,38,3,138,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+112,214773,40,0,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+113,217663,34,6,137,forecast.json,60,70,/offload/show/forecast.json/60/70/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+114,218446,24,23,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+115,219592,32,11,139,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_sketch/weather|Weather Icons/presenter|BSL/presenter_chroma|chroma/time|time
+116,219635,39,2,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+117,220888,38,4,130,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
+118,221295,41,0,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+119,224773,40,1,142,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|alpha
+120,227663,34,7,134,forecast.json,70,80,/offload/show/forecast.json/70/80/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+121,228446,24,24,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+122,229592,32,12,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+123,229635,39,3,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+124,230888,38,5,144,spiders.json,0,10,/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|nospiders
+125,231295,41,1,141,forest720_leaves.json,10,20,/offload/show/forest720_leaves.json/10/20/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+126,231772,42,0,106,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Rossi
+127,234773,40,2,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+128,237663,34,8,134,forecast.json,80,90,/offload/show/forecast.json/80/90/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+129,238446,24,25,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+130,239592,32,13,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+131,239635,39,4,140,forest720.json,0,10,/offload/show/forest720.json/0/10/1280/720/core/landscape/4/background|background_default/creature|creature_default/video_alpha|alpha/bird|bird_default/video_alpha|alpha/near_forest|bird_default/video_alpha|alpha
+132,240888,38,6,18,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Smith
+133,241295,41,2,141,forest720_leaves.json,20,30,/offload/show/forest720_leaves.json/20/30/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+134,241772,42,1,106,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Rossi
+135,244773,40,3,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+136,247663,34,9,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+137,248446,24,26,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+138,249592,32,14,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+139,249635,39,5,94,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+140,251295,41,3,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+141,251772,42,2,106,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Rossi
+142,254773,40,4,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+143,257663,34,10,105,f1_full.json,0,10,/offload/show/f1_full.json/0/10/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+144,258446,24,27,130,f1_full.json,10,20,/offload/show/f1_full.json/10/20/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
+145,259592,32,15,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+146,259635,39,6,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+147,261295,41,4,86,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|off/drivers|Garcia
+148,261772,42,3,106,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Rossi
+149,264773,40,5,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+150,267663,34,11,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+151,268446,24,28,130,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/driver/portrait/1/driver|race/driver-frame|frame-default/race|Off/race-frame|frame-default
+152,269592,32,16,134,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+153,269635,39,7,134,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+154,271295,41,5,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+155,271772,42,4,106,f1_full.json,40,50,/offload/show/f1_full.json/40/50/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Rossi
+156,274073,43,0,27,f1.json,0,10,/offload/show/f1.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+157,274773,40,6,134,forecast.json,10,20,/offload/show/forecast.json/10/20/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+158,277663,34,12,122,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+159,278446,24,29,105,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Sam/driver-frame|frame-default/track|off/drivers|Alex
+160,279592,32,17,134,forecast.json,40,50,/offload/show/forecast.json/40/50/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+161,281295,41,6,122,f1_full.json,10,20,/offload/show/f1_full.json/10/20/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+162,281772,42,5,94,f1_full.json,50,60,/offload/show/f1_full.json/50/60/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+163,284073,43,1,27,f1.json,10,20,/offload/show/f1.json/10/20/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Garcia
+164,284773,40,7,134,forecast.json,20,30,/offload/show/forecast.json/20/30/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+165,286612,44,0,122,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+166,287663,34,13,94,f1_full.json,20,30,/offload/show/f1_full.json/20/30/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+167,289592,32,18,134,forecast.json,50,60,/offload/show/forecast.json/50/60/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+168,291295,41,7,122,f1_full.json,20,30,/offload/show/f1_full.json/20/30/1280/720/track/landscape/3/track|race/drivers|Smith/driver|Off
+169,291772,42,6,94,f1_full.json,60,70,/offload/show/f1_full.json/60/70/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+170,294773,40,8,134,forecast.json,30,40,/offload/show/forecast.json/30/40/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
+171,295210,45,0,141,forest720_leaves.json,0,10,/offload/show/forest720_leaves.json/0/10/1280/720/core/landscape/5/background|background_default/creature|creature_default/creature_alpha|alpha/bird|bird_default/bird_alpha|alpha/near_forest|near_default/near_alpha|alpha/leaves|leaves_default/leaves_alpha|Off
+172,296612,44,1,137,forecast.json,0,10,/offload/show/forecast.json/0/10/1280/720/core/landscape/4/map|map_sketch/weather|Meteorological/presenter|BSL/presenter_chroma|chroma/time|time
+173,297663,34,14,94,f1_full.json,30,40,/offload/show/f1_full.json/30/40/720/1280/race/portrait/4/race|race/race-frame|frame-default/driver|Off/driver-frame|frame-default/track|off/drivers|Sam
+174,298107,46,0,120,f1_full.json,0,10,/offload/show/f1_full.json/0/10/1280/720/track/landscape/3/track|race/drivers|Martin/driver|Off
+175,299592,32,19,134,forecast.json,60,70,/offload/show/forecast.json/60/70/1280/720/core/landscape/4/map|map_colour/weather|Weather Icons/presenter|hearing/presenter_chroma|chroma/time|time
