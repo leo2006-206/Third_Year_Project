@@ -7,8 +7,12 @@ whether earlier requests have finished. Latency is measured from the scheduled s
 so client-side lag can never hide server queueing (no coordinated omission).
 Failed requests are recorded (status / error columns), not fatal.
 
-Usage: ./seq_bench.py [SEQ_CSV] [NUM_OFFLOAD] [--base-url URL] [--timeout S] [--limit N]
-Output: stat/run_<alpha>_<num_offload>_<run_idx>.csv (run_idx = 1 + highest existing index)
+Usage: ./seq_bench.py SEQ_CSV POLICY FEATURES [--base-url URL] [--timeout S] [--limit N]
+  POLICY:   load balancer label, e.g. rr, iwrr, maxm, minm
+  FEATURES: feature set label, e.g. SA (segment cache + asset cache)
+  (labels only: the main server must be started with the matching setup by hand)
+Output: stat/run_a<alpha>_c<case>/<POLICY>_<FEATURES>_<idx>.csv
+  e.g. seq_a0.5_case1.csv, rr, SA -> stat/run_a0.5_c1/rr_SA_1.csv (idx = 1 + highest existing)
 """
 
 import argparse
@@ -28,12 +32,6 @@ from stat_collect import parse_timing_headers  # noqa: E402
 
 CSV_HEADERS = [
     "req_idx",
-    "user_id",  # viewer in the generated sequence
-    "step",  # viewer's k-th request
-    "kind_idx",
-    "show",
-    "seg_start",
-    "seg_end",
     "sched_ms",  # scheduled send time, relative to run start
     "lag_ms",  # actual send - scheduled (client-side lateness, should be ~0)
     "ttfb_ms",  # scheduled send -> response headers
@@ -60,15 +58,17 @@ CSV_HEADERS = [
 # ==============================================================================
 
 
-def parse_alpha(seq_path: Path) -> str:
-    """[Honest] Extracts the Zipf alpha from a sequence file name (seq_a<alpha>_...)."""
-    m = re.search(r"seq_a([0-9.]+?)(?:_|\.csv$)", seq_path.name)
-    return m.group(1) if m else "unknown"
+def run_dir_name(seq_path: Path) -> str:
+    """[Honest] Run folder for a sequence file: seq_a<alpha>_case<n>.csv -> run_a<alpha>_c<n>."""
+    m = re.fullmatch(r"seq_a([0-9.]+)_case(\d+)\.csv", seq_path.name)
+    if not m:
+        raise ValueError(f"expected a sequence named seq_a<alpha>_case<n>.csv, got {seq_path.name}")
+    return f"run_a{m.group(1)}_c{m.group(2)}"
 
 
-def next_run_index(existing_names: list[str], alpha: str, num_offload: int) -> int:
-    """[Honest] 1 + highest run index among run_<alpha>_<num_offload>_<idx>.csv, or 1 if none."""
-    pattern = re.compile(rf"^run_{re.escape(alpha)}_{num_offload}_(\d+)\.csv$")
+def next_run_index(existing_names: list[str], policy: str, features: str) -> int:
+    """[Honest] 1 + highest run index among <policy>_<features>_<idx>.csv, or 1 if none."""
+    pattern = re.compile(rf"^{re.escape(policy)}_{re.escape(features)}_(\d+)\.csv$")
     indices = [int(m.group(1)) for n in existing_names if (m := pattern.match(n))]
     return max(indices, default=0) + 1
 
@@ -80,12 +80,6 @@ def result_row(
     row: dict[str, Any] = {h: "" for h in CSV_HEADERS}
     row.update(
         req_idx=req["req_idx"],
-        user_id=req.get("user_id", ""),
-        step=req.get("step", ""),
-        kind_idx=req["kind_idx"],
-        show=req["show"],
-        seg_start=req["seg_start"],
-        seg_end=req["seg_end"],
         sched_ms=sched_ms,
         send_epoch_ms=round((start_epoch + sched_ms / 1000) * 1000),
         path=req["path"],
@@ -221,23 +215,14 @@ def main():
         description="Open-loop replay of an OBM request sequence."
     )
     parser.add_argument(
-        "seq",
-        nargs="?",
-        type=Path,
-        default=script_dir / "sequences" / "seq_a0.5_case1.csv",
-        help="replay sequence CSV (default: sequences/seq_a0.5_case1.csv)",
+        "seq", type=Path, help="replay sequence CSV, e.g. sequences/seq_a0.5_case1.csv"
     )
-    parser.add_argument(
-        "num_offload",
-        nargs="?",
-        type=int,
-        default=6,
-        help="number of offload sites in the cluster, used in the output name (default: 6)",
-    )
+    parser.add_argument("policy", help="load balancer label, e.g. rr, iwrr, maxm, minm")
+    parser.add_argument("features", help="feature set label, e.g. SA (segment + asset cache)")
     parser.add_argument(
         "--base-url",
-        default="https://ct-obm-main.leowong.space/",
-        help="main server URL (default: https://ct-obm-main.leowong.space/)",
+        default="http://localhost:7000",
+        help="main server URL (default: http://localhost:7000)",
     )
     parser.add_argument(
         "--timeout",
@@ -254,22 +239,25 @@ def main():
     args = parser.parse_args()
 
     requests.packages.urllib3.disable_warnings()  # type: ignore[attr-defined]
-    stat_dir = script_dir.parent / "stat"
-    stat_dir.mkdir(exist_ok=True)
+    for label in (args.policy, args.features):
+        if not label or "/" in label:
+            parser.error(f"invalid label {label!r} (must be non-empty, no '/')")
+    try:
+        run_dir = script_dir.parent / "stat" / run_dir_name(args.seq)
+    except ValueError as e:
+        parser.error(str(e))
+    run_dir.mkdir(parents=True, exist_ok=True)
 
     seq = load_sequence(args.seq, args.limit)
-    alpha = parse_alpha(args.seq)
-    run_idx = next_run_index(
-        [p.name for p in stat_dir.glob("run_*.csv")], alpha, args.num_offload
-    )
-    out_path = stat_dir / f"run_{alpha}_{args.num_offload}_{run_idx}.csv"
+    run_idx = next_run_index([p.name for p in run_dir.glob("*.csv")], args.policy, args.features)
+    out_path = run_dir / f"{args.policy}_{args.features}_{run_idx}.csv"
 
     print("=" * 75)
     print(
         f"Sequence:     {args.seq} ({len(seq)} requests, last at {int(seq[-1]['t_ms']) / 1000:.1f}s)"
     )
     print(f"Target:       {args.base_url}")
-    print(f"Num offload:  {args.num_offload}   alpha: {alpha}   run: {run_idx}")
+    print(f"Policy:       {args.policy}   features: {args.features}   run: {run_idx}")
     print(f"Output:       {out_path}")
     print("=" * 75)
 
