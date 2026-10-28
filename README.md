@@ -206,18 +206,18 @@ curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.2:7010/   # rs offload s
 
 **Addresses (two rules):**
 - **Cluster CSV (`ip` column):** om's sites by container name (`obm-offload-om1`, …), rs's by cable IP (`10.10.0.2`). The host firewall drops traffic from a container to its own host's IP, so the main server container cannot reach om's sites via `10.10.0.1`; on the shared `obm-net` network the container names work.
-- **Offload sites on rs** fetch `/shows` and `/assets` from the main server, by default `obm-main-server:7000`, which only resolves on om. Start rs's sites with the main server's cable address:
+- **Offload sites** (on both machines) fetch `/shows` and `/assets` from the main server at `10.10.0.1:7000` by default (`MAIN_SERVER_ADDR` overrides it, e.g. `obm-main-server:7000` for a single-machine setup without the cable). om's `ufw` must let both its own containers and rs reach port 7000 (one-time, on om):
 
 ```bash
-# on rs
-MAIN_SERVER_ADDR=10.10.0.1:7000 ./servers_container/run_all_offload.py servers_container/offload_rs_c1.csv
-curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/   # main server reachable from rs (expect 200)
+sudo ufw allow from 172.18.0.0/16 to any port 7000 proto tcp   # om's containers (obm-net) -> host IP
+sudo ufw allow from 10.10.0.0/24 to any port 7000 proto tcp    # rs over the cable
+curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/   # on rs (and inside an om site container): expect 200
 ```
 
 **Troubleshooting:**
 - Ping fails after plugging in: the default profile took the port; run `sudo nmcli con up obm-link`.
 - Using the port on a normal network (uni / home): `sudo nmcli con up "Wired connection 1"`; remove the cable setup with `sudo nmcli con delete obm-link`.
-- If `ufw` is active: `sudo ufw allow from 10.10.0.0/24`.
+- If `ufw` is active on rs: `sudo ufw allow from 10.10.0.0/24` (om -> rs offload ports).
 
 The cable adds well under 1 ms, so the near / far delays (om 30 ms, rs 60 ms) come only from the per-site `DELAY_MS` / `JITTER_MS` netem settings (see Network Emulation above).
 

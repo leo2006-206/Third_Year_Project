@@ -113,10 +113,10 @@ async fn serve_main_proxy(
 
 fn main() -> io::Result<()> {
     const DANA_ADDR: &str = "127.0.0.1:9009";
-    // Where Dana's /shows and /assets downloads go: the main server container on the same
-    // docker network, or MAIN_SERVER_ADDR=<host>:7000 when the site runs on another machine
+    // Where Dana's /shows and /assets downloads go: the main server on om over the cable link
+    // (om's ufw must allow docker + cable traffic, see README), or MAIN_SERVER_ADDR=<host>:7000
     let main_addr: &'static str = env::var("MAIN_SERVER_ADDR")
-        .unwrap_or_else(|_| "obm-main-server:7000".to_string())
+        .unwrap_or_else(|_| "10.10.0.1:7000".to_string())
         .leak();
     println!("Assets from main server {main_addr}");
 

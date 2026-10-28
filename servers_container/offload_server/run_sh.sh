@@ -10,7 +10,7 @@ set -e
 #   JITTER_MS: netem jitter (normal distribution) around DELAY_MS, 0 = none (default)
 #   DETACH=1 (env): run detached (-d) instead of interactive (-it), e.g. for benchmarks
 #   MAIN_SERVER_ADDR (env): main server the site fetches /shows and /assets from
-#     (default obm-main-server:7000, same docker network; e.g. 10.10.0.1:7000 from another machine)
+#     (default 10.10.0.1:7000, om over the cable; obm-main-server:7000 for a single-machine setup)
 # Example: ./run_sh.sh 1 7010 gpu gpu cpu 4 2 50 5
 # -----------------------------------------------------------------------------
 
@@ -151,7 +151,7 @@ if [ "$MEMORY_LIMIT" != "-1" ]; then
 fi
 
 # Network emulation is applied by entrypoint.sh (tc netem), which needs NET_ADMIN in the container
-DOCKER_NET_ARGS=(-e MAIN_SERVER_ADDR="${MAIN_SERVER_ADDR:-obm-main-server:7000}")
+DOCKER_NET_ARGS=(-e MAIN_SERVER_ADDR="${MAIN_SERVER_ADDR:-10.10.0.1:7000}")
 if [ "$DELAY_MS" != "0" ]; then
     DOCKER_NET_ARGS+=(--cap-add NET_ADMIN -e NETEM_DELAY_MS="$DELAY_MS" -e NETEM_JITTER_MS="$JITTER_MS")
 fi

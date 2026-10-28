@@ -9,7 +9,7 @@ separate tabs within GNOME Terminal
 
 Usage: ./run_all_offload.py [ENDPOINT_CSV] [--detach|-d] [--new-window|-w]
   e.g. ./run_all_offload.py offload_rs_c1.csv   (sites of one machine for one cluster case)
-  MAIN_SERVER_ADDR (env): main server the sites fetch assets from, e.g. 10.10.0.1:7000 on rs
+  MAIN_SERVER_ADDR (env): main server the sites fetch assets from (default 10.10.0.1:7000)
 """
 
 import csv
