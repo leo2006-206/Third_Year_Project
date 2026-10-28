@@ -77,11 +77,18 @@ ______________________________________________________________________
 ### A. Running the Offload Servers
 
 #### Cluster Mode (All Offload Nodes Automatically)
-Reads `servers_container/offload_endpoint.csv`, checks for duplicate IDs/ports and valid CPU/memory caps, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal`:
+Reads an endpoint CSV (default `servers_container/offload_endpoint.csv`), checks for duplicate IDs/ports and valid CPU/memory caps, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal` (`-d` for detached containers):
 
 ```bash
-./servers_container/run_all_offload.py
+./servers_container/run_all_offload.py [ENDPOINT_CSV] [-d]
 ```
+
+For the two-laptop clusters, each machine runs its own sites of a case (same rows as `cluster_endpoint_c1/c2.csv`, without `ip`):
+
+| | case 1 (gpu + llvm + cpu each) | case 2 (2 gpu each) |
+|---|---|---|
+| om | `servers_container/offload_om_c1.csv` | `servers_container/offload_om_c2.csv` |
+| rs | `servers_container/offload_rs_c1.csv` | `servers_container/offload_rs_c2.csv` |
 
 #### Network Emulation (Near / Far Site Groups)
 A non-zero `delay_ms` makes the container apply `tc netem delay <delay_ms>ms <jitter_ms>ms distribution normal` to everything it sends, **including asset downloads** (asset acquisition is a large share of offload time). It is egress-only, so every round trip the site makes (main server, asset server) grows by `delay_ms`. The container gets `--cap-add NET_ADMIN`; startup aborts if netem cannot be applied (e.g. the host lacks the `sch_netem` module), so a site never silently runs without its delay.
@@ -163,6 +170,49 @@ docker stop obm-main-server
 - **Private Tailnet (P2P)**: `http://<LOCAL_TAILSCALE_IP>:7000/`
 - **Public Domain (via Edge VPS)**: `https://obm-main.leowong.space/`
 
+### D. Two-Laptop Cluster (Direct Ethernet Cable)
+
+The two cluster machines are joined by one Ethernet cable as a private link with fixed addresses (no router, no gateway; internet stays on Wi-Fi). It only uses NetworkManager, so nothing registers.
+
+| Machine | Role | Interface | Cable IP |
+|---|---|---|---|
+| `om` (main laptop) | main server + near sites | `eno1` | `10.10.0.1` |
+| `rs` (second laptop) | far sites | `enp6s0` | `10.10.0.2` |
+
+**One-time setup** (the profile is saved; afterwards just plug the cable in):
+
+```bash
+# om
+sudo nmcli con add type ethernet ifname eno1 con-name obm-link \
+  ipv4.method manual ipv4.addresses 10.10.0.1/24 ipv6.method disabled \
+  connection.autoconnect-priority 10
+sudo nmcli con up obm-link
+
+# rs
+sudo nmcli con add type ethernet ifname enp6s0 con-name obm-link \
+  ipv4.method manual ipv4.addresses 10.10.0.2/24 ipv6.method disabled \
+  connection.autoconnect-priority 10
+sudo nmcli con up obm-link
+```
+
+`autoconnect-priority 10` makes `obm-link` win over NetworkManager's default DHCP profile (`Wired connection 1`), which would otherwise wait for a router that isn't there.
+
+**Check the link:**
+
+```bash
+ping -c 3 10.10.0.2                                          # from om, expect < 1 ms
+curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.2:7010/   # rs offload site reachable (any code but 000)
+```
+
+**Cluster CSV:** use the cable IPs in the `ip` column (`10.10.0.1` for om's sites, `10.10.0.2` for rs's); the main server container reaches om's own sites through their published host ports.
+
+**Troubleshooting:**
+- Ping fails after plugging in: the default profile took the port; run `sudo nmcli con up obm-link`.
+- Using the port on a normal network (uni / home): `sudo nmcli con up "Wired connection 1"`; remove the cable setup with `sudo nmcli con delete obm-link`.
+- If `ufw` is active: `sudo ufw allow from 10.10.0.0/24`.
+
+The cable adds well under 1 ms, so the near / far delays (om 30 ms, rs 60 ms) come only from the per-site `DELAY_MS` / `JITTER_MS` netem settings (see Network Emulation above).
+
 ______________________________________________________________________
 
 ## 4. How to Add a New Offload Server
@@ -189,8 +239,9 @@ ______________________________________________________________________
 | :--- | :--- |
 | `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
 | `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, `DECODING`, `COMPOSITION`, and `ENCODING`. |
-| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap; `delay_ms`/`jitter_ms` add `tc netem` delay to all site traffic (near 50 ms / far 100 ms groups), `0` = none. |
-| `run_all_offload.py` | Validates endpoints CSV and launches all offload worker containers into terminal tabs. |
+| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap; `delay_ms`/`jitter_ms` add `tc netem` delay to all site traffic (near 30 ms / far 60 ms groups), `0` = none. |
+| `offload_{om,rs}_{c1,c2}.csv` | Per-machine offload sites for cluster case 1 / 2 (input to `run_all_offload.py`). |
+| `run_all_offload.py` | Validates an endpoint CSV (default `offload_endpoint.csv`) and launches all offload worker containers into terminal tabs. |
 
 ***
 
@@ -291,7 +342,7 @@ Docker must be usable without `sudo` (your user is in the `docker` group). Check
 
 ```bash
 ./servers_container/main_server/run_sh.sh        # local obm-main-server (assets only), in its own terminal/tmux window
-./servers_container/run_all_offload.py           # builds and starts the sites in offload_endpoint.csv
+./servers_container/run_all_offload.py           # builds and starts the sites in offload_endpoint.csv (or pass a CSV)
 ```
 
 Edit `servers_container/offload_endpoint.csv` first if the lab PC should run a different set of sites or caps.

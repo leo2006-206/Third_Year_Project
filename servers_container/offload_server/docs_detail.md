@@ -37,7 +37,7 @@ This directory contains the Docker configuration and execution scripts for runni
 ## 2. Running an Offload Server
 
 ### A. Run All Configured Servers Automatically
-Use `servers_container/run_all_offload.py` to parse `offload_endpoint.csv`, check for duplicate IDs/ports, pre-compile binaries, pre-build Docker images, and launch all offload worker nodes into separate tabs in a single `gnome-terminal` window:
+Use `servers_container/run_all_offload.py [ENDPOINT_CSV]` to parse an endpoint CSV (default `offload_endpoint.csv`, or e.g. `offload_rs_c1.csv`), check for duplicate IDs/ports, pre-compile binaries, pre-build Docker images, and launch all offload worker nodes into separate tabs in a single `gnome-terminal` window:
 
 ```bash
 ./servers_container/run_all_offload.py

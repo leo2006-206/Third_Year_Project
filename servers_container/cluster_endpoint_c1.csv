@@ -1,5 +1,5 @@
 # Columns:
-#   id:          Unique worker instance identifier (e.g. 1,2,3)
+#   id:          Unique worker label, machine + number (e.g. om1, rs2); letters, digits, - only
 #   ip:          Host or IP of the machine running the site (container name, LAN or Tailscale IP)
 #   port:        TCP port exposed on that host and bound by Rust offload server (1-65535)
 #   decoding:    Video decoding engine ('cpu' or 'gpu')
@@ -10,9 +10,9 @@
 #   delay_ms:    netem delay on all site traffic incl. asset downloads (e.g. near 30 / far 60), 0 = none
 #   jitter_ms:   netem jitter (normal distribution) around delay_ms, 0 = none
 id,ip,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
-1,xxx,7010,gpu,gpu,cpu,4,2,0,0
-2,xxx,7020,gpu,llvmpipe,cpu,8,2,0,0
-3,xxx,7030,gpu,cpu,cpu,2,2,0,0
-4,yyy,7010,gpu,gpu,cpu,4,2,0,0
-5,yyy,7020,gpu,llvmpipe,cpu,8,2,0,0
-6,yyy,7030,gpu,cpu,cpu,2,2,0,0
+om1,10.10.0.1,7010,gpu,gpu,cpu,4,2,30,3
+om2,10.10.0.1,7020,gpu,llvmpipe,cpu,8,2,30,3
+om3,10.10.0.1,7030,gpu,cpu,cpu,2,2,30,3
+rs1,10.10.0.2,7010,gpu,gpu,cpu,4,2,60,6
+rs2,10.10.0.2,7020,gpu,llvmpipe,cpu,8,2,60,6
+rs3,10.10.0.2,7030,gpu,cpu,cpu,2,2,60,6

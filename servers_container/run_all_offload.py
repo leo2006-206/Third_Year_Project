@@ -1,10 +1,14 @@
 #!/usr/bin/env python3
 """
 OBM Offload Cluster Orchestrator
-Validates endpoints (incl. cpu/memory caps) from offload_endpoint.csv, pre-compiles the Rust offload_server,
+Validates endpoints (incl. cpu/memory caps) from an endpoint CSV (default offload_endpoint.csv),
+pre-compiles the Rust offload_server,
 pre-builds the offload Docker image, and launches all offload worker nodes into
 separate tabs within GNOME Terminal
 (or as detached containers with --detach, or when gnome-terminal is not installed).
+
+Usage: ./run_all_offload.py [ENDPOINT_CSV] [--detach|-d] [--new-window|-w]
+  e.g. ./run_all_offload.py offload_rs_c1.csv   (sites of one machine for one cluster case)
 """
 
 import csv
@@ -348,10 +352,15 @@ def main(argv: list[str] | None = None) -> None:
     and launches offload nodes.
     """
     args = sys.argv[1:] if argv is None else argv
+    positional = [a for a in args if not a.startswith("-")]
+    if len(positional) > 1:
+        sys.exit("Usage: run_all_offload.py [ENDPOINT_CSV] [--detach|-d] [--new-window|-w]")
 
     script_dir = Path(__file__).resolve().parent
     project_root = script_dir.parent
-    csv_file = script_dir / "offload_endpoint.csv"
+    csv_file = (
+        Path(positional[0]).resolve() if positional else script_dir / "offload_endpoint.csv"
+    )
     offload_run_sh = script_dir / "offload_server" / "run_sh.sh"
     dockerfile = script_dir / "offload_server" / "dockerfile"
     # Validate prerequisite files

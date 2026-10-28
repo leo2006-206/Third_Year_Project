@@ -1,0 +1,13 @@
+# Columns:
+#   id:          Unique worker label, machine + number (e.g. om1, rs2); letters, digits, - only
+#   port:        TCP port exposed on host and bound by Rust offload server (1-65535)
+#   decoding:    Video decoding engine ('cpu' or 'gpu')
+#   composition: Rendering and scene composition tier ('cpu','llvmpipe',or 'gpu')
+#   encoding:    Video encoding engine ('cpu' only, no 'gpu')
+#   cpu:         CPU cores the container may use (docker --cpus), -1 = no cap
+#   memory:      Memory limit in GB (docker --memory, no swap), -1 = no cap
+#   delay_ms:    netem delay on all site traffic incl. asset downloads (near 30 / far 60), 0 = none
+#   jitter_ms:   netem jitter (normal distribution) around delay_ms, 0 = none
+id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
+rs1,7010,gpu,gpu,cpu,4,2,60,6
+rs2,7020,gpu,gpu,cpu,4,2,60,6
