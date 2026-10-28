@@ -43,12 +43,18 @@ pub mod config {
 #[derive(Debug, Clone)]
 pub struct OffloadSite {
     pub endpoint: String,
+    pub name: String,
     pub config: config::Config,
 }
 impl OffloadSite {
-    pub fn new(endpoint: impl Into<String>, config: config::Config) -> Self {
+    pub fn new(
+        endpoint: impl Into<String>,
+        name: impl Into<String>,
+        config: config::Config,
+    ) -> Self {
         Self {
             endpoint: endpoint.into(),
+            name: name.into(),
             config,
         }
     }
@@ -68,6 +74,7 @@ pub struct LoadBalancer<P: LoadBalancerPolicy> {
 
 pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
     pub endpoint: &'a str,
+    pub name: &'a str,
     worker_idx: usize,
     policy: Arc<P>,
     completed: bool,
@@ -92,6 +99,7 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
         let idx = self.policy.select(key, self.workers.len());
         SelectionGuard {
             endpoint: &self.workers[idx].endpoint,
+            name: &self.workers[idx].name,
             worker_idx: idx,
             policy: Arc::clone(&self.policy),
             completed: false,

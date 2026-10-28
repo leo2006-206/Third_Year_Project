@@ -6,6 +6,15 @@ edition = "2024"
 [lib]
 path = "src/lib/lib.rs"
 
+[[bin]]
+name = "main_server"
+path = "src/main_server.rs"
+
+[[bin]]
+name = "offload_server"
+path = "src/offload_server.rs"
+
+
 [dependencies]
 rust_obm = { path = "../rust_obm" }
 smol = "2.0"

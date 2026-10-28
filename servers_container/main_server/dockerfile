@@ -28,3 +28,5 @@ EXPOSE 7000
 
 # Use entrypoint script to cleanly forward SIGINT (Ctrl+C) and SIGTERM
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+# Cluster CSV path inside the container (run_sh.sh mounts the host CSV here)
+CMD ["/app/cluster_endpoint.csv"]

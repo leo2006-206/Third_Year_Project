@@ -125,7 +125,7 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
 
     let message = format!(
         "[OFFLOAD] -> {} | {}ms | {}",
-        target_offload.endpoint, elapsed, path
+        target_offload.name, elapsed, path
     );
     util::log_message(&message);
 
@@ -137,10 +137,10 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
 async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<()> {
     use http::{response_404, response_ok_utf8, send_raw};
 
-    const INDEX_HTML: &str = include_str!("../testing_webpage/index.html");
-    const APP_JS: &str = include_str!("../testing_webpage/app.js");
-    const STYLE_CSS: &str = include_str!("../testing_webpage/style.css");
-    const SHOW_OPTIONS: &str = include_str!("../../../servers_benchmark/show_options.json");
+    const INDEX_HTML: &str = include_str!("./testing_webpage/index.html");
+    const APP_JS: &str = include_str!("./testing_webpage/app.js");
+    const STYLE_CSS: &str = include_str!("./testing_webpage/style.css");
+    const SHOW_OPTIONS: &str = include_str!("../../servers_benchmark/show_options.json");
 
     const HEADERS: [(&str, &str); 2] = [
         ("Cache-Control", "no-cache, no-store, must-revalidate"),
@@ -164,22 +164,15 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    use rust_obm::mod_load_balancer::config::*;
-
-    let offload_url = [
-        lb::OffloadSite::new(
-            "obm-offload-1:7010",
-            Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu),
-        ),
-        lb::OffloadSite::new(
-            "obm-offload-2:7020",
-            Config::new(Decode::Gpu, Render::Llvmpipe, Encode::Cpu),
-        ),
-        lb::OffloadSite::new(
-            "obm-offload-3:7030",
-            Config::new(Decode::Gpu, Render::Cpu, Encode::Cpu),
-        ),
-    ];
+    // Usage: main_server <cluster_csv>, e.g. servers_container/cluster_endpoint_c1.csv
+    let Some(csv_path) = std::env::args().nth(1) else {
+        eprintln!("Usage: main_server <cluster_csv>");
+        std::process::exit(2);
+    };
+    let offload_url = sm::load_cluster_csv(&csv_path)?;
+    for site in &offload_url {
+        println!("Offload site: {} ({})", site.endpoint, site.name);
+    }
 
     // let load_balancer = lb::RoundRobinLB::new(offload_url);
     let load_balancer = lb::InterleavedWeightedRRLB::new(offload_url);

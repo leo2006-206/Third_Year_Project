@@ -116,7 +116,7 @@ The Main Server is a high-performance Rust web server that serves the UI harness
 Run the automated runner from the project root:
 
 ```bash
-./servers_container/main_server/run_sh.sh
+./servers_container/main_server/run_sh.sh [CLUSTER_CSV]   # default: servers_container/cluster_endpoint_c1.csv
 ```
 
 **What this script does:**
@@ -126,13 +126,14 @@ Run the automated runner from the project root:
 4. Mounts host directories directly via read-only volumes (no asset rebuilds required):
    - `obm/assets/` $\rightarrow$ `/app/obm/assets:ro`
    - `obm/shows/` $\rightarrow$ `/app/obm/shows:ro`
+   - `CLUSTER_CSV` $\rightarrow$ `/app/cluster_endpoint.csv:ro` (offload sites for the load balancer, passed to `main_server` as its argument; changing the cluster needs no rebuild)
 5. Connects to `obm-net` and exposes host port `7000`.
 
 #### 2. Fast Startup (Skip Recompilation)
 If the Rust binary and Docker image are already compiled:
 
 ```bash
-./servers_container/main_server/run_sh.sh --skip-build
+./servers_container/main_server/run_sh.sh [CLUSTER_CSV] --skip-build
 ```
 
 #### 3. Background / Daemon Mode
@@ -145,8 +146,9 @@ docker run -d --rm --init \
     -p 7000:7000 \
     -v "$PWD/obm/assets:/app/obm/assets:ro" \
     -v "$PWD/obm/shows:/app/obm/shows:ro" \
+    -v "$PWD/servers_container/cluster_endpoint_c1.csv:/app/cluster_endpoint.csv:ro" \
     --name obm-main-server \
-    obm-main-server
+    obm-main-server /app/cluster_endpoint.csv
 
 # Inspect live logs
 docker logs -f obm-main-server

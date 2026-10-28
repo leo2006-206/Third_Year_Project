@@ -12,7 +12,8 @@ cleanup() {
 
 trap cleanup SIGINT SIGTERM
 
-/usr/local/bin/main_server &
+# Arguments (the cluster CSV path inside the container) are passed through to the server
+/usr/local/bin/main_server "$@" &
 RUST_PID=$!
 
 wait "$RUST_PID"
