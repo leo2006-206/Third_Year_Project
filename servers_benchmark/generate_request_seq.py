@@ -8,32 +8,39 @@ measured capacity. Every cluster sees the same viewers watching the same things;
 densely they arrive differs.
 
 Pipeline:
-  1. Popularity: video first (Zipf over shows, fixed ranking), then layer combination
-     (Zipf over that show's request kinds, seeded ranking); both Zipf with exponential cutoff.
+  1. Popularity: video first (Zipf over shows, fixed ranking), then layer combination,
+     factorised per layer: P(layout) * prod P(option), each Zipf ranked with the show
+     spec's default option first (default effect). All Zipf with exponential cutoff.
   2. Viewer paths (no times yet): a viewer starts on a show + combination at segment 0.
-     After each segment it leaves, switches video (new show + combination, segment 0), or
+     At each decision it leaves, switches video (new show + combination, segment 0), or
      continues to the next segment; when continuing it may change combination (redrawn from
-     the same show's Zipf). Abandonment is higher after the first segment of a video.
-  3. Capacity: per-kind busy time (asset + work) per site from stat/*.csv,
-     C = sum_j 1 / E_mix[S_j] over the requests inside the window.
+     the same show's Zipf). Abandonment and combination changes are higher at a video's
+     first decision ("video surfing").
+  3. Capacity (computed once, from the step-1 popularity): per-kind busy time S_jk (asset +
+     work) per site from stat/*.csv; site j's mean busy time E_j = sum_k P(kind k) * S_jk with
+     P(kind) = P(show) * P(combination | show), and C = sum_j 1 / E_j.
   4. Rates: target requests in the window N = rho * C * DURATION_S; lambda_viewers is
      fitted (bisection) so the window holds exactly N requests.
-  5. Timing: viewer v starts at T_v = -PRE_ROLL + sum(Exp(1)) / lambda_viewers and requests
-     its k-th segment at T_v + 10 s * k (own playback clock). Requests in [0, DURATION_S)
-     are kept; the pre-roll makes the window start at steady load.
-  Steps 3-5 repeat until the window's mix stops changing (a few iterations).
+  5. Timing: viewer v starts at T_v = -PRE_ROLL + sum(Exp(1)) / lambda_viewers. Like the OBM
+     player, which buffers the next segment while the current one plays, a video's first
+     decision (and next request) comes 5 s after its segment 0 request, later ones every
+     10 s: a video started at t requests at t, t+5, t+15, t+25, ... Requests in
+     [0, DURATION_S) are kept; the pre-roll makes the window start at steady load.
+  The window's actual mix differs from P(show) (sessions, few viewers), so the realised load
+  (N / capacity under the window's own mix) is reported as real_rho in meta.csv.
 
-Separate seeded random streams: viewer arrival gaps, combination ranking, content choices
+Separate seeded random streams: viewer arrival gaps, show ranking (only if show_rank is None), content choices
 (show/combination), and viewer decisions (leave/switch/continue/change). Changing alpha only
 changes which shows/combinations are drawn.
 
 Outputs (servers_benchmark/sequences/):
   seq_a<alpha>_viewers.csv    every viewer's path (user_id, step, kind, segment), no times
-  seq_a<alpha>_<cluster>.csv  replay timeline for a cluster (t_ms, truncated to the window)
+  seq_a<alpha>_<cluster>.csv  replay file for a cluster: req_idx, t_ms, path (within the window)
   meta.csv                    capacity, rates and request counts per (alpha, cluster)
 """
 
 import csv
+import json
 import re
 import sys
 from dataclasses import dataclass, field
@@ -55,9 +62,13 @@ class ViewerParams:
     p_continue: float = 0.80
     p_switch: float = 0.10  # remainder (0.10) leaves
     # When continuing: chance to change layer combination (same show, redrawn from Zipf)
-    p_combo: float = 0.10
+    p_combo_first: float = 0.50  # at a video's first decision (trying out the options)
+    p_combo: float = 0.10  # at later decisions
     max_segments: int = 30  # cap on one viewer's session (5 min of video)
-    segment_gap_s: float = 10.0  # one request per segment, at playback pace
+    # Time between a viewer's requests: the player buffers the next segment while the current
+    # one plays, so a video's first decision comes 5 s in, later ones every 10 s
+    first_gap_s: float = 5.0
+    segment_gap_s: float = 10.0
 
 
 @dataclass
@@ -89,16 +100,48 @@ def zipf_cutoff_probs(n: int, alpha: float, cutoff: float) -> np.ndarray:
     return p / p.sum()
 
 
+def default_first(options: list[str], default: str) -> list[str]:
+    """[Honest] Popularity order of a layer's options (or a show's layouts): the producer's
+    default first, then the remaining ones in spec order."""
+    return [default] + [o for o in options if o != default]
+
+
+def combination_popularity(
+    kinds: list[str], catalog: dict, alpha: float, cutoff: float
+) -> np.ndarray:
+    """[Honest] P(combination | show), factorised per layer (default effect):
+    P = P(layout) * prod over layers P(option). Layouts and each layer's options are Zipf
+    ranked with the spec default first. Combinations sharing options (e.g. a heavy shared
+    trunk) therefore get correlated popularity. Layer tokens are matched by position."""
+    shows = {s["id"]: s for s in catalog["shows"]}
+    probs = np.zeros(len(kinds))
+    for i, kind in enumerate(kinds):
+        parts = kind.split("/")  # /offload/show/<show>/t_start/t_end/<w>/<h>/<variant>/<style>/<n>/<layer|opt>...
+        show = shows[parts[3]]
+        variants = show["variants"]
+        default_v = next((v for v in variants if v["default"]), variants[0])
+        keys = default_first([(v["name"], v["style"]) for v in variants], (default_v["name"], default_v["style"]))
+        p = zipf_cutoff_probs(len(keys), alpha, cutoff)[keys.index((parts[8], parts[9]))]
+        variant = next(v for v in variants if (v["name"], v["style"]) == (parts[8], parts[9]))
+        for layer, token in zip(variant["layers"], parts[11:]):
+            order = default_first(layer["options"], layer["default"])
+            p *= zipf_cutoff_probs(len(order), alpha, cutoff)[order.index(token.split("|", 1)[1])]
+        probs[i] = p
+    return probs
+
+
 def two_level_popularity(
+    kinds: list[str],
     kind_shows: list[str],
+    catalog: dict,
     alpha: float,
     cutoff: float,
     rank_rng,
     show_rank: list[str] | None = None,
 ) -> tuple[np.ndarray, list[str]]:
-    """[Honest] Video first, then combination: p(kind) = p(show) * p(kind | show).
-    Both levels are Zipf with exponential cutoff. Shows follow `show_rank` (most popular
-    first) or a seeded permutation if None; combinations within a show use a seeded permutation.
+    """[Honest] Video first, then combination: p(kind) = p(show) * p(combination | show).
+    Shows: Zipf with exponential cutoff over `show_rank` (most popular first; seeded
+    permutation if None). Combinations: per-layer factorised popularity, default first.
     Returns per-kind probabilities and the show popularity ranking used."""
     shows = sorted(set(kind_shows))
     random_rank = [shows[i] for i in rank_rng.permutation(len(shows))]
@@ -108,12 +151,8 @@ def two_level_popularity(
         raise ValueError(f"show_rank must list each show once: {shows}")
     show_p = dict(zip(show_rank, zipf_cutoff_probs(len(shows), alpha, cutoff)))
 
-    probs = np.zeros(len(kind_shows))
-    for show in shows:
-        idx = np.array([i for i, s in enumerate(kind_shows) if s == show])
-        probs[idx[rank_rng.permutation(len(idx))]] = show_p[show] * zipf_cutoff_probs(
-            len(idx), alpha, cutoff
-        )
+    combo_p = combination_popularity(kinds, catalog, alpha, cutoff)
+    probs = np.array([show_p[s] for s in kind_shows]) * combo_p
     return probs, show_rank
 
 
@@ -161,7 +200,7 @@ def viewer_path(
             else (params.p_continue, params.p_switch)
         )
         r = decision_rng.random()
-        change_combo = decision_rng.random() < params.p_combo
+        change_combo = decision_rng.random() < (params.p_combo_first if first else params.p_combo)
         last_seg = seg + 1 >= seg_counts[show]
         if r < p_cont and not last_seg:  # continue
             seg, first = seg + 1, False
@@ -174,23 +213,33 @@ def viewer_path(
             return path
 
 
+def path_offsets(path: list[tuple[int, int]], params: ViewerParams) -> list[float]:
+    """[Honest] Time of each step after the viewer's start: the gap after a video's segment 0
+    is first_gap_s, otherwise segment_gap_s (e.g. 0, 5, 15, 25 s for one video)."""
+    offsets, t = [], 0.0
+    for _, seg in path:
+        offsets.append(t)
+        t += params.first_gap_s if seg == 0 else params.segment_gap_s
+    return offsets
+
+
 def place_viewers(
     paths: list[list[tuple[int, int]]],
     unit_gaps: np.ndarray,
     lam_viewers: float,
     pre_roll_s: float,
     duration_s: float,
-    gap_s: float,
+    params: ViewerParams,
 ) -> list[Request]:
     """[Honest] Viewer v starts at -pre_roll + cumsum(Exp(1))/lambda and requests step k at
-    start + k * gap_s; returns the requests inside [0, duration_s), sorted by time."""
+    start + path_offsets[k]; returns the requests inside [0, duration_s), sorted by time."""
     starts = -pre_roll_s + np.cumsum(unit_gaps) / lam_viewers
     requests = []
     for uid, (start, path) in enumerate(zip(starts, paths)):
         if start >= duration_s:
             break
-        for step, (kind, seg) in enumerate(path):
-            t = start + step * gap_s
+        for step, ((kind, seg), offset) in enumerate(zip(path, path_offsets(path, params))):
+            t = start + offset
             if 0 <= t < duration_s:
                 requests.append(Request(float(t), uid, step, kind, seg))
     return sorted(requests, key=lambda r: r.t_s)
@@ -250,7 +299,7 @@ def fit_viewer_rate(
     lam_guess: float,
     pre_roll_s: float,
     duration_s: float,
-    gap_s: float,
+    params: ViewerParams,
 ) -> tuple[float, list[Request]]:
     """[Honest] Bisection on lambda_viewers so the window holds exactly target_n requests
     (sessions make the realised count vary a lot around lambda_req * duration)."""
@@ -258,7 +307,7 @@ def fit_viewer_rate(
     best = None
     for _ in range(60):
         lam = (lo + hi) / 2
-        requests = place_viewers(paths, unit_gaps, lam, pre_roll_s, duration_s, gap_s)
+        requests = place_viewers(paths, unit_gaps, lam, pre_roll_s, duration_s, params)
         if best is None or abs(len(requests) - target_n) < abs(len(best[1]) - target_n):
             best = (lam, requests)
         if len(requests) == target_n:
@@ -267,39 +316,13 @@ def fit_viewer_rate(
     return best
 
 
-def window_rate(
-    paths: list[list[tuple[int, int]]],
-    unit_gaps: np.ndarray,
-    sites: list[tuple[str, str]],
-    tables: dict[str, pd.DataFrame],
-    n_kinds: int,
-    rho: float,
-    params: ViewerParams,
-    pre_roll_s: float,
-    duration_s: float,
-    max_iter: int = 20,
-) -> tuple[float, float, dict[str, float], list[Request]]:
-    """[Honest] Offered load in the window = rho * C(mix of the requests inside the window):
-    the target request count rho * C * duration is met exactly by fitting lambda_viewers.
-    The window's mix depends on the rate, so iterate to a fixed point.
-    Returns (lambda_req, lambda_viewers, capacities, requests)."""
-    mean_len = float(np.mean([len(p) for p in paths]))
-    mix = np.bincount([k for p in paths for k, _ in p], minlength=n_kinds).astype(float)
-    mix /= mix.sum()
-    prev = None
-    for _ in range(max_iter):
-        caps = cluster_capacity(sites, tables, mix)
-        target_n = round(rho * caps["total"] * duration_s)
-        lam_v, requests = fit_viewer_rate(
-            paths, unit_gaps, target_n, target_n / duration_s / mean_len,
-            pre_roll_s, duration_s, params.segment_gap_s,
-        )
-        key = [(r.uid, r.step) for r in requests]
-        if key == prev:
-            break
-        prev = key
-        mix = np.bincount([r.kind for r in requests], minlength=n_kinds) / len(requests)
-    return len(requests) / duration_s, lam_v, caps, requests
+def realised_rho(
+    requests: list[Request], sites: list[tuple[str, str]], tables: dict[str, pd.DataFrame],
+    n_kinds: int, duration_s: float,
+) -> float:
+    """[Honest] Offered load of the window against the capacity under the window's own mix."""
+    mix = np.bincount([r.kind for r in requests], minlength=n_kinds) / len(requests)
+    return len(requests) / (cluster_capacity(sites, tables, mix)["total"] * duration_s)
 
 
 def segment_path(kind: str, seg: int) -> str:
@@ -339,10 +362,12 @@ def write_rows(path: Path, header: list[str], rows: list[list]):
 
 
 def print_summary(
-    alpha: float, paths: list[list[tuple[int, int]]], kinds: list[str], kind_shows: list[str]
+    alpha: float, paths: list[list[tuple[int, int]]], kinds: list[str], kind_shows: list[str],
+    params: ViewerParams,
 ):
     """[Dishonest I/O] Prints viewer and request statistics (over all generated viewers)."""
     lens = np.array([len(p) for p in paths])
+    session_s = np.array([path_offsets(p, params)[-1] + params.segment_gap_s for p in paths])
     videos = [sum(seg == 0 for _, seg in p) for p in paths]  # every video starts at segment 0
     combo_changes = [sum(k1 != k2 and s2 == s1 + 1 for (k1, s1), (k2, s2) in zip(p, p[1:])) for p in paths]
     flat = [(k, s) for p in paths for k, s in p]
@@ -351,7 +376,8 @@ def print_summary(
     kind_counts = pd.Series([k for k, _ in flat]).value_counts()
     print(f"\n=== alpha={alpha}: {len(paths)} viewers, {len(flat)} segment requests ===")
     print(f"segments/viewer: mean {lens.mean():.2f}, median {np.median(lens):.0f}, p90 {np.percentile(lens, 90):.0f}, "
-          f"max {lens.max()} | videos/viewer {np.mean(videos):.2f} | combination changes/viewer {np.mean(combo_changes):.2f}")
+          f"max {lens.max()} | session {session_s.mean():.0f}s | videos/viewer {np.mean(videos):.2f} | "
+          f"combination changes/viewer {np.mean(combo_changes):.2f}")
     print("segment share: " + ", ".join(f"{k * SEG_LEN_S}s {v:.2f}" for k, v in segs.items()))
     print(f"distinct kinds: {len(kind_counts)}/{len(kinds)}, top-10 {kind_counts.iloc[:10].sum() / len(flat):.2f}")
     print("show share: " + ", ".join(f"{s} {v:.2f}" for s, v in shows.items()))
@@ -378,7 +404,7 @@ def main(out_dir: Path | None = None):
     seed = 2026
 
     # 2. Replay window and target load
-    duration_s = 300
+    duration_s = 600
     pre_roll_s = 600  # viewers start this long before t=0, so the window opens at steady load
     rho = 0.7  # offered load as a fraction of cluster capacity
 
@@ -412,6 +438,7 @@ def main(out_dir: Path | None = None):
     # =========================================================================
     kinds = load_kinds(script_dir / "request_kind.txt")
     durations = pd.read_csv(script_dir / "video_duration.csv").set_index("video")["duration"]
+    catalog = json.loads((script_dir / "show_options.json").read_text(encoding="utf-8"))
     kind_shows = [re.search(r"/show/([^/]+)/", k).group(1) for k in kinds]
     show_segments = {s: int(durations[s]) // SEG_LEN_S for s in set(kind_shows)}
     # Load calibration only for the machines the clusters use (stat/<machine>_<port>_<tier>_timing.csv)
@@ -433,7 +460,7 @@ def main(out_dir: Path | None = None):
     meta = []
     for alpha in alphas:
         probs, used_rank = two_level_popularity(
-            kind_shows, alpha, zipf_cutoff, np.random.default_rng(rank_ss), show_rank
+            kinds, kind_shows, catalog, alpha, zipf_cutoff, np.random.default_rng(rank_ss), show_rank
         )
         combos = show_tables(kind_shows, probs)
         shows = list(combos)
@@ -445,29 +472,34 @@ def main(out_dir: Path | None = None):
             for _ in range(n_viewers)
         ]
         print(f"\nshow popularity ranking: {', '.join(used_rank)}")
-        print_summary(alpha, paths, kinds, kind_shows)
+        print_summary(alpha, paths, kinds, kind_shows, viewer)
 
         write_rows(
             out_dir / f"seq_a{alpha}_viewers.csv",
-            ["user_id", "step", "kind_idx", "show", "seg_start", "seg_end"],
-            [[uid, step, k, kind_shows[k], s * SEG_LEN_S, (s + 1) * SEG_LEN_S]
-             for uid, p in enumerate(paths) for step, (k, s) in enumerate(p)],
+            ["user_id", "step", "offset_s", "kind_idx", "show", "seg_start", "seg_end"],
+            [[uid, step, offset, k, kind_shows[k], s * SEG_LEN_S, (s + 1) * SEG_LEN_S]
+             for uid, p in enumerate(paths)
+             for step, ((k, s), offset) in enumerate(zip(p, path_offsets(p, viewer)))],
         )
 
+        mean_len = float(np.mean([len(p) for p in paths]))
         for c in clusters:
-            lam_req, lam_v, caps, requests = window_rate(
-                paths, unit_gaps, c.sites, tables, len(kinds), rho, viewer, pre_roll_s, duration_s
+            caps = cluster_capacity(c.sites, tables, probs)
+            target_n = round(rho * caps["total"] * duration_s)
+            lam_v, requests = fit_viewer_rate(
+                paths, unit_gaps, target_n, target_n / duration_s / mean_len,
+                pre_roll_s, duration_s, viewer,
             )
+            lam_req = len(requests) / duration_s
+            real_rho = realised_rho(requests, c.sites, tables, len(kinds), duration_s)
             last_start = -pre_roll_s + unit_gaps.sum() / lam_v
             if last_start < duration_s:
                 print(f"[Warning] {c.name}: viewers run out at {last_start:.0f}s, increase n_viewers",
                       file=sys.stderr)
             write_rows(
                 out_dir / f"seq_a{alpha}_{c.name}.csv",
-                ["req_idx", "t_ms", "user_id", "step", "kind_idx", "show", "seg_start", "seg_end", "path"],
-                [[i, round(r.t_s * 1000), r.uid, r.step, r.kind, kind_shows[r.kind], r.seg * SEG_LEN_S,
-                  (r.seg + 1) * SEG_LEN_S, segment_path(kinds[r.kind], r.seg)]
-                 for i, r in enumerate(requests)],
+                ["req_idx", "t_ms", "path"],
+                [[i, round(r.t_s * 1000), segment_path(kinds[r.kind], r.seg)] for i, r in enumerate(requests)],
             )
             n_users = len({r.uid for r in requests})
             site_caps = " ".join(
@@ -476,15 +508,15 @@ def main(out_dir: Path | None = None):
             print(
                 f"  {c.name}: capacity {caps['total'] * duration_s:.0f} req/{duration_s}s [{site_caps}] "
                 f"-> lambda_req {lam_req:.3f}/s, lambda_viewers {lam_v:.4f}/s, "
-                f"{len(requests)} requests from {n_users} viewers in window"
+                f"{len(requests)} requests from {n_users} viewers in window, real rho {real_rho:.3f}"
                 + (f"  ({c.note})" if c.note else "")
             )
-            meta.append([alpha, c.name, rho, f"{caps['total']:.4f}", f"{lam_req:.4f}", f"{lam_v:.5f}",
-                         f"{np.mean([len(p) for p in paths]):.3f}", len(requests), n_users, c.note])
+            meta.append([alpha, c.name, rho, f"{real_rho:.3f}", f"{caps['total']:.4f}", f"{lam_req:.4f}",
+                         f"{lam_v:.5f}", f"{mean_len:.3f}", len(requests), n_users, c.note])
 
     write_rows(
         out_dir / "meta.csv",
-        ["alpha", "cluster", "rho", "capacity_rps", "lambda_req_rps", "lambda_viewers_rps",
+        ["alpha", "cluster", "rho", "real_rho", "capacity_rps", "lambda_req_rps", "lambda_viewers_rps",
          "mean_segments_per_viewer", "n_in_window", "viewers_in_window", "note"],
         meta,
     )
