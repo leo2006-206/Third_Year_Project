@@ -171,6 +171,9 @@ fi
 # Network emulation (near/far site groups): netem delay + jitter on everything the container sends,
 # including asset downloads (data movement is a large share of offload time). Egress-only, so every
 # round trip (main server <-> site, asset server <-> site) grows by NETEM_DELAY_MS.
+# 'rate 1gbit' keeps packets in order: with per-packet jitter alone netem reorders packets, TCP takes
+# that as loss and large responses become ~10x slower (2.7 MB: 0.5 s -> 5-8 s). The rate is far
+# above what a site sends, so it only preserves order; per-request delay still varies by the jitter.
 NETEM_DELAY_MS="${NETEM_DELAY_MS:-0}"
 NETEM_JITTER_MS="${NETEM_JITTER_MS:-0}"
 if [ "$NETEM_DELAY_MS" != "0" ]; then
@@ -180,7 +183,7 @@ if [ "$NETEM_DELAY_MS" != "0" ]; then
         JITTER_ARGS=("${NETEM_JITTER_MS}ms" distribution normal)
     fi
     echo "=== Network emulation on $NET_IF: delay ${NETEM_DELAY_MS}ms, jitter ${NETEM_JITTER_MS}ms (all egress traffic) ==="
-    if ! tc qdisc add dev "$NET_IF" root netem delay "${NETEM_DELAY_MS}ms" "${JITTER_ARGS[@]}"; then
+    if ! tc qdisc add dev "$NET_IF" root netem delay "${NETEM_DELAY_MS}ms" "${JITTER_ARGS[@]}" rate 1gbit; then
         echo "==========================================================================" >&2
         echo "[FATAL ERROR] Failed to apply network emulation (needs --cap-add NET_ADMIN and the host's sch_netem module)." >&2
         echo "Aborting startup so the site never runs without its configured delay." >&2

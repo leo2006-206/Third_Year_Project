@@ -104,6 +104,18 @@ pub fn response_404() -> Vec<u8> {
 }
 
 /// [Honest / Pure Domain Logic]
+/// Response when an offload site fails: 504 if it didn't answer in time, 502 for any other error
+/// (e.g. connection refused).
+pub fn response_gateway_error(timed_out: bool) -> Vec<u8> {
+    let status = if timed_out {
+        "504 Gateway Timeout"
+    } else {
+        "502 Bad Gateway"
+    };
+    format_response(status, "text/plain; charset=utf-8", &[], status.as_bytes())
+}
+
+/// [Honest / Pure Domain Logic]
 /// Constructs a 200 OK response with cross-origin headers required for binary assets (e.g. WASM).
 pub fn response_bytes(content_type: &str, extra_headers: &[(&str, &str)], body: &[u8]) -> Vec<u8> {
     const DEFAULT_HEADERS: &[(&str, &str)] = &[

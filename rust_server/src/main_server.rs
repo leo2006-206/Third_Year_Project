@@ -68,14 +68,28 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     path: &str,
 ) -> io::Result<()> {
     use http::{request_get, send_raw};
-    use std::time::Instant;
+    use std::time::{Duration, Instant};
+    use util::{copy_with_idle_timeout, with_timeout};
     const MAIN_SERVER_AGENT: &str = "OBM Load balancer/1.0";
+    // A live site accepts within ~30-60 ms; longer means it is down or the packets are dropped
+    const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
+    // Until the response headers: includes the site's queue + asset + render time
+    const HEADER_TIMEOUT: Duration = Duration::from_secs(600);
+    // Body streaming: limit on a gap with no data, not on the whole transfer
+    const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
     let t_start = Instant::now();
 
     let target_offload = balancer.select(Some(path));
 
-    let mut offload_steam = TcpStream::connect(target_offload.endpoint).await?;
+    // On an early return the selection guard is dropped, which reports the site as done
+    let connect = with_timeout(CONNECT_TIMEOUT, TcpStream::connect(target_offload.endpoint)).await;
+    let mut offload_steam = match connect {
+        Ok(stream) => stream,
+        Err(e) => {
+            return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
+        }
+    };
 
     let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
@@ -83,11 +97,18 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     // 1. Read until the boundary between HTTP headers and binary video payload
     //    (the offload site may send its headers over several TCP reads)
     let mut buf = vec![0u8; 8192];
-    let mut n = util::buf_read(&mut offload_steam, &mut buf).await?;
+    let first = with_timeout(HEADER_TIMEOUT, util::buf_read(&mut offload_steam, &mut buf)).await;
+    let mut n = match first {
+        Ok(n) => n,
+        Err(e) => {
+            return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
+        }
+    };
     let elapsed = t_start.elapsed().as_millis() as i64;
     let mut header_end = buf[..n].windows(4).position(|w| w == b"\r\n\r\n");
     while header_end.is_none() && n < buf.len() {
-        let Ok(m) = util::buf_read(&mut offload_steam, &mut buf[n..]).await else {
+        let rest = util::buf_read(&mut offload_steam, &mut buf[n..]);
+        let Ok(m) = with_timeout(BODY_IDLE_TIMEOUT, rest).await else {
             break;
         };
         n += m;
@@ -97,7 +118,7 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let Some(pos) = header_end else {
         // If no HTTP delimiter found, forward raw buffer directly and exit
         client_stream.write_all(&buf[..n]).await?;
-        smol::io::copy(&mut offload_steam, &mut client_stream).await?;
+        copy_with_idle_timeout(&mut offload_steam, &mut client_stream, BODY_IDLE_TIMEOUT).await?;
         client_stream.flush().await?;
         return Ok(());
     };
@@ -127,8 +148,9 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
         client_stream.write_all(body_chunk).await?;
     }
 
-    // 5. Stream the rest of the video chunks directly
-    smol::io::copy(&mut offload_steam, &mut client_stream).await?;
+    // 5. Stream the rest of the video chunks directly (headers are sent, so on a stall
+    //    the connection is just closed and the client sees a short body)
+    copy_with_idle_timeout(&mut offload_steam, &mut client_stream, BODY_IDLE_TIMEOUT).await?;
     client_stream.flush().await?;
 
     let message = format!(

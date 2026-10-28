@@ -62,124 +62,39 @@ To run the full modular pipeline (`decoding: cpu|gpu`, `composition: cpu|llvmpip
 
 ______________________________________________________________________
 
-## 3. How to Run the Docker Containers
+## 3. Two-Laptop Cluster
 
-### Prerequisites
+The experiments run on two laptops joined by one Ethernet cable. `om` runs the main server (load balancer, assets) and the near offload sites; `rs` runs the far offload sites.
 
-1. **Docker Network** (create once):
-   ```bash
-   docker network create obm-net 2>/dev/null || true
-   ```
-2. **Tailscale & Edge VPS** (for remote workers and public HTTPS):
-   - Local: Ensure Tailscale is running (`sudo systemctl start tailscaled && tailscale up`).
-   - Cloud Edge VPS (`195.58.134.234`): Runs Caddy reverse-proxying `https://obm-main.leowong.space/` to your local Tailscale IP (`100.x.y.z:7000`).
+| Machine | Role | Cable interface | Cable IP | Site delay (netem) |
+|---|---|---|---|---|
+| `om` (main laptop, weaker) | main server `:7000` + near sites | `eno1` | `10.10.0.1` | 30 ± 3 ms |
+| `rs` (second laptop, ~1.3× faster) | far sites | `enp6s0` | `10.10.0.2` | 60 ± 6 ms |
 
-### A. Running the Offload Servers
-
-#### Cluster Mode (All Offload Nodes Automatically)
-Reads an endpoint CSV (default `servers_container/offload_endpoint.csv`), checks for duplicate IDs/ports and valid CPU/memory caps, compiles the Rust offload server once, builds the Docker image, and launches all worker containers into separate tabs in `gnome-terminal` (`-d` for detached containers):
-
-```bash
-./servers_container/run_all_offload.py [ENDPOINT_CSV] [-d]
+```
+                        om (10.10.0.1)                                 rs (10.10.0.2)
+ client ──:7000──> obm-main-server ──obm-net──> obm-offload-om1..3     obm-offload-rs1..3 (:7010..)
+                        ▲   │                                               ▲      │
+                        │   └──────────────── cable: offload requests ──────┘      │
+                        └────────────── cable: /shows + /assets from 10.10.0.1:7000 ┘
 ```
 
-For the two-laptop clusters, each machine runs its own sites of a case (same rows as `cluster_endpoint_c1/c2.csv`, without `ip`):
+- The main server reaches om's sites by **container name** on the Docker network `obm-net`, and rs's sites by **cable IP**.
+- Every offload site (both machines) downloads `/shows` and `/assets` from the main server at **`10.10.0.1:7000`** (default of `MAIN_SERVER_ADDR`).
+- The cable itself adds < 1 ms; near / far delays come only from each site's netem setting (egress-only, applied to everything the site sends, incl. asset downloads, so every round trip the site makes grows by `delay_ms`). netem runs with `rate 1gbit`: per-packet jitter alone reorders packets, which TCP treats as loss (large responses ~10× slower); the rate keeps packets in order without limiting bandwidth.
 
-| | case 1 (gpu + llvm + cpu each) | case 2 (2 gpu each) |
-|---|---|---|
-| om | `servers_container/offload_om_c1.csv` | `servers_container/offload_om_c2.csv` |
-| rs | `servers_container/offload_rs_c1.csv` | `servers_container/offload_rs_c2.csv` |
+### 3.1 One-Time Setup (each laptop)
 
-#### Network Emulation (Near / Far Site Groups)
-A non-zero `delay_ms` makes the container apply `tc netem delay <delay_ms>ms <jitter_ms>ms distribution normal` to everything it sends, **including asset downloads** (asset acquisition is a large share of offload time). It is egress-only, so every round trip the site makes (main server, asset server) grows by `delay_ms`. The container gets `--cap-add NET_ADMIN`; startup aborts if netem cannot be applied (e.g. the host lacks the `sch_netem` module), so a site never silently runs without its delay.
+**1. Software and access** (both): Docker usable without `sudo` (`docker ps` works; user in the `docker` group), Rust/cargo, the user in `video` and `render` for the gpu sites (`sudo usermod -aG video,render $USER`), and the host's `sch_netem` module (a site with a delay aborts at startup without it).
 
-#### Individual Node (Manual Run)
-You can launch an individual offload node by passing `ID`, `PORT`, `DECODING` (`cpu`|`gpu`), `COMPOSITION` (`cpu`|`llvmpipe`|`gpu`), and `ENCODING` (`cpu`):
+**2. Project and media** (both):
 
 ```bash
-./servers_container/offload_server/run_sh.sh <ID> <PORT> [cpu|gpu] [cpu|llvmpipe|gpu] [cpu] [CPU] [MEMORY_GB] [DELAY_MS] [JITTER_MS]
-# CPU / MEMORY_GB: docker --cpus / --memory caps, -1 = no cap (defaults: -1 / 3.5)
-# DELAY_MS / JITTER_MS: tc netem delay/jitter on ALL traffic the site sends, incl. asset downloads (default 0 = none)
-# DETACH=1 runs the container in the background instead of interactively
+git clone <this repository> ThirdYearProject && cd ThirdYearProject
+# obm/ (assets + shows) is gitignored: copy it into the project root (USB / scp / clone barryfp/obm)
 ```
 
-*Examples:*
-```bash
-# Fastest combo: GPU decode, GPU composition, CPU encode (~3.2s)
-./servers_container/offload_server/run_sh.sh 1 7010 gpu gpu cpu 2 1.5
-
-# Software OpenGL combo: CPU decode, llvmpipe composition, CPU encode (~7.5s)
-./servers_container/offload_server/run_sh.sh 2 7020 cpu llvmpipe cpu 8 1.5
-
-# Pure software baseline: CPU decode, CPU SDL composition, CPU encode (~25s)
-./servers_container/offload_server/run_sh.sh 3 7030 cpu cpu cpu 2 1.5
-```
-
-### B. Running the Main Server
-
-The Main Server is a high-performance Rust web server that serves the UI harness, static show/asset files, and load-balances offload segment requests across available rendering worker nodes on port `7000`.
-
-#### 1. Interactive Mode (Compile, Build & Run)
-Run the automated runner from the project root:
-
-```bash
-./servers_container/main_server/run_sh.sh [CLUSTER_CSV]   # default: servers_container/cluster_endpoint_c1.csv
-```
-
-**What this script does:**
-1. Compiles the Rust server binary with `--release` optimizations (`cargo build --release --bin main_server`).
-2. Builds the lightweight Docker image `obm-main-server`.
-3. Cleans up any existing `obm-main-server` container.
-4. Mounts host directories directly via read-only volumes (no asset rebuilds required):
-   - `obm/assets/` $\rightarrow$ `/app/obm/assets:ro`
-   - `obm/shows/` $\rightarrow$ `/app/obm/shows:ro`
-   - `CLUSTER_CSV` $\rightarrow$ `/app/cluster_endpoint.csv:ro` (offload sites for the load balancer, passed to `main_server` as its argument; changing the cluster needs no rebuild)
-5. Connects to `obm-net` and exposes host port `7000`.
-
-#### 2. Fast Startup (Skip Recompilation)
-If the Rust binary and Docker image are already compiled:
-
-```bash
-./servers_container/main_server/run_sh.sh [CLUSTER_CSV] --skip-build
-```
-
-#### 3. Background / Daemon Mode
-To run the Main Server continuously in the background:
-
-```bash
-# Start container in detached mode
-docker run -d --rm --init \
-    --network obm-net \
-    -p 7000:7000 \
-    -v "$PWD/obm/assets:/app/obm/assets:ro" \
-    -v "$PWD/obm/shows:/app/obm/shows:ro" \
-    -v "$PWD/servers_container/cluster_endpoint_c1.csv:/app/cluster_endpoint.csv:ro" \
-    --name obm-main-server \
-    obm-main-server /app/cluster_endpoint.csv
-
-# Inspect live logs
-docker logs -f obm-main-server
-
-# Stop the container
-docker stop obm-main-server
-```
-
-### C. Accessing the System
-
-- **Local Machine**: `http://localhost:7000/`
-- **Private Tailnet (P2P)**: `http://<LOCAL_TAILSCALE_IP>:7000/`
-- **Public Domain (via Edge VPS)**: `https://obm-main.leowong.space/`
-
-### D. Two-Laptop Cluster (Direct Ethernet Cable)
-
-The two cluster machines are joined by one Ethernet cable as a private link with fixed addresses (no router, no gateway; internet stays on Wi-Fi). It only uses NetworkManager, so nothing registers.
-
-| Machine | Role | Interface | Cable IP |
-|---|---|---|---|
-| `om` (main laptop) | main server + near sites | `eno1` | `10.10.0.1` |
-| `rs` (second laptop) | far sites | `enp6s0` | `10.10.0.2` |
-
-**One-time setup** (the profile is saved; afterwards just plug the cable in):
+**3. Cable link** (NetworkManager profile; saved, so afterwards just plug the cable in):
 
 ```bash
 # om
@@ -195,191 +110,128 @@ sudo nmcli con add type ethernet ifname enp6s0 con-name obm-link \
 sudo nmcli con up obm-link
 ```
 
-`autoconnect-priority 10` makes `obm-link` win over NetworkManager's default DHCP profile (`Wired connection 1`), which would otherwise wait for a router that isn't there.
+No gateway is set, so internet stays on Wi-Fi. `autoconnect-priority 10` makes `obm-link` win over NetworkManager's default DHCP profile (`Wired connection 1`), which would wait for a router that isn't there.
 
-**Check the link:**
-
-```bash
-ping -c 3 10.10.0.2                                          # from om, expect < 1 ms
-curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.2:7010/   # rs offload site reachable (any code but 000)
-```
-
-**Addresses (two rules):**
-- **Cluster CSV (`ip` column):** om's sites by container name (`obm-offload-om1`, …), rs's by cable IP (`10.10.0.2`). The host firewall drops traffic from a container to its own host's IP, so the main server container cannot reach om's sites via `10.10.0.1`; on the shared `obm-net` network the container names work.
-- **Offload sites** (on both machines) fetch `/shows` and `/assets` from the main server at `10.10.0.1:7000` by default (`MAIN_SERVER_ADDR` overrides it, e.g. `obm-main-server:7000` for a single-machine setup without the cable). om's `ufw` must let both its own containers and rs reach port 7000 (one-time, on om):
+**4. Firewall on om** (`ufw` is active there and drops these by default):
 
 ```bash
-sudo ufw allow from 172.18.0.0/16 to any port 7000 proto tcp   # om's containers (obm-net) -> host IP
-sudo ufw allow from 10.10.0.0/24 to any port 7000 proto tcp    # rs over the cable
-curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/   # on rs (and inside an om site container): expect 200
+docker network create obm-net 2>/dev/null || true
+docker network inspect obm-net -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'   # 172.18.0.0/16 on om
+sudo ufw allow from 172.18.0.0/16 to any port 7000 proto tcp   # om's own site containers -> 10.10.0.1:7000
+sudo ufw allow from 10.10.0.0/24 to any port 7000 proto tcp    # rs's sites over the cable
 ```
 
-**Troubleshooting:**
-- Ping fails after plugging in: the default profile took the port; run `sudo nmcli con up obm-link`.
-- Using the port on a normal network (uni / home): `sudo nmcli con up "Wired connection 1"`; remove the cable setup with `sudo nmcli con delete obm-link`.
-- If `ufw` is active on rs: `sudo ufw allow from 10.10.0.0/24` (om -> rs offload ports).
+If `ufw` is active on rs too: `sudo ufw allow from 10.10.0.0/24` (om -> rs offload ports).
 
-The cable adds well under 1 ms, so the near / far delays (om 30 ms, rs 60 ms) come only from the per-site `DELAY_MS` / `JITTER_MS` netem settings (see Network Emulation above).
+**5. Check** (once, and whenever something looks wrong):
+
+```bash
+ping -c 3 10.10.0.2                                                  # on om: < 1 ms
+curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/     # on rs (main server running): 200
+```
+
+### 3.2 Cluster Cases and Config Files
+
+| Case | Sites per machine | rs runs | om runs | Main server (on om) |
+|---|---|---|---|---|
+| 1 (heterogeneous) | gpu + llvmpipe + cpu | `offload_rs_c1.csv` | `offload_om_c1.csv` | `cluster_endpoint_c1.csv` |
+| 2 (homogeneous) | 2 × gpu | `offload_rs_c2.csv` | `offload_om_c2.csv` | `cluster_endpoint_c2.csv` |
+
+All files are in `servers_container/`. Each `offload_*` file holds the same rows as its `cluster_endpoint_*` file without the `ip` column; keep them in sync when changing a case.
+
+- **`offload_{om,rs}_{c1,c2}.csv`** (sites one machine starts): `id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms`.
+  - `id`: machine + number (`om1`, `rs2`; letters, digits, `-` only). The container is `obm-offload-<id>`.
+  - `decoding` `cpu|gpu`, `composition` `cpu|llvmpipe|gpu`, `encoding` `cpu` (gpu encoding disabled).
+  - `cpu` / `memory`: docker `--cpus` / `--memory` (GB) caps, `-1` = no cap.
+  - `delay_ms` / `jitter_ms`: netem delay / jitter (normal distribution), `0` = none.
+- **`cluster_endpoint_{c1,c2}.csv`** (sites the load balancer uses): same columns plus `ip` after `id`. The endpoint is `ip:port`, and the site name in the logs is every `col=value` joined by `_` (e.g. `id=rs1_ip=10.10.0.2_port=7010_decoding=gpu_…`).
+  - **`ip` rule:** om's sites by container name (`obm-offload-om1`), rs's by `10.10.0.2`. The main server runs in a container on om, and om's containers cannot reach om's own `10.10.0.1` on the site ports.
+- Lines starting with `#` are comments (each file documents its columns).
+
+The load-balancing policy is chosen in `main()` of `rust_server/src/main_server.rs` (`RoundRobinLB` / `InterleavedWeightedRRLB`); changing it needs a main server rebuild (run `run_sh.sh` without `--skip-build`).
+
+### 3.3 Running a Case (in this order)
+
+```bash
+# 0. both: plug the cable in, same commit on both machines
+git pull
+
+# 1. rs: start the far sites (builds the offload binary + image, one gnome-terminal tab per site; -d = detached)
+./servers_container/run_all_offload.py servers_container/offload_rs_c1.csv
+
+# 2. om: start the near sites
+./servers_container/run_all_offload.py servers_container/offload_om_c1.csv
+
+# 3. om: start the main server (needs a real terminal; Ctrl+C stops it)
+./servers_container/main_server/run_sh.sh servers_container/cluster_endpoint_c1.csv [--skip-build]
+```
+
+`run_all_offload.py` checks the CSV (duplicate ids / ports, values), compiles the Rust offload server, builds the image `obm-offload-server`, removes old containers of the same ids, and starts the sites. `main_server/run_sh.sh` compiles `main_server`, builds `obm-main-server`, and runs it on `obm-net` with port `7000`, mounting read-only:
+- `obm/assets/` → `/app/obm/assets`, `obm/shows/` → `/app/obm/shows`
+- the cluster CSV → `/app/cluster_endpoint.csv` (passed as the server's argument; changing the cluster needs only a restart).
+
+**Main server in the background** (instead of step 3, e.g. over SSH; image already built):
+
+```bash
+docker run -d --rm --init --network obm-net -p 7000:7000 \
+    -v "$PWD/obm/assets:/app/obm/assets:ro" \
+    -v "$PWD/obm/shows:/app/obm/shows:ro" \
+    -v "$PWD/servers_container/cluster_endpoint_c1.csv:/app/cluster_endpoint.csv:ro" \
+    --name obm-main-server obm-main-server /app/cluster_endpoint.csv
+docker logs -f obm-main-server
+```
+
+**Verify before a benchmark** (on om):
+
+```bash
+docker logs obm-main-server | grep -E "Offload site|Load balancer"          # all sites of the case, the policy
+docker logs obm-offload-om1 | grep "Assets from"                             # 10.10.0.1:7000 (same on rs)
+curl -s -o seg.h264 -D - "http://localhost:7000/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|Off" \
+  | grep -E "HTTP|X-OBM-Worker|X-Dana-Timings"                               # 200, the chosen site, timings
+ffplay -f h264 -autoexit seg.h264                                            # optional: watch the segment
+```
+
+Repeating the `curl` once per site should walk through every site (round robin). Expected work time: om ≈ 8.7 s gpu / 10.7 s llvm / 34 s cpu, rs ≈ 1.3× faster; rs's asset and net times are ~0.6 s higher (far delay).
+
+**4. Benchmark** (on om): replay a generated sequence open-loop; the two labels name the run.
+
+```bash
+python3 servers_benchmark/seq_bench.py servers_benchmark/sequences/seq_a0.5_case1.csv rr SA
+# -> stat/run_a0.5_c1/rr_SA_1.csv (then _2, _3, ... for repeats); --limit 50 for a smoke test
+```
+
+Use `seq_a*_case1.csv` with case 1 and `seq_a*_case2.csv` with case 2. The policy label must match the policy compiled into the main server.
+
+### 3.4 Switching Case and Stopping
+
+- **Switch case:** rerun steps 1–3 with the other case's files (step 1/2 replace the old sites only if the ids match, so stop the old sites first). No rebuild needed for the main server: `--skip-build`.
+- **Stop** (each machine):
+
+```bash
+docker rm -f $(docker ps -q --filter name=obm-)     # offload sites (+ main server on om)
+```
+
+### 3.5 Troubleshooting
+
+| Symptom | Cause / fix |
+|---|---|
+| `ping 10.10.0.2` fails after plugging in | NetworkManager picked `Wired connection 1`: `sudo nmcli con up obm-link` |
+| Need the Ethernet port on a normal network | `sudo nmcli con up "Wired connection 1"`; remove the cable setup with `sudo nmcli con delete obm-link` |
+| Requests to a site never return (connect works) | the site can't download assets: check `docker logs obm-offload-<id> \| grep "Assets from"` shows `10.10.0.1:7000`, and from inside it `docker exec obm-offload-<id> curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/` gives `200` (else the om `ufw` rules) |
+| Main server requests to om's sites hang | the cluster CSV uses `10.10.0.1` for om; use the container names |
+| `the input device is not a TTY` / `cannot attach stdin` | `main_server/run_sh.sh` needs a terminal; use the background `docker run` above |
+| A site with a delay exits at startup | netem could not be applied (missing `sch_netem` on the host) |
+| A gpu site exits at startup | the hardware check failed (`/dev/dri` missing or software renderer); see section 2 |
 
 ______________________________________________________________________
 
-## 4. How to Add a New Offload Server
-
-1. **Add an endpoint to [`servers_container/offload_endpoint.csv`](servers_container/offload_endpoint.csv)**:
-   ```csv
-   id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
-   1,7010,gpu,gpu,cpu,4,2,50,5
-   2,7020,gpu,llvmpipe,cpu,8,2,50,5
-   3,7030,gpu,cpu,cpu,2,2,100,10
-   ```
-2. **Register in Main Server** (`rust_server/src/bin/main_server.rs`):
-   - Add `"obm-offload-3:7030"` to the offload server pool / load balancer list.
-3. **Launch the cluster**:
-   ```bash
-   ./servers_container/run_all_offload.py
-   ```
-
-______________________________________________________________________
-
-## 5. `servers_container/` Directory Breakdown
+## 4. `servers_container/` Directory Breakdown
 
 | File / Directory | Purpose |
 | :--- | :--- |
-| `main_server/` | Builds and runs the Rust Main Server container on port `7000`. |
-| `offload_server/` | Offload Node container configuration (Rust proxy + Dana engine). Parameterized by `ID`, `PORT`, `DECODING`, `COMPOSITION`, and `ENCODING`. |
-| `offload_endpoint.csv` | Active offload instance mappings (`id,port,decoding,composition,encoding,cpu,memory`); `cpu`/`memory` are docker `--cpus`/`--memory` (GB) caps, `-1` = no cap; `delay_ms`/`jitter_ms` add `tc netem` delay to all site traffic (near 30 ms / far 60 ms groups), `0` = none. |
-| `offload_{om,rs}_{c1,c2}.csv` | Per-machine offload sites for cluster case 1 / 2 (input to `run_all_offload.py`). |
-| `run_all_offload.py` | Validates an endpoint CSV (default `offload_endpoint.csv`) and launches all offload worker containers into terminal tabs. |
-
-***
-
-## 6. Play Video (CLI Verification)
-
-Test offloaded segment generation and video playback directly from the command line:
-
-1. Request and stream a 10-second composited H.264 segment:
-   ```bash
-   curl -s "https://obm-main.leowong.space/offload/show/f1_full.json/0/10/1280/720/race/landscape/4/race|race/driver|Sam/track|track/drivers|Sam" -o segment.h264
-   ```
-2. Play the downloaded segment with `ffplay`:
-   ```bash
-   ffplay -f h264 -autoexit segment.h264
-   ```
-
-______________________________________________________________________
-
-## 7. Self-Hosted Edge Tunnel (VPS + Caddy + Tailscale)
-
-To eliminate third-party tunnel quotas (such as Cloudflare Tunnel's 100 MB request ceiling and 100-second execution timeouts), public access is routed through a private cloud edge VPS:
-
-```
-[Public Client] ──HTTPS──> [VPS: 195.58.134.234 (Caddy)] ──Tailscale (WireGuard)──> [Local Host: 100.x.y.z:7000]
-```
-
-### VPS Configuration Reference:
-- **Cloudflare DNS**: An `A` record pointing `obm-main.leowong.space` to `195.58.134.234` with **DNS Only** (Grey Cloud).
-- **Caddy Configuration** (`/etc/caddy/Caddyfile` on the VPS):
-  ```caddyfile
-  obm-main.leowong.space {
-      reverse_proxy 100.75.221.63:7000 {
-          transport http {
-              response_header_timeout 600s
-          }
-      }
-  }
-  ```
-- **Management Commands on VPS**:
-  ```bash
-  systemctl restart caddy    # Apply config changes
-  systemctl status caddy     # Verify TLS certificates and proxy status
-  journalctl -u caddy -f     # Inspect live access and error logs
-  tailscale status           # Verify P2P connection to local machine
-  ```
-
-
-______________________________________________________________________
-
-## 8. Lab Machine Setup (No Root, Redo Every Session)
-
-The university lab PC blocks software that registers itself with the system (apt packages, system services, Tailscale's `install.sh`). Everything below installs into your home directory and runs as your normal user, so it is allowed. If the lab wipes your home directory between sessions, repeat these steps every time.
-
-The lab PC only needs to **accept** connections from the main server on the laptop (offload ports `7010`, `7020`, ...). Assets are served by a local `obm-main-server` container on the lab PC, so nothing large crosses the network except the request and the returned video segment.
-
-### Step 1: Install Rust (user-local, via rustup)
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
-source "$HOME/.cargo/env"
-cargo --version
-```
-
-### Step 2: Run Tailscale from the standalone binaries (no install, no root)
-
-Do **not** use Tailscale's `install.sh` (it adds an apt repository and a systemd service). The standalone tarball is just two programs; `--tun=userspace-networking` needs no root and creates no network interface. Run this inside `tmux` so it keeps running after you disconnect:
-
-```bash
-tmux new -s ts
-
-mkdir -p ~/ts && cd ~/ts
-curl -LO https://pkgs.tailscale.com/stable/tailscale_1.104.2_amd64.tgz
-tar xzf tailscale_1.104.2_amd64.tgz && cd tailscale_1.104.2_amd64
-
-# userspace networking: no root, no network interface created
-./tailscaled --tun=userspace-networking \
-  --state=$HOME/ts/tailscaled.state --socket=$HOME/ts/tailscaled.sock &
-
-./tailscale --socket=$HOME/ts/tailscaled.sock up --hostname=lab-pc   # prints a login URL
-./tailscale --socket=$HOME/ts/tailscaled.sock ip -4                  # the lab PC's 100.x address
-```
-
-- In userspace mode, incoming connections to the lab PC's `100.x` address are forwarded to its local ports, so Docker's published ports (`0.0.0.0:7010`) are reachable from the laptop at `<lab-100.x>:7010`.
-- **Skip the browser login:** create a reusable, **ephemeral** auth key in the Tailscale admin console and run `./tailscale --socket=$HOME/ts/tailscaled.sock up --hostname=lab-pc --authkey=tskey-...`. Ephemeral nodes are removed automatically when they go offline, so a fresh session does not end up as `lab-pc-1`, `lab-pc-2`, ...
-- **Check the connection type** (record it for the experiment): `./tailscale --socket=$HOME/ts/tailscaled.sock netcheck`. From the laptop, `tailscale ping lab-pc` shows `via <ip>:<port>` for a direct link or `via DERP(...)` when relayed (slower, bandwidth-limited).
-- Detach from tmux with `Ctrl+b d`; reattach with `tmux attach -t ts`.
-
-### Step 3: Get the project and the `obm/` folder
-
-```bash
-git clone <this repository> ThirdYearProject && cd ThirdYearProject
-# obm/ is gitignored: copy it into the project root (USB / scp from the laptop / clone barryfp/obm)
-```
-
-Docker must be usable without `sudo` (your user is in the `docker` group). Check with `docker ps`.
-
-### Step 4: Start the local asset server and the offload sites
-
-```bash
-./servers_container/main_server/run_sh.sh        # local obm-main-server (assets only), in its own terminal/tmux window
-./servers_container/run_all_offload.py           # builds and starts the sites in offload_endpoint.csv (or pass a CSV)
-```
-
-Edit `servers_container/offload_endpoint.csv` first if the lab PC should run a different set of sites or caps.
-
-### Step 5: Verify from the laptop
-
-```bash
-tailscale ping lab-pc
-curl -s -o /dev/null -w "%{http_code} %{time_total}s\n" \
-  "http://<lab-100.x>:7010/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|Off"
-```
-
-Then add the lab sites (`<lab-100.x>:7010`, ...) to the main server's offload list.
-
-### Fallback: reverse tunnel through the VPS
-
-If Tailscale cannot connect from the campus network, the lab PC can open an **outgoing** SSH tunnel to the VPS (already on the tailnet), and the main server connects to the VPS instead:
-
-```bash
-ssh -N -o ServerAliveInterval=30 -o ExitOnForwardFailure=yes \
-  -R 17010:localhost:7010 -R 17020:localhost:7020 -R 17030:localhost:7030 root@195.58.134.234
-```
-
-The main server then uses `<vps-100.x>:17010`, ... Every request and segment goes through the VPS, so this adds latency; note it in the experiment method. For a tunnel that reconnects automatically, `cargo install rathole` (server on the VPS, client on the lab PC) works the same way.
-
-### Teardown
-
-```bash
-docker rm -f $(docker ps -q --filter name=obm-)          # offload sites + asset server
-./tailscale --socket=$HOME/ts/tailscaled.sock down        # from ~/ts/tailscale_1.104.2_amd64
-pkill -u "$USER" tailscaled
-```
+| `main_server/` | Main server image and `run_sh.sh [CLUSTER_CSV] [--skip-build]` (port `7000`). |
+| `offload_server/` | Offload site image (Rust proxy + Dana engine) and `run_sh.sh <ID> <PORT> <dec> <comp> <enc> [CPU] [MEMORY_GB] [DELAY_MS] [JITTER_MS]` for a single site (`DETACH=1` = background, `MAIN_SERVER_ADDR` = asset source). |
+| `run_all_offload.py` | `[ENDPOINT_CSV] [-d] [-w]`: validates an endpoint CSV and starts all its sites (default CSV `offload_endpoint.csv`). |
+| `offload_{om,rs}_{c1,c2}.csv` | Sites each machine starts for case 1 / 2. |
+| `cluster_endpoint_{c1,c2}.csv` | Sites the main server load-balances over for case 1 / 2. |
+| `offload_endpoint.csv` | Default endpoint CSV of `run_all_offload.py` (not used by the cluster cases). |

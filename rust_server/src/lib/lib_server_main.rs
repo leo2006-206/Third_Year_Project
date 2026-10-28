@@ -4,6 +4,10 @@ use std::path::Path;
 use rust_obm::mod_load_balancer::OffloadSite;
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
 
+use crate::lib_core_type as ct;
+use crate::lib_http as http;
+use crate::lib_util as util;
+
 /// [Dishonest / I/O Boundary Driver]
 /// Reads a cluster endpoint CSV (e.g. servers_container/cluster_endpoint.csv) into offload sites.
 pub fn load_cluster_csv(path: impl AsRef<Path>) -> io::Result<Vec<OffloadSite>> {
@@ -91,6 +95,19 @@ pub fn parse_cluster_csv(text: &str) -> Result<Vec<OffloadSite>, String> {
         return Err("no offload sites".into());
     }
     Ok(sites)
+}
+
+/// [Dishonest / I/O Boundary Driver]
+/// Logs a failed offload and answers 504 (timeout) or 502 (other error) before any headers are sent.
+pub async fn reply_gateway_error(
+    client_stream: &mut impl ct::Writer,
+    site: &str,
+    path: &str,
+    err: io::Error,
+) -> io::Result<()> {
+    util::log_message(&format!("[OFFLOAD FAIL] -> {site} | {err} | {path}"));
+    let resp = http::response_gateway_error(err.kind() == io::ErrorKind::TimedOut);
+    http::send_raw(client_stream, &resp).await
 }
 
 pub fn compute_t_net(return_header: &str, elapsed: i64) -> Option<i64> {
