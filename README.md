@@ -204,7 +204,15 @@ ping -c 3 10.10.0.2                                          # from om, expect <
 curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.2:7010/   # rs offload site reachable (any code but 000)
 ```
 
-**Cluster CSV:** use the cable IPs in the `ip` column (`10.10.0.1` for om's sites, `10.10.0.2` for rs's); the main server container reaches om's own sites through their published host ports.
+**Addresses (two rules):**
+- **Cluster CSV (`ip` column):** om's sites by container name (`obm-offload-om1`, …), rs's by cable IP (`10.10.0.2`). The host firewall drops traffic from a container to its own host's IP, so the main server container cannot reach om's sites via `10.10.0.1`; on the shared `obm-net` network the container names work.
+- **Offload sites on rs** fetch `/shows` and `/assets` from the main server, by default `obm-main-server:7000`, which only resolves on om. Start rs's sites with the main server's cable address:
+
+```bash
+# on rs
+MAIN_SERVER_ADDR=10.10.0.1:7000 ./servers_container/run_all_offload.py servers_container/offload_rs_c1.csv
+curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/   # main server reachable from rs (expect 200)
+```
 
 **Troubleshooting:**
 - Ping fails after plugging in: the default profile took the port; run `sudo nmcli con up obm-link`.

@@ -113,7 +113,12 @@ async fn serve_main_proxy(
 
 fn main() -> io::Result<()> {
     const DANA_ADDR: &str = "127.0.0.1:9009";
-    const MAIN_SERVER_ADDR: &str = "obm-main-server:7000";
+    // Where Dana's /shows and /assets downloads go: the main server container on the same
+    // docker network, or MAIN_SERVER_ADDR=<host>:7000 when the site runs on another machine
+    let main_addr: &'static str = env::var("MAIN_SERVER_ADDR")
+        .unwrap_or_else(|_| "obm-main-server:7000".to_string())
+        .leak();
+    println!("Assets from main server {main_addr}");
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -127,7 +132,7 @@ fn main() -> io::Result<()> {
             let stream = stream?;
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, DANA_ADDR, MAIN_SERVER_ADDR).await {
+                if let Err(e) = handle_client(stream, DANA_ADDR, main_addr).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })

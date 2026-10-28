@@ -9,6 +9,7 @@ separate tabs within GNOME Terminal
 
 Usage: ./run_all_offload.py [ENDPOINT_CSV] [--detach|-d] [--new-window|-w]
   e.g. ./run_all_offload.py offload_rs_c1.csv   (sites of one machine for one cluster case)
+  MAIN_SERVER_ADDR (env): main server the sites fetch assets from, e.g. 10.10.0.1:7000 on rs
 """
 
 import csv
@@ -296,7 +297,9 @@ def spawn_terminal_tabs(
         mem_label = "nocap" if memory == "-1" else f"{memory}G"
         net_label = f" {delay}±{jitter}ms" if delay != "0" else ""
         title = f"Offload-{inst_id} ({port}/{decoding.upper()}-{composition.upper()}-{encoding.upper()} {cpu_label}/{mem_label}{net_label})"
-        run_cmd = f'"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" "{cpu}" "{memory}" "{delay}" "{jitter}" --skip-build'
+        # gnome-terminal tabs don't inherit this process's environment
+        main_env = f'MAIN_SERVER_ADDR="{os.environ["MAIN_SERVER_ADDR"]}" ' if "MAIN_SERVER_ADDR" in os.environ else ""
+        run_cmd = f'{main_env}"{offload_run_sh}" "{inst_id}" "{port}" "{decoding}" "{composition}" "{encoding}" "{cpu}" "{memory}" "{delay}" "{jitter}" --skip-build'
         tabs.append({"title": title, "cmd": format_tab_command(title, run_cmd)})
 
     if new_window:

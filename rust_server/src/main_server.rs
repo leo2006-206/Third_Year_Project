@@ -80,13 +80,21 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
-    let mut buf = vec![0u8; 4096];
-    let n = util::buf_read(&mut offload_steam, &mut buf).await?;
-
+    // 1. Read until the boundary between HTTP headers and binary video payload
+    //    (the offload site may send its headers over several TCP reads)
+    let mut buf = vec![0u8; 8192];
+    let mut n = util::buf_read(&mut offload_steam, &mut buf).await?;
     let elapsed = t_start.elapsed().as_millis() as i64;
+    let mut header_end = buf[..n].windows(4).position(|w| w == b"\r\n\r\n");
+    while header_end.is_none() && n < buf.len() {
+        let Ok(m) = util::buf_read(&mut offload_steam, &mut buf[n..]).await else {
+            break;
+        };
+        n += m;
+        header_end = buf[..n].windows(4).position(|w| w == b"\r\n\r\n");
+    }
 
-    // 1. Locate boundary between HTTP headers and binary video payload
-    let Some(pos) = buf[..n].windows(4).position(|w| w == b"\r\n\r\n") else {
+    let Some(pos) = header_end else {
         // If no HTTP delimiter found, forward raw buffer directly and exit
         client_stream.write_all(&buf[..n]).await?;
         smol::io::copy(&mut offload_steam, &mut client_stream).await?;
@@ -174,8 +182,8 @@ fn main() -> io::Result<()> {
         println!("Offload site: {} ({})", site.endpoint, site.name);
     }
 
-    // let load_balancer = lb::RoundRobinLB::new(offload_url);
-    let load_balancer = lb::InterleavedWeightedRRLB::new(offload_url);
+    let load_balancer = lb::RoundRobinLB::new(offload_url);
+    // let load_balancer = lb::InterleavedWeightedRRLB::new(offload_url);
 
     println!(
         "Load balancer type = {}",
