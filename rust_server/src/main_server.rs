@@ -94,72 +94,51 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
     send_raw(&mut offload_steam, &message).await?;
 
-    // 1. Read until the boundary between HTTP headers and binary video payload
-    //    (the offload site may send its headers over several TCP reads)
-    let mut buf = vec![0u8; 8192];
-    let first = with_timeout(HEADER_TIMEOUT, util::buf_read(&mut offload_steam, &mut buf)).await;
-    let mut n = match first {
-        Ok(n) => n,
+    // 1. Response head (queue + asset + render happen before it); the body keeps arriving
+    //    in the socket meanwhile. A missing / oversized head is a gateway error like a timeout
+    let split = with_timeout(HEADER_TIMEOUT, http::split_header_body(&mut offload_steam)).await;
+    let (head, mut body) = match split {
+        Ok(parts) => parts,
         Err(e) => {
             return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
         }
     };
-    let elapsed = t_start.elapsed().as_millis() as i64;
-    let mut header_end = buf[..n].windows(4).position(|w| w == b"\r\n\r\n");
-    while header_end.is_none() && n < buf.len() {
-        let rest = util::buf_read(&mut offload_steam, &mut buf[n..]);
-        let Ok(m) = with_timeout(BODY_IDLE_TIMEOUT, rest).await else {
-            break;
-        };
-        n += m;
-        header_end = buf[..n].windows(4).position(|w| w == b"\r\n\r\n");
+    let (new_head, times) = sm::time_append_header(&head, t_start, target_offload.endpoint);
+
+    // 2. Whole body into a buffer (the cache will store it from here) and check its length
+    //    against Content-Length; nothing has been sent to the client yet, so a short or
+    //    stalled body is still a clean gateway error
+    let expected_len = http::parse_content_length(&head);
+    // capacity capped so a bogus Content-Length can't make a huge allocation up front
+    let capacity = expected_len.unwrap_or(0).min(64 << 20) as usize;
+    let mut data = Vec::with_capacity(capacity);
+    let received = copy_with_idle_timeout(&mut body, &mut data, BODY_IDLE_TIMEOUT).await;
+    let checked = received.and_then(|n| match expected_len {
+        Some(len) if len != n => Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("body {n} B, Content-Length {len} B"),
+        )),
+        _ => Ok(()),
+    });
+    if let Err(e) = checked {
+        return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
     }
 
-    let Some(pos) = header_end else {
-        // If no HTTP delimiter found, forward raw buffer directly and exit
-        client_stream.write_all(&buf[..n]).await?;
-        copy_with_idle_timeout(&mut offload_steam, &mut client_stream, BODY_IDLE_TIMEOUT).await?;
-        client_stream.flush().await?;
-        return Ok(());
-    };
+    // The site's part is over: report it (with timings) before talking to the client
+    let total_ms = times.t_net + times.t_queue + times.t_asset + times.t_work;
+    let site_name = target_offload.name;
+    target_offload.finish(Some(&times));
 
-    // 2. Everything below runs without any enclosing { }
-    let header_str = String::from_utf8_lossy(&buf[..pos]);
-    let t_net = sm::compute_t_net(&header_str, elapsed).unwrap_or(0);
-
-    // 3. Inject timing headers and delimiter
-    let t_net_str = t_net.to_string();
-    let server_timing_str = format!("net;dur={t_net}");
-    let extra_headers = [
-        ("X-OBM-Net", t_net_str.as_str()),
-        ("Server-Timing", server_timing_str.as_str()),
-        ("X-OBM-Worker", target_offload.endpoint),
-        (
-            "Access-Control-Expose-Headers",
-            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Worker",
-        ),
-    ];
-    let modified_headers = http::response_append(&header_str, &extra_headers);
-    client_stream.write_all(&modified_headers).await?;
-
-    // 4. Forward trailing binary payload slice
-    let body_chunk = &buf[pos + 4..n];
-    if !body_chunk.is_empty() {
-        client_stream.write_all(body_chunk).await?;
-    }
-
-    // 5. Stream the rest of the video chunks directly (headers are sent, so on a stall
-    //    the connection is just closed and the client sees a short body)
-    copy_with_idle_timeout(&mut offload_steam, &mut client_stream, BODY_IDLE_TIMEOUT).await?;
+    // 3. Forward head + body to the client
+    client_stream.write_all(&new_head).await?;
+    client_stream.write_all(&data).await?;
     client_stream.flush().await?;
 
     let message = format!(
         "[OFFLOAD] -> {} | {}ms | {}",
-        target_offload.name, elapsed, path
+        site_name, total_ms, path
     );
     util::log_message(&message);
-
-    target_offload.finish(None);
 
     Ok(())
 }

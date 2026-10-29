@@ -1,7 +1,8 @@
 use std::io;
 use std::path::Path;
+use std::time::Instant;
 
-use rust_obm::mod_load_balancer::OffloadSite;
+use rust_obm::mod_load_balancer::{OffloadSite, TimesFeedback};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
 
 use crate::lib_core_type as ct;
@@ -110,7 +111,37 @@ pub async fn reply_gateway_error(
     http::send_raw(client_stream, &resp).await
 }
 
-pub fn compute_t_net(return_header: &str, elapsed: i64) -> Option<i64> {
+/// [Dishonest / Clock Read]
+/// Takes the offload site's response head (as from `split_header_body`, without the final
+/// "\r\n\r\n") and returns it with the main server's timing headers appended (X-OBM-Net,
+/// Server-Timing, X-OBM-Worker), ready to send to the client, plus the ms from `t_start` to now
+/// (logged as the offload time). Call it right after the head arrives.
+/// Returns the new head and the timing feedback for the load balancer (all zero if the site
+/// sent no X-Dana-Timings).
+pub fn time_append_header(head: &[u8], t_start: Instant, worker: &str) -> (Vec<u8>, TimesFeedback) {
+    let elapsed = t_start.elapsed().as_millis() as i64;
+
+    let head_str = String::from_utf8_lossy(head);
+    let times = parse_times_feedback(&head_str, elapsed).unwrap_or_default();
+    let t_net_str = times.t_net.to_string();
+    let server_timing_str = format!("net;dur={}", times.t_net);
+    let extra_headers = [
+        ("X-OBM-Net", t_net_str.as_str()),
+        ("Server-Timing", server_timing_str.as_str()),
+        ("X-OBM-Worker", worker),
+        (
+            "Access-Control-Expose-Headers",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Worker",
+        ),
+    ];
+    (http::response_append(&head_str, &extra_headers), times)
+}
+
+/// [Honest / Pure Domain Logic]
+/// Reads queue / asset / work from the site's X-Dana-Timings header; the network time is what
+/// is left of `elapsed` (ms from sending the request to the head), at least 0.
+/// None if the header is missing.
+pub fn parse_times_feedback(return_header: &str, elapsed: i64) -> Option<TimesFeedback> {
     let timing_line = return_header
         .lines()
         .find(|l| l.starts_with("X-Dana-Timings:"))?;
@@ -131,12 +162,30 @@ pub fn compute_t_net(return_header: &str, elapsed: i64) -> Option<i64> {
             }
         }
     }
-    Some((elapsed - (queue + asset + work)).max(0))
+    Some(TimesFeedback {
+        t_net: (elapsed - (queue + asset + work)).max(0),
+        t_queue: queue,
+        t_work: work,
+        t_asset: asset,
+    })
 }
 
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_parse_times_feedback() {
+        let head = "HTTP/1.0 200 OK\r\nContent-length: 10\r\nX-Dana-Timings: queue=3;asset=611;work=2546;decode=631\r\nConnection: close";
+        let times = parse_times_feedback(head, 3600).unwrap();
+        assert_eq!(
+            times,
+            TimesFeedback { t_net: 440, t_queue: 3, t_work: 2546, t_asset: 611 }
+        );
+        // clock coarser than the site's own timings: network time never negative
+        assert_eq!(parse_times_feedback(head, 3000).unwrap().t_net, 0);
+        assert!(parse_times_feedback("HTTP/1.0 200 OK\r\nServer: x", 100).is_none());
+    }
 
     const CSV: &str = "# Columns:\n#   id: worker id\n\nid,ip,port,decoding,composition,encoding\n1,obm-offload-1,7010,gpu,gpu,cpu\n2, 100.116.177.11 ,7020,gpu,llvmpipe,cpu\n";
 

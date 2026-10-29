@@ -59,6 +59,7 @@ impl OffloadSite {
         }
     }
 }
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub struct TimesFeedback {
     // all used i64 for ms
     pub t_net: i64,

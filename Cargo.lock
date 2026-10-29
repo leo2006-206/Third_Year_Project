@@ -301,6 +301,7 @@ name = "rust_server"
 version = "0.1.0"
 dependencies = [
  "fastrand",
+ "libc",
  "rust_obm",
  "smol",
 ]

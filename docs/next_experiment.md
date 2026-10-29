@@ -9,7 +9,7 @@ Written 2026-10-28. This file records how the next experiment is set up and run.
 | Load-balancing policy | round robin (`rr`) |
 | Features | none (no segment cache, no asset cache), label `none` |
 | Output | `stat/run_a0.5_c1/rr_none_<n>.csv` |
-| Code version | commit after `0bdac3d` that adds `rate 1gbit` to netem (fill in the hash at run time) |
+| Code version | fill in at run time (`git log --oneline -1`); needs netem `rate 1gbit` and the buffered forwarding below |
 
 ---
 
@@ -154,10 +154,14 @@ Sites of the same composition type return byte-identical sizes on both machines.
 - **Per request,** the main server:
   1. picks a site;
   2. opens a new TCP connection to it and forwards the GET;
-  3. reads until the end of the response headers;
-  4. adds `X-OBM-Worker` (site endpoint), `X-OBM-Net` and `Server-Timing`;
-  5. streams the body to the client;
-  6. logs `[OFFLOAD] -> <site name> | <ms to headers> | <path>`.
+  3. reads until the end of the response head (`split_header_body`);
+  4. adds `X-OBM-Worker` (site endpoint), `X-OBM-Net` and `Server-Timing` (`time_append_header`), and parses the site's timings into a `TimesFeedback`;
+  5. reads the **whole body into memory** and checks it against `Content-length` (a mismatch is a 502);
+  6. reports the site as done to the load balancer, with the timings (`finish(Some(&times))`);
+  7. sends head + body to the client;
+  8. logs `[OFFLOAD] -> <site name> | <net + queue + asset + work ms> | <path>`.
+
+  Store-then-forward is deliberate: the segment cache will keep the body from step 5. It adds about 1 ms to the full response time, but the client's first byte now comes only after the whole segment has reached the main server.
 
   There is no queue in the main server.
 - **Timeouts towards the sites** (`serve_offload` in `main_server.rs`):
@@ -207,7 +211,7 @@ Sites of the same composition type return byte-identical sizes on both machines.
 | `req_idx`, `path` | request from the sequence |
 | `sched_ms` | scheduled send time from run start |
 | `lag_ms` | actual − scheduled send (client lateness, should be ~0) |
-| `ttfb_ms` | scheduled send → response headers |
+| `ttfb_ms` | scheduled send → response headers. Because of store-then-forward this is ≈ `latency_ms`: the headers are sent only after the whole body has reached the main server |
 | `latency_ms` | scheduled send → full body received (what the viewer experiences) |
 | `status`, `size_bytes`, `error` | result |
 | `worker` | `X-OBM-Worker`: the site chosen |
@@ -217,7 +221,7 @@ Sites of the same composition type return byte-identical sizes on both machines.
 | `send_epoch_ms` | wall clock at scheduled send, to line up with server logs |
 
 **Derived:**
-- body transfer time = `latency_ms − ttfb_ms`. After the netem fix this should be about 0.5–2 s, not 4–5 s.
+- site → main server body transfer: `latency_ms − ttfb_ms` no longer shows it (store-then-forward makes the two ≈ equal). It is inside `net_ms` + the gap between `X-OBM-Net` and the end; compare total latency with queue + asset + work instead. After the netem fix, `latency − (queue + asset + work)` should be about 1–3 s per request, not 5–6 s as in the pilot.
 - per-site utilisation = Σ(asset + work) / window.
 
 ---
@@ -327,9 +331,9 @@ by = {}
 for r in ok: by.setdefault(r["worker"], []).append(r)
 for w, rs in sorted(by.items()):
     m = lambda k: st.mean(int(r[k]) for r in rs) / 1000
-    body = st.mean((int(r["latency_ms"]) - int(r["ttfb_ms"])) / 1000 for r in rs)
+    body = st.mean((int(r["latency_ms"]) - int(r["queue_ms"]) - int(r["asset_ms"]) - int(r["work_ms"])) / 1000 for r in rs)
     print(f"{w:22} n={len(rs):3} lat={m('latency_ms'):6.1f}s queue={m('queue_ms'):6.1f}s "
-          f"asset={m('asset_ms'):4.2f}s work={m('work_ms'):5.1f}s body={body:4.2f}s")
+          f"asset={m('asset_ms'):4.2f}s work={m('work_ms'):5.1f}s rest={body:4.2f}s")
 EOF
 
 # 4. save the server logs next to the result
