@@ -2,6 +2,8 @@
 
 Written 2026-10-28. This file records how the next experiment is set up and run. It also records the pilot run that was discarded and why.
 
+> **Note (2026-10-29):** the runs recorded here used the first sequences (370 requests). Planned ρ = 0.7 turned out to be ≈0.95 real, because calibration has no network overhead. Their results were moved to `stat/run_*_p95/`; see `docs/results_report.md`. The sequences were then regenerated with a network overhead per request (`net_round_trips` in `generate_request_seq.py`), so `seq_a*_case*.csv` are now the new ones (239 requests in case 1). The old ones are in git history (commit `68b4419`).
+
 | Field | Value |
 |---|---|
 | Cluster | case 1 (heterogeneous): gpu + llvmpipe + cpu site on each of two laptops |

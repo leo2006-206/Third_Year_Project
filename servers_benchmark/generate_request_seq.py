@@ -16,9 +16,11 @@ Pipeline:
      continues to the next segment; when continuing it may change combination (redrawn from
      the same show's Zipf). Abandonment and combination changes are higher at a video's
      first decision ("video surfing").
-  3. Capacity (computed once, from the step-1 popularity): per-kind busy time S_jk (asset +
-     work) per site from stat/*.csv; site j's mean busy time E_j = sum_k P(kind k) * S_jk with
-     P(kind) = P(show) * P(combination | show), and C = sum_j 1 / E_j.
+  3. Capacity (computed once per alpha, from the step-2 paths): per-kind busy time S_jk (asset +
+     work) per site from stat/*.csv, plus the machine's network overhead (round trips x netem
+     delay); site j's mean busy time E_j = sum_k q(k) * S_jk, where q(k) is kind k's share of
+     all requests in the generated paths (~P(show) * E[segments | show] * P(combination | show):
+     short shows get fewer requests than their popularity), and C = sum_j 1 / E_j.
   4. Rates: target requests in the window N = rho * C * DURATION_S; lambda_viewers is
      fitted (bisection) so the window holds exactly N requests.
   5. Timing: viewer v starts at T_v = -PRE_ROLL + sum(Exp(1)) / lambda_viewers. Like the OBM
@@ -26,7 +28,7 @@ Pipeline:
      decision (and next request) comes 5 s after its segment 0 request, later ones every
      10 s: a video started at t requests at t, t+5, t+15, t+25, ... Requests in
      [0, DURATION_S) are kept; the pre-roll makes the window start at steady load.
-  The window's actual mix differs from P(show) (sessions, few viewers), so the realised load
+  The window's actual mix differs from q (sessions, few viewers), so the realised load
   (N / capacity under the window's own mix) is reported as real_rho in meta.csv.
 
 Separate seeded random streams: viewer arrival gaps, show ranking (only if show_rank is None), content choices
@@ -406,7 +408,15 @@ def main(out_dir: Path | None = None):
     # 2. Replay window and target load
     duration_s = 600
     pre_roll_s = 600  # viewers start this long before t=0, so the window opens at steady load
-    rho = 0.7  # offered load as a fraction of cluster capacity
+    rho = 0.8  # offered load as a fraction of cluster capacity
+
+    # Network overhead per request = round trips * one-way delay (netem delay of the machine's
+    # sites, cluster_endpoint_c*.csv). Calibration has no delay, but in the cluster a site is
+    # also busy fetching assets one by one and sending the result. Fitted on the first runs
+    # (site occupancy - work ~2.0 s at 30 ms, ~4.3 s at 60 ms -> ~67 round trips), which made the
+    # model conservative (real load 0.57 for a 0.64 target); 50 -> 1.5 s om, 3.0 s rs
+    net_round_trips = 50
+    net_delay_ms = {"om": 30, "rs": 60}
 
     # 3. Clusters (machine, tier); service times come from stat/<machine>_<port>_<tier>_timing.csv
     clusters = [
@@ -448,7 +458,10 @@ def main(out_dir: Path | None = None):
             tier: load_busy_times(stat_dir / f"{machine}_{port}_{tier}_timing.csv")
             for tier, port in [("gpu", 7010), ("llvm", 7020), ("cpu", 7030)]
         }
-        tables[machine] = tier_service_table(kinds, busy["gpu"], busy["llvm"], busy["cpu"])
+        net_s = net_round_trips * net_delay_ms[machine] / 1000
+        tables[machine] = tier_service_table(kinds, busy["gpu"], busy["llvm"], busy["cpu"]) + net_s
+        print(f"{machine}: network overhead {net_s:.2f} s/request "
+              f"({net_round_trips} round trips x {net_delay_ms[machine]} ms)")
 
     out_dir.mkdir(exist_ok=True)
     arrival_ss, rank_ss, content_ss, decision_ss = np.random.SeedSequence(seed).spawn(4)
@@ -483,8 +496,11 @@ def main(out_dir: Path | None = None):
         )
 
         mean_len = float(np.mean([len(p) for p in paths]))
+        # Request mix: how often each kind is requested, not chosen. Counted over every generated
+        # path, so it includes the segments watched per show (P(show) * E[segments | show] * ...)
+        req_mix = np.bincount([k for p in paths for k, _ in p], minlength=len(kinds)) / sum(map(len, paths))
         for c in clusters:
-            caps = cluster_capacity(c.sites, tables, probs)
+            caps = cluster_capacity(c.sites, tables, req_mix)
             target_n = round(rho * caps["total"] * duration_s)
             lam_v, requests = fit_viewer_rate(
                 paths, unit_gaps, target_n, target_n / duration_s / mean_len,
