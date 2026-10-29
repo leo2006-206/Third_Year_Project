@@ -134,10 +134,7 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     client_stream.write_all(&data).await?;
     client_stream.flush().await?;
 
-    let message = format!(
-        "[OFFLOAD] -> {} | {}ms | {}",
-        site_name, total_ms, path
-    );
+    let message = format!("[OFFLOAD] -> {} | {}ms | {}", site_name, total_ms, path);
     util::log_message(&message);
 
     Ok(())
@@ -173,19 +170,34 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 }
 
 fn main() -> io::Result<()> {
-    // Usage: main_server <cluster_csv>, e.g. servers_container/cluster_endpoint_c1.csv
-    let Some(csv_path) = std::env::args().nth(1) else {
-        eprintln!("Usage: main_server <cluster_csv>");
+    // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
+    // policy (default rr): rr | iwrr | esce
+    let mut args = std::env::args().skip(1);
+    let Some(csv_path) = args.next() else {
+        eprintln!("Usage: main_server <cluster_csv> [rr|iwrr|esce]");
         std::process::exit(2);
     };
+    let policy = args.next().unwrap_or_else(|| "rr".to_string());
+
     let offload_url = sm::load_cluster_csv(&csv_path)?;
     for site in &offload_url {
         println!("Offload site: {} ({})", site.endpoint, site.name);
     }
 
-    let load_balancer = lb::RoundRobinLB::new(offload_url);
-    // let load_balancer = lb::InterleavedWeightedRRLB::new(offload_url);
+    match policy.as_str() {
+        "rr" => serve(lb::RoundRobinLB::new(offload_url)),
+        "iwrr" => serve(lb::InterleavedWeightedRRLB::new(offload_url)),
+        "esce" => serve(lb::EsceLB::new(offload_url)),
+        other => {
+            eprintln!("Unknown policy '{other}' (expected rr | iwrr | esce)");
+            std::process::exit(2);
+        }
+    }
+}
 
+fn serve<P: blb::LoadBalancerPolicy + 'static>(
+    load_balancer: blb::LoadBalancer<P>,
+) -> io::Result<()> {
     println!(
         "Load balancer type = {}",
         std::any::type_name_of_val(&load_balancer)

@@ -6,9 +6,9 @@ use std::path::Path;
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use smol::Timer;
 use smol::future::FutureExt;
 use smol::io::{AsyncReadExt, AsyncWriteExt};
-use smol::Timer;
 
 use crate::lib_core_type as ct;
 

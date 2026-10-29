@@ -2,8 +2,8 @@ use std::io;
 use std::path::Path;
 use std::time::Instant;
 
-use rust_obm::mod_load_balancer::{OffloadSite, TimesFeedback};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
+use rust_obm::mod_load_balancer::{OffloadSite, TimesFeedback};
 
 use crate::lib_core_type as ct;
 use crate::lib_http as http;
@@ -180,7 +180,12 @@ mod test {
         let times = parse_times_feedback(head, 3600).unwrap();
         assert_eq!(
             times,
-            TimesFeedback { t_net: 440, t_queue: 3, t_work: 2546, t_asset: 611 }
+            TimesFeedback {
+                t_net: 440,
+                t_queue: 3,
+                t_work: 2546,
+                t_asset: 611
+            }
         );
         // clock coarser than the site's own timings: network time never negative
         assert_eq!(parse_times_feedback(head, 3000).unwrap().t_net, 0);
@@ -208,10 +213,19 @@ mod test {
     fn test_parse_cluster_csv_errors() {
         assert!(parse_cluster_csv("").is_err());
         assert!(parse_cluster_csv("id,ip,port,decoding,composition,encoding\n").is_err());
-        assert!(parse_cluster_csv("id,port,decoding,composition,encoding\n1,7010,gpu,gpu,cpu").is_err());
+        assert!(
+            parse_cluster_csv("id,port,decoding,composition,encoding\n1,7010,gpu,gpu,cpu").is_err()
+        );
         let bad = "ip,port,decoding,composition,encoding\nh,7010,gpu,vulkan,cpu";
-        assert!(parse_cluster_csv(bad).unwrap_err().contains("composition 'vulkan'"));
-        assert!(parse_cluster_csv("ip,port,decoding,composition,encoding\nh,99999,gpu,gpu,cpu").is_err());
+        assert!(
+            parse_cluster_csv(bad)
+                .unwrap_err()
+                .contains("composition 'vulkan'")
+        );
+        assert!(
+            parse_cluster_csv("ip,port,decoding,composition,encoding\nh,99999,gpu,gpu,cpu")
+                .is_err()
+        );
         assert!(parse_cluster_csv("ip,port,decoding,composition,encoding\nh,7010,gpu").is_err());
     }
 }

@@ -62,7 +62,8 @@ impl bb::LoadBalancerPolicy for InterleavedWeightedRR {
         }
     }
 
-    fn select(&self, _key: Option<&str>, num_workers: usize) -> usize {
+    fn select(&self, _key: Option<&str>, workers: &[bb::OffloadSite]) -> usize {
+        let num_workers = workers.len();
         if num_workers == 0 || self.max_weight == 0 {
             return 0;
         }

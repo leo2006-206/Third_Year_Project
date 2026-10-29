@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 pub trait LoadBalancerPolicy: Send + Sync {
     fn new(offloads: &[OffloadSite]) -> Self;
-    fn select(&self, key: Option<&str>, num_workers: usize) -> usize;
+    fn select(&self, key: Option<&str>, workers: &[OffloadSite]) -> usize;
     fn complete(&self, _worker_idx: usize, _feedback: Option<&TimesFeedback>) {}
 }
 
@@ -97,7 +97,7 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
         }
     }
     pub fn select(&self, key: Option<&str>) -> SelectionGuard<'_, P> {
-        let idx = self.policy.select(key, self.workers.len());
+        let idx = self.policy.select(key, &self.workers);
         SelectionGuard {
             endpoint: &self.workers[idx].endpoint,
             name: &self.workers[idx].name,

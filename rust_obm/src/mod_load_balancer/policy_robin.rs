@@ -12,8 +12,8 @@ impl LoadBalancerPolicy for RoundRobin {
             counter: AtomicUsize::default(),
         }
     }
-    fn select(&self, _key: Option<&str>, num_workers: usize) -> usize {
-        self.counter.fetch_add(1, Ordering::Relaxed) % num_workers
+    fn select(&self, _key: Option<&str>, workers: &[OffloadSite]) -> usize {
+        self.counter.fetch_add(1, Ordering::Relaxed) % workers.len()
     }
 }
 pub type RoundRobinLB = LoadBalancer<RoundRobin>;

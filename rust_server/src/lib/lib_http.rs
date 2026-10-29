@@ -327,12 +327,20 @@ mod tests {
     #[test]
     fn test_parse_content_length() {
         assert_eq!(
-            parse_content_length(b"HTTP/1.0 200 OK\r\nServer: x\r\nContent-length: 2229297\r\nContent-type: h264"),
+            parse_content_length(
+                b"HTTP/1.0 200 OK\r\nServer: x\r\nContent-length: 2229297\r\nContent-type: h264"
+            ),
             Some(2229297)
         );
-        assert_eq!(parse_content_length(b"HTTP/1.1 200 OK\r\nCONTENT-LENGTH:  42 "), Some(42));
+        assert_eq!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\nCONTENT-LENGTH:  42 "),
+            Some(42)
+        );
         assert_eq!(parse_content_length(b"HTTP/1.1 200 OK\r\nServer: x"), None);
-        assert_eq!(parse_content_length(b"HTTP/1.1 200 OK\r\nContent-Length: abc"), None);
+        assert_eq!(
+            parse_content_length(b"HTTP/1.1 200 OK\r\nContent-Length: abc"),
+            None
+        );
     }
 
     #[test]
@@ -342,7 +350,10 @@ mod tests {
         // and chunk sizes that cut the delimiter at every possible place
         for chunk in [usize::MAX, 1, 2, 3, 5, 7, 41, 43] {
             let (head, body) = split_in_chunks(response, chunk).unwrap();
-            assert_eq!(head, b"HTTP/1.1 200 OK\r\nX-Dana-Timings: queue=1", "chunk {chunk}");
+            assert_eq!(
+                head, b"HTTP/1.1 200 OK\r\nX-Dana-Timings: queue=1",
+                "chunk {chunk}"
+            );
             assert_eq!(body, b"BODY bytes", "chunk {chunk}");
         }
     }
@@ -455,7 +466,10 @@ mod tests {
         // sendfile loop has to wait for the reader (EAGAIN) several times
         let data: Vec<u8> = (0..3_000_000u32).map(|i| (i % 251) as u8).collect();
         let path = std::env::temp_dir().join(format!("obm_send_file_zc_{}", std::process::id()));
-        std::fs::File::create(&path).unwrap().write_all(&data).unwrap();
+        std::fs::File::create(&path)
+            .unwrap()
+            .write_all(&data)
+            .unwrap();
         let empty_path = path.with_extension("empty");
         std::fs::File::create(&empty_path).unwrap();
 
