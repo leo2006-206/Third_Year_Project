@@ -1,6 +1,4 @@
 use super::base_balancer::*;
-use crate::cost_predict::CostPredictor;
-use std::io;
 use std::sync::{Mutex, MutexGuard};
 
 // exponentially weighted moving average
@@ -90,19 +88,20 @@ impl MctWorker {
 
 // Minimum Completion Time: send to the site with the earliest estimated finish
 // makespan + network + machine factor * predict(path, site).
-// Path without a prediction: ESCE if fallback, else the request fails (panic in its own task)
-pub struct MCT {
-    predictor: CostPredictor,
+// predict(path, site) gives the machine-neutral work (s) of the path on that site, None if unknown
+// (e.g. CostPredictor::predict, or a constant). Unknown path: ESCE if fallback, else the request
+// fails (panic in its own task)
+pub struct MCT<F> {
+    predict: F,
     fallback: bool,
     mct_vec: Mutex<Vec<MctWorker>>,
 }
 
-impl MCT {
-    pub fn with_predictor(
-        offloads: &[OffloadSite],
-        predictor: CostPredictor,
-        fallback: bool,
-    ) -> Self {
+impl<F> MCT<F>
+where
+    F: Fn(&str, &OffloadSite) -> Option<f64> + Send + Sync,
+{
+    pub fn with_predict(offloads: &[OffloadSite], predict: F, fallback: bool) -> Self {
         const LEARNING: f64 = 0.1;
 
         let mut vec = Vec::with_capacity(offloads.len());
@@ -119,33 +118,10 @@ impl MCT {
         }
 
         Self {
-            predictor,
+            predict,
             fallback,
             mct_vec: Mutex::new(vec),
         }
-    }
-
-    /// [Dishonest I/O] Loads the predictor from OBM_COST_COEF / OBM_COST_FEATURES
-    /// (default /app/stat_predict/{coef,features}.csv, baked into the main server image).
-    /// OBM_MCT_FALLBACK=1 turns on the ESCE fallback; default off = pure MCT for the experiments.
-    pub fn from_env(offloads: &[OffloadSite]) -> io::Result<Self> {
-        let coef = std::env::var("OBM_COST_COEF")
-            .unwrap_or_else(|_| "/app/stat_predict/coef.csv".to_string());
-        let features = std::env::var("OBM_COST_FEATURES")
-            .unwrap_or_else(|_| "/app/stat_predict/features.csv".to_string());
-        let predictor = CostPredictor::load(&coef, &features).map_err(|e| {
-            io::Error::new(
-                e.kind(),
-                format!("MCT: can't load cost model {coef}, {features}: {e}"),
-            )
-        })?;
-        let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
-        println!(
-            "MCT: {} paths, fallback {}",
-            predictor.len(),
-            if fallback { "on" } else { "off" }
-        );
-        Ok(Self::with_predictor(offloads, predictor, fallback))
     }
 
     fn lock(&self) -> MutexGuard<'_, Vec<MctWorker>> {
@@ -156,22 +132,22 @@ impl MCT {
     }
 }
 
-impl LoadBalancerPolicy for MCT {
+impl<F> LoadBalancerPolicy for MCT<F>
+where
+    F: Fn(&str, &OffloadSite) -> Option<f64> + Send + Sync,
+{
     type Ticket = MctTicket;
 
-    // panics if the cost model can't be loaded; use MCT::from_env to handle the error
-    fn new(offloads: &[OffloadSite]) -> Self {
-        Self::from_env(offloads).unwrap_or_else(|e| panic!("{e}"))
+    // the site list alone can't make a predict function: build with MCT::with_predict and
+    // LoadBalancer::with_policy instead
+    fn new(_offloads: &[OffloadSite]) -> Self {
+        panic!("MCT needs a predict function, use MCT::with_predict + LoadBalancer::with_policy")
     }
 
     fn select(&self, key: Option<&str>, workers: &[OffloadSite]) -> (usize, MctTicket) {
         // predictions don't need the lock
-        let works: Option<Vec<f64>> = key.and_then(|path| {
-            workers
-                .iter()
-                .map(|w| self.predictor.predict(path, w))
-                .collect()
-        });
+        let works: Option<Vec<f64>> =
+            key.and_then(|path| workers.iter().map(|w| (self.predict)(path, w)).collect());
         // before the lock: the panic only ends this request's task (smol catches it)
         if works.is_none() && !self.fallback {
             panic!(
@@ -249,7 +225,7 @@ impl LoadBalancerPolicy for MCT {
     }
 }
 
-pub type MctLB = LoadBalancer<MCT>;
+pub type MctLB<F> = LoadBalancer<MCT<F>>;
 
 // "id=om1_ip=..." (main server site name) -> "om1"; a plain name is kept
 fn short_id(name: &str) -> &str {
@@ -267,14 +243,13 @@ mod tests {
     use super::*;
     use config::{Config, Decode, Encode, Render};
 
-    // gpu render 1 s, cpu render 4 s, everything else 0
-    const COEF: &str = "stage,backend,a,n_video\n\
-                        decode,gpu,0,0\n\
-                        render,gpu,1,0\n\
-                        render,cpu,4,0\n\
-                        encode,gpu+cpu,0,0\n\
-                        encode,cpu+cpu,0,0\n";
-    const FEATURES: &str = "n_video,seg_frac,path\n1,1,/p\n";
+    // only "/p" is known: 1 s on a gpu render site, 4 s on a cpu one
+    fn work(path: &str, site: &OffloadSite) -> Option<f64> {
+        (path == "/p").then(|| match site.config.render {
+            Render::Gpu => 1.0,
+            _ => 4.0,
+        })
+    }
 
     // om1 gpu, om2 cpu: same priors (factor 1.0, net 1.5 s)
     fn sites() -> Vec<OffloadSite> {
@@ -285,8 +260,8 @@ mod tests {
         ]
     }
 
-    fn mct(s: &[OffloadSite]) -> MCT {
-        MCT::with_predictor(s, CostPredictor::from_csv(COEF, FEATURES).unwrap(), true)
+    fn mct(s: &[OffloadSite]) -> MCT<fn(&str, &OffloadSite) -> Option<f64>> {
+        MCT::with_predict(s, work, true)
     }
 
     fn approx(a: f64, b: f64) -> bool {
@@ -345,7 +320,7 @@ mod tests {
     #[should_panic(expected = "fallback is off")]
     fn test_mct_no_fallback_rejects_unknown_path() {
         let s = sites();
-        let p = MCT::with_predictor(&s, CostPredictor::from_csv(COEF, FEATURES).unwrap(), false);
+        let p = MCT::with_predict(&s, work, false);
         assert_eq!(p.select(Some("/p"), &s).0, 0); // known path still fine
         p.select(Some("/unknown"), &s);
     }
@@ -373,6 +348,17 @@ mod tests {
         assert!(approx(vec[0].machine_f.get(), 1.0));
         assert!(approx(vec[1].machine_f.get(), 0.75));
         assert!(approx(vec[1].network_f.get(), 3.0));
+    }
+
+    #[test]
+    fn test_mct_constant_predict_closure() {
+        // same work everywhere (no cost model): equal sites alternate by backlog
+        let s = sites();
+        let w = 2.0;
+        let p = MCT::with_predict(&s, move |_: &str, _: &OffloadSite| Some(w), false);
+        assert_eq!(p.select(Some("/any"), &s).0, 0);
+        assert_eq!(p.select(Some("/any"), &s).0, 1);
+        assert_eq!(p.select(Some("/any"), &s).0, 0);
     }
 
     #[test]

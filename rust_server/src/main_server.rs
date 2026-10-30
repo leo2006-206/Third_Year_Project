@@ -7,6 +7,7 @@ use smol::{
     prelude::*,
 };
 
+use rust_obm::cost_predict::CostPredictor;
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 use rust_server::lib_http as http;
@@ -169,9 +170,14 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
     send_raw(&mut client_stream, &response).await
 }
 
+// Work time (s) for mct_const: mean over the v3 replays (stat/run_a*_c1, run_a*_c2_p75,
+// 4027 ok requests), weighted by how often each request really arrives
+const CONST_WORK_S: f64 = 5.59;
+
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
-    // policy (default rr): rr | iwrr | esce | mct (mct reads the cost model, see MCT::from_env)
+    // policy (default rr): rr | iwrr | esce | mct | mct_const (mct reads the cost model, see
+    // load_cost_model; mct_const uses CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
         eprintln!(
@@ -191,13 +197,29 @@ fn main() -> io::Result<()> {
         "rr" => serve(lb::RoundRobinLB::new(offload_url)),
         "iwrr" => serve(lb::InterleavedWeightedRRLB::new(offload_url)),
         "esce" => serve(lb::EsceLB::new(offload_url)),
-        "mct" => match lb::policy_mct::MCT::from_env(&offload_url) {
-            Ok(mct) => serve(lb::MctLB::with_policy(offload_url, mct)),
-            Err(e) => {
+        "mct" => {
+            let predictor = load_cost_model().unwrap_or_else(|e| {
                 eprintln!("{e}");
                 std::process::exit(2);
-            }
-        },
+            });
+            // OBM_MCT_FALLBACK=1 turns on the ESCE fallback; default off = pure MCT for the experiments
+            let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
+            println!(
+                "MCT: {} paths, fallback {}",
+                predictor.len(),
+                if fallback { "on" } else { "off" }
+            );
+            let predict = move |path: &str, site: &lb::OffloadSite| predictor.predict(path, site);
+            let mct = lb::policy_mct::MCT::with_predict(&offload_url, predict, fallback);
+            serve(lb::MctLB::with_policy(offload_url, mct))
+        }
+        "mct_const" => {
+            // same work for every path and site: MCT without the cost model (ablation)
+            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
+            println!("MCT: constant work {CONST_WORK_S} s");
+            let mct = lb::policy_mct::MCT::with_predict(&offload_url, const_predict, false);
+            serve(lb::MctLB::with_policy(offload_url, mct))
+        }
         other => {
             eprintln!(
                 "Unknown policy '{other}' (expected {})",
@@ -206,6 +228,21 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     }
+}
+
+/// [Dishonest I/O] Loads the cost model from OBM_COST_COEF / OBM_COST_FEATURES
+/// (default /app/stat_predict/{coef,features}.csv, baked into the main server image)
+fn load_cost_model() -> io::Result<CostPredictor> {
+    let coef =
+        std::env::var("OBM_COST_COEF").unwrap_or_else(|_| "/app/stat_predict/coef.csv".to_string());
+    let features = std::env::var("OBM_COST_FEATURES")
+        .unwrap_or_else(|_| "/app/stat_predict/features.csv".to_string());
+    CostPredictor::load(&coef, &features).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("MCT: can't load cost model {coef}, {features}: {e}"),
+        )
+    })
 }
 
 fn serve<P: blb::LoadBalancerPolicy + 'static>(

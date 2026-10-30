@@ -11,4 +11,4 @@ pub use policy_mct::MctLB;
 pub use policy_robin::RoundRobinLB;
 
 /// Every policy name main_server accepts (for usage / error messages); keep in sync with its match.
-pub const POLICIES: [&str; 4] = ["rr", "iwrr", "esce", "mct"];
+pub const POLICIES: [&str; 5] = ["rr", "iwrr", "esce", "mct", "mct_const"];
