@@ -1,0 +1,59 @@
+{
+ "machine_factor": {
+  "om": 1.0,
+  "rs": 0.7649577754498191
+ },
+ "coef": {
+  "decode|gpu": {
+   "a": 0.016311929590284973,
+   "n_video": 0.12365563709000349,
+   "dec_mpix": 0.4575266736589977,
+   "dec_mbps": 0.01171328244336875
+  },
+  "render|gpu": {
+   "a": 0.07763724136976806,
+   "n_layers": 0.0,
+   "disp_frac": 0.0,
+   "anim_frac": 0.0,
+   "scaled_frac": 0.11683268668882864,
+   "chroma_frac": 5.262048904165611,
+   "alpha_frac": 1.539260318433163,
+   "n_reframe": 0.0
+  },
+  "render|llvmpipe": {
+   "a": 0.9199974884316608,
+   "n_layers": 0.10078019392279133,
+   "disp_frac": 0.0,
+   "anim_frac": 0.143710861801474,
+   "scaled_frac": 0.253491530312934,
+   "chroma_frac": 5.412846902213343,
+   "alpha_frac": 1.5290887109859441,
+   "n_reframe": 0.0
+  },
+  "render|cpu": {
+   "a": 5.819410148032148,
+   "n_layers": 0.794691608054255,
+   "disp_frac": 0.0,
+   "anim_frac": 0.5946163314814107,
+   "scaled_frac": 3.171781584599207,
+   "chroma_frac": 15.674676580802323,
+   "alpha_frac": 3.312162895216071,
+   "n_reframe": 0.0
+  },
+  "encode|gpu+cpu": {
+   "a": 1.5670911233375684,
+   "video_frac": 0.2965145489219322,
+   "anim_frac": 0.0
+  },
+  "encode|llvmpipe+cpu": {
+   "a": 1.4078258836343005,
+   "video_frac": 0.1694663530937482,
+   "anim_frac": 0.0
+  },
+  "encode|cpu+cpu": {
+   "a": 0.859960878412191,
+   "video_frac": 0.3648741417844578,
+   "anim_frac": 0.0
+  }
+ }
+}

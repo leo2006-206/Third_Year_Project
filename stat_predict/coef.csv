@@ -1,0 +1,8 @@
+stage,backend,a,n_video,dec_mpix,dec_mbps,n_layers,disp_frac,anim_frac,scaled_frac,chroma_frac,alpha_frac,n_reframe,video_frac
+decode,gpu,0.0163119,0.123656,0.457527,0.0117133,0,0,0,0,0,0,0,0
+encode,cpu+cpu,0.859961,0,0,0,0,0,0,0,0,0,0,0.364874
+encode,gpu+cpu,1.56709,0,0,0,0,0,0,0,0,0,0,0.296515
+encode,llvmpipe+cpu,1.40783,0,0,0,0,0,0,0,0,0,0,0.169466
+render,cpu,5.81941,0,0,0,0.794692,0,0.594616,3.17178,15.6747,3.31216,0,0
+render,gpu,0.0776372,0,0,0,0,0,0,0.116833,5.26205,1.53926,0,0
+render,llvmpipe,0.919997,0,0,0,0.10078,0,0.143711,0.253492,5.41285,1.52909,0,0
