@@ -1,0 +1,255 @@
+{
+ "variants": [
+  {
+   "name": "grid4",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "tile0",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile360_calm",
+       "spec": "assets/syn/meta/tile360_calm.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile1",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 640,
+     "display_y": 0,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile360_graphics",
+       "spec": "assets/syn/meta/tile360_graphics.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile2",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 360,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile360_texture",
+       "spec": "assets/syn/meta/tile360_texture.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile3",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 640,
+     "display_y": 360,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile360_noise",
+       "spec": "assets/syn/meta/tile360_noise.json",
+       "default": true
+      }
+     ]
+    }
+   ],
+   "default": true
+  },
+  {
+   "name": "grid9",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "tile0",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_graphics",
+       "spec": "assets/syn/meta/tile240_graphics.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile1",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 426,
+     "display_y": 0,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_texture",
+       "spec": "assets/syn/meta/tile240_texture.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile2",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 852,
+     "display_y": 0,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_noise",
+       "spec": "assets/syn/meta/tile240_noise.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile3",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 240,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_graphics",
+       "spec": "assets/syn/meta/tile240_graphics.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile4",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 426,
+     "display_y": 240,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_texture",
+       "spec": "assets/syn/meta/tile240_texture.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile5",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 852,
+     "display_y": 240,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_noise",
+       "spec": "assets/syn/meta/tile240_noise.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile6",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 480,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_graphics",
+       "spec": "assets/syn/meta/tile240_graphics.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile7",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 426,
+     "display_y": 480,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_texture",
+       "spec": "assets/syn/meta/tile240_texture.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "tile8",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 852,
+     "display_y": 480,
+     "display_width": 426,
+     "display_height": 240,
+     "options": [
+      {
+       "type": "video",
+       "name": "tile240_noise",
+       "spec": "assets/syn/meta/tile240_noise.json",
+       "default": true
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

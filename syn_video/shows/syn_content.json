@@ -1,0 +1,50 @@
+{
+ "variants": [
+  {
+   "name": "main",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "main",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      },
+      {
+       "type": "video",
+       "name": "graphics",
+       "spec": "assets/syn/meta/graphics.json"
+      },
+      {
+       "type": "video",
+       "name": "texture",
+       "spec": "assets/syn/meta/texture.json"
+      },
+      {
+       "type": "video",
+       "name": "noise",
+       "spec": "assets/syn/meta/noise.json"
+      },
+      {
+       "type": "video",
+       "name": "texture_br1",
+       "spec": "assets/syn/meta/texture_br1.json"
+      },
+      {
+       "type": "video",
+       "name": "texture_br6",
+       "spec": "assets/syn/meta/texture_br6.json"
+      }
+     ]
+    }
+   ],
+   "default": true
+  }
+ ]
+}

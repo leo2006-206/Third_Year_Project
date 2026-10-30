@@ -1,0 +1,103 @@
+{
+ "variants": [
+  {
+   "name": "d720_full",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "main",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "texture",
+       "spec": "assets/syn/meta/texture.json",
+       "default": true
+      }
+     ]
+    }
+   ],
+   "default": true
+  },
+  {
+   "name": "d1080_full",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "main",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "texture_1080",
+       "spec": "assets/syn/meta/texture_1080.json",
+       "default": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "d480_full",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "main",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "texture_480",
+       "spec": "assets/syn/meta/texture_480.json",
+       "default": true
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "d1080_small",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "background",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "pip",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 32,
+     "display_y": 32,
+     "display_width": 320,
+     "display_height": 180,
+     "options": [
+      {
+       "type": "video",
+       "name": "texture_1080",
+       "spec": "assets/syn/meta/texture_1080.json",
+       "default": true
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

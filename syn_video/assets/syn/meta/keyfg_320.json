@@ -1,0 +1,16 @@
+{
+ "speed": 25,
+ "xpan": 0,
+ "ypan": 0,
+ "entities": [
+  {
+   "seg_base": "assets/syn/video/keyfg_320_seg",
+   "seg_ext": "h264",
+   "type": "h264",
+   "w": 320,
+   "h": 180,
+   "frames": 750,
+   "segment_length_sec": 10
+  }
+ ]
+}

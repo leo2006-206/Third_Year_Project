@@ -235,3 +235,35 @@ ______________________________________________________________________
 | `offload_{om,rs}_{c1,c2}.csv` | Sites each machine starts for case 1 / 2. |
 | `cluster_endpoint_{c1,c2}.csv` | Sites the main server load-balances over for case 1 / 2. |
 | `offload_endpoint.csv` | Default endpoint CSV of `run_all_offload.py` (not used by the cluster cases). |
+
+______________________________________________________________________
+
+## 5. Synthetic Shows (`syn_video/`)
+
+Generated test shows (unseen content and layer structures) for the cost-prediction study. Details,
+classes and expected effects: [syn_video/docs.md](syn_video/docs.md).
+
+```bash
+# build videos (ffmpeg) + shows + request list; needs ffmpeg and Dana (dana, dnc) on the host
+syn_video/build.py
+
+# render every request kind through the real Dana offload site on the host (no Docker), check the
+# output (frames, clean decode, picture content) -> temp/syn_test/out/*.h264 + results.csv
+temp/syn_test/test_render.py --segment 0          # --match syn_combo, --limit N, --gpu-decode
+
+# watch all rendered outputs one after another (q / Esc = next video, Ctrl+C in the terminal = stop)
+for f in temp/syn_test/out/*.h264; do echo "$f"; ffplay -loglevel error -autoexit -window_title "$(basename "$f")" "$f" || break; done
+
+# the same, as one continuous stream (segment 0 only)
+cat temp/syn_test/out/*_s0.h264 | ffplay -loglevel error -autoexit -f h264 -
+
+# watch the source videos themselves
+for f in syn_video/assets/syn/video/*_seg_0_10.h264; do echo "$f"; ffplay -loglevel error -autoexit -window_title "$(basename "$f")" "$f" || break; done
+
+# use the shows in the cluster: copy into obm/ on om (sites fetch everything from the main server)
+cp -r syn_video/assets/syn obm/assets/ && cp syn_video/shows/syn_* obm/shows/
+```
+
+`temp/` is gitignored: `temp/syn_test/` holds a copy of the OBM code with `OffloadSite_new` compiled
+by `dnc` (recreate it with `rsync -a --exclude assets --exclude shows obm/ temp/syn_test/obm/`,
+copy `servers_container/offload_server/OffloadSite_new.dn` in, then `dnc OffloadSite_new.dn` there).

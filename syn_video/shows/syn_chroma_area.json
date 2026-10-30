@@ -1,0 +1,173 @@
+{
+ "variants": [
+  {
+   "name": "w25",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "background",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 320,
+     "display_height": 180,
+     "options": [
+      {
+       "type": "video",
+       "name": "keyfg",
+       "spec": "assets/syn/meta/keyfg_320.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground_chroma",
+     "type": "transform",
+     "children": 1,
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 320,
+     "display_height": 180,
+     "options": [
+      {
+       "type": "none",
+       "name": "off"
+      },
+      {
+       "type": "chromakey",
+       "name": "chroma",
+       "spec": "assets/syn/meta/key_chroma.json"
+      }
+     ]
+    }
+   ],
+   "default": true
+  },
+  {
+   "name": "w50",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "background",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground",
+     "type": "source",
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "video",
+       "name": "keyfg",
+       "spec": "assets/syn/meta/keyfg_640.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground_chroma",
+     "type": "transform",
+     "children": 1,
+     "display": "window_absolute",
+     "display_align": "top_left",
+     "display_x": 0,
+     "display_y": 0,
+     "display_width": 640,
+     "display_height": 360,
+     "options": [
+      {
+       "type": "none",
+       "name": "off"
+      },
+      {
+       "type": "chromakey",
+       "name": "chroma",
+       "spec": "assets/syn/meta/key_chroma.json"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "name": "w100",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "background",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "keyfg",
+       "spec": "assets/syn/meta/keyfg.json",
+       "default": true
+      }
+     ]
+    },
+    {
+     "name": "foreground_chroma",
+     "type": "transform",
+     "children": 1,
+     "options": [
+      {
+       "type": "none",
+       "name": "off"
+      },
+      {
+       "type": "chromakey",
+       "name": "chroma",
+       "spec": "assets/syn/meta/key_chroma.json"
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

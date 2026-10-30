@@ -1,0 +1,66 @@
+{
+ "variants": [
+  {
+   "name": "main",
+   "length_frames": 750,
+   "width": 1280,
+   "height": 720,
+   "layers": [
+    {
+     "name": "background",
+     "type": "source",
+     "options": [
+      {
+       "type": "video",
+       "name": "calm",
+       "spec": "assets/syn/meta/calm.json",
+       "default": true
+      },
+      {
+       "type": "video",
+       "name": "texture",
+       "spec": "assets/syn/meta/texture.json"
+      },
+      {
+       "type": "video",
+       "name": "noise",
+       "spec": "assets/syn/meta/noise.json"
+      }
+     ]
+    },
+    {
+     "name": "foreground",
+     "type": "source",
+     "options": [
+      {
+       "type": "none",
+       "name": "off"
+      },
+      {
+       "type": "video",
+       "name": "keyfg",
+       "spec": "assets/syn/meta/keyfg.json"
+      }
+     ]
+    },
+    {
+     "name": "foreground_chroma",
+     "type": "transform",
+     "children": 1,
+     "options": [
+      {
+       "type": "none",
+       "name": "off"
+      },
+      {
+       "type": "chromakey",
+       "name": "chroma",
+       "spec": "assets/syn/meta/key_chroma.json"
+      }
+     ]
+    }
+   ],
+   "default": true
+  }
+ ]
+}
