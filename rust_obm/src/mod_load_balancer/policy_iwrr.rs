@@ -37,6 +37,7 @@ pub struct InterleavedWeightedRR {
 }
 
 impl bb::LoadBalancerPolicy for InterleavedWeightedRR {
+    type Ticket = ();
     fn new(offloads: &[bb::OffloadSite]) -> Self {
         assert!(!offloads.is_empty());
 
@@ -62,10 +63,10 @@ impl bb::LoadBalancerPolicy for InterleavedWeightedRR {
         }
     }
 
-    fn select(&self, _key: Option<&str>, workers: &[bb::OffloadSite]) -> usize {
+    fn select(&self, _key: Option<&str>, workers: &[bb::OffloadSite]) -> (usize, ()) {
         let num_workers = workers.len();
         if num_workers == 0 || self.max_weight == 0 {
-            return 0;
+            return (0, ());
         }
 
         let mut state = self.state.lock().expect("mutex poisoned");
@@ -83,7 +84,7 @@ impl bb::LoadBalancerPolicy for InterleavedWeightedRR {
 
             // Check if current worker's weight is eligible for this threshold
             if self.weights[state.i] >= state.cw {
-                return state.i;
+                return (state.i, ());
             }
         }
     }

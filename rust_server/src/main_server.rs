@@ -171,10 +171,13 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
 
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
-    // policy (default rr): rr | iwrr | esce
+    // policy (default rr): rr | iwrr | esce | mct (mct reads the cost model, see MCT::from_env)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
-        eprintln!("Usage: main_server <cluster_csv> [rr|iwrr|esce]");
+        eprintln!(
+            "Usage: main_server <cluster_csv> [{}]",
+            lb::POLICIES.join("|")
+        );
         std::process::exit(2);
     };
     let policy = args.next().unwrap_or_else(|| "rr".to_string());
@@ -188,8 +191,18 @@ fn main() -> io::Result<()> {
         "rr" => serve(lb::RoundRobinLB::new(offload_url)),
         "iwrr" => serve(lb::InterleavedWeightedRRLB::new(offload_url)),
         "esce" => serve(lb::EsceLB::new(offload_url)),
+        "mct" => match lb::policy_mct::MCT::from_env(&offload_url) {
+            Ok(mct) => serve(lb::MctLB::with_policy(offload_url, mct)),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(2);
+            }
+        },
         other => {
-            eprintln!("Unknown policy '{other}' (expected rr | iwrr | esce)");
+            eprintln!(
+                "Unknown policy '{other}' (expected {})",
+                lb::POLICIES.join(" | ")
+            );
             std::process::exit(2);
         }
     }

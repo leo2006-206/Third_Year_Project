@@ -2,9 +2,18 @@
 use std::sync::Arc;
 
 pub trait LoadBalancerPolicy: Send + Sync {
+    // What select hands to complete for the same request (e.g. MCT's predicted cost), () if nothing.
+    // Associated type defaults are unstable, so every policy names it
+    type Ticket: Send;
     fn new(offloads: &[OffloadSite]) -> Self;
-    fn select(&self, key: Option<&str>, workers: &[OffloadSite]) -> usize;
-    fn complete(&self, _worker_idx: usize, _feedback: Option<&TimesFeedback>) {}
+    fn select(&self, key: Option<&str>, workers: &[OffloadSite]) -> (usize, Self::Ticket);
+    fn complete(
+        &self,
+        _worker_idx: usize,
+        _ticket: Self::Ticket,
+        _feedback: Option<&TimesFeedback>,
+    ) {
+    }
 }
 
 pub mod config {
@@ -78,13 +87,19 @@ pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
     pub name: &'a str,
     worker_idx: usize,
     policy: Arc<P>,
-    completed: bool,
+    ticket: Option<P::Ticket>, // Some until the request is reported to the policy
 }
 
 impl<P: LoadBalancerPolicy> LoadBalancer<P> {
     pub fn new(addrs: impl IntoIterator<Item = OffloadSite>) -> Self {
         let addrs: Vec<OffloadSite> = addrs.into_iter().collect();
         let policy = P::new(&addrs);
+        Self::with_policy(addrs, policy)
+    }
+    // For a policy that needs more than the site list (e.g. MCT's cost predictor);
+    // the policy must have been built from the same sites, in the same order
+    pub fn with_policy(addrs: impl IntoIterator<Item = OffloadSite>, policy: P) -> Self {
+        let addrs: Vec<OffloadSite> = addrs.into_iter().collect();
 
         assert!(!addrs.is_empty(), "addrs must not empty");
         // for addr in &addrs {
@@ -97,28 +112,30 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
         }
     }
     pub fn select(&self, key: Option<&str>) -> SelectionGuard<'_, P> {
-        let idx = self.policy.select(key, &self.workers);
+        let (idx, ticket) = self.policy.select(key, &self.workers);
         SelectionGuard {
             endpoint: &self.workers[idx].endpoint,
             name: &self.workers[idx].name,
             worker_idx: idx,
             policy: Arc::clone(&self.policy),
-            completed: false,
+            ticket: Some(ticket),
         }
     }
 }
 
 impl<P: LoadBalancerPolicy> SelectionGuard<'_, P> {
     pub fn finish(mut self, feedback: Option<&TimesFeedback>) {
-        self.policy.complete(self.worker_idx, feedback);
-        self.completed = true;
+        if let Some(ticket) = self.ticket.take() {
+            self.policy.complete(self.worker_idx, ticket, feedback);
+        }
     }
 }
 
 impl<P: LoadBalancerPolicy> Drop for SelectionGuard<'_, P> {
     fn drop(&mut self) {
-        if !self.completed {
-            self.policy.complete(self.worker_idx, None);
+        // still Some -> finish was never called (early return / error)
+        if let Some(ticket) = self.ticket.take() {
+            self.policy.complete(self.worker_idx, ticket, None);
         }
     }
 }

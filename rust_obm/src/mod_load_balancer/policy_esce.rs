@@ -17,18 +17,19 @@ impl ESCE {
 }
 
 impl LoadBalancerPolicy for ESCE {
+    type Ticket = ();
     fn new(offloads: &[OffloadSite]) -> Self {
         Self {
             job_vec: Mutex::new(vec![0; offloads.len()]),
         }
     }
-    fn select(&self, _key: Option<&str>, _workers: &[OffloadSite]) -> usize {
+    fn select(&self, _key: Option<&str>, _workers: &[OffloadSite]) -> (usize, ()) {
         let mut vec = self.lock();
         let index = (0..vec.len()).min_by_key(|&i| vec[i]).unwrap();
         vec[index] += 1;
-        index
+        (index, ())
     }
-    fn complete(&self, worker_idx: usize, _feedback: Option<&TimesFeedback>) {
+    fn complete(&self, worker_idx: usize, _ticket: (), _feedback: Option<&TimesFeedback>) {
         let mut vec = self.lock();
         // saturating: an unmatched complete must not wrap the count to usize::MAX
         vec[worker_idx] = vec[worker_idx].saturating_sub(1);
@@ -52,22 +53,22 @@ mod tests {
     fn test_esce_least_in_flight() {
         let s = sites(3);
         let p = ESCE::new(&s);
-        assert_eq!(p.select(None, &s), 0);
-        assert_eq!(p.select(None, &s), 1);
-        p.complete(0, None);
+        assert_eq!(p.select(None, &s).0, 0);
+        assert_eq!(p.select(None, &s).0, 1);
+        p.complete(0, (), None);
         // site 0 is free again, site 1 has a job, site 2 is free: lowest free index wins
-        assert_eq!(p.select(None, &s), 0);
-        assert_eq!(p.select(None, &s), 2);
-        assert_eq!(p.select(None, &s), 0); // all at 1 -> lowest index
+        assert_eq!(p.select(None, &s).0, 0);
+        assert_eq!(p.select(None, &s).0, 2);
+        assert_eq!(p.select(None, &s).0, 0); // all at 1 -> lowest index
     }
 
     #[test]
     fn test_esce_complete_never_underflows() {
         let s = sites(2);
         let p = ESCE::new(&s);
-        p.complete(1, None); // unmatched complete
-        assert_eq!(p.select(None, &s), 0);
-        assert_eq!(p.select(None, &s), 1);
+        p.complete(1, (), None); // unmatched complete
+        assert_eq!(p.select(None, &s).0, 0);
+        assert_eq!(p.select(None, &s).0, 1);
     }
 
     #[test]

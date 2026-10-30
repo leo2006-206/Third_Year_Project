@@ -20,7 +20,11 @@ RUN mkdir -p /app/obm/shows /app/obm/assets
 # 3. Copy pre-compiled Rust main_server binary
 COPY --chmod=755 target/release/main_server /usr/local/bin/main_server
 
-# 4. Copy entrypoint script for clean SIGINT / Ctrl+C handling
+# 4. Cost model for the mct policy (stat_predict/export.py output; rebuild the image after re-exporting).
+#    Override the paths with OBM_COST_COEF / OBM_COST_FEATURES (e.g. a mounted newer export)
+COPY stat_predict/coef.csv stat_predict/features.csv /app/stat_predict/
+
+# 5. Copy entrypoint script for clean SIGINT / Ctrl+C handling
 COPY --chmod=755 servers_container/main_server/entrypoint.sh /usr/local/bin/entrypoint.sh
 
 # Expose Port 7000 for Rust Main Server
