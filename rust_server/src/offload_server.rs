@@ -1,6 +1,7 @@
 use std::env;
 
 use smol::{
+    channel::{Receiver, Sender},
     // future::zip,
     io,
     net::{TcpListener, TcpStream},
@@ -13,7 +14,7 @@ use rust_server::lib_util as util;
 
 async fn handle_client(
     mut client_stream: TcpStream,
-    dana_addr: &str,
+    jobs: Sender<offl::DanaJob>,
     main_addr: &str,
 ) -> io::Result<()> {
     use http::{response_404, send_raw};
@@ -33,7 +34,15 @@ async fn handle_client(
     // dbg!(&method, &path);
 
     if path.starts_with("/offload") || path.starts_with("/times/offload") {
-        serve_dana_proxy(client_stream, path, dana_addr).await
+        // queued for the Dana worker, which answers the client itself
+        let job = offl::DanaJob {
+            client: client_stream,
+            path: path.to_string(),
+            enqueued: std::time::Instant::now(),
+        };
+        jobs.send(job)
+            .await
+            .map_err(|_| io::Error::other("Dana worker has stopped"))
     } else if path.starts_with("/shows") || path.starts_with("/assets") {
         serve_main_proxy(client_stream, path, main_addr).await
     } else {
@@ -41,20 +50,29 @@ async fn handle_client(
     }
 }
 
-async fn serve_dana_proxy(
-    mut main_server: TcpStream,
+// The only task that talks to Dana: one request at a time, in arrival order (the reply goes back
+// to the main server in its own task, see serve_dana). A failed job is logged and skipped; the
+// loop must not end (or panic), or every later request waits forever
+async fn dana_worker(jobs: Receiver<offl::DanaJob>, dana_addr: &str) {
+    while let Ok(job) = jobs.recv().await {
+        let t_queue = job.enqueued.elapsed().as_millis();
+        if let Err(e) = serve_dana(job.client, &job.path, t_queue, dana_addr).await {
+            eprintln!("[offload_server] {} failed: {e}", job.path);
+        }
+    }
+}
+
+async fn serve_dana(
+    main_server: TcpStream,
     offload_path: &str,
+    t_queue: u128,
     dana_addr: &str,
 ) -> io::Result<()> {
-    use std::time::Instant;
-
     const OFFLOAD_AGENT: &str = "OBM Offload site/1.0";
     const MAX_RETRIES: usize = 100;
     const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
 
-    let t_queue_start = Instant::now();
-    let _gate = offl::dana_gate_acquire().await;
-    let t_queue = t_queue_start.elapsed().as_millis().to_string();
+    let t_queue = t_queue.to_string();
 
     let mut dana_stream = {
         let mut attempt = 0;
@@ -86,10 +104,22 @@ async fn serve_dana_proxy(
     dana_stream.write_all(&req).await?;
     dana_stream.flush().await?;
 
-    // Asynchronously stream Dana's response (headers + H.264 chunks) directly to caller
-    smol::io::copy(&mut dana_stream, &mut main_server).await?;
-    main_server.flush().await?;
+    // Whole response (headers + H.264) into memory: Dana is free as soon as it has written it,
+    // and the slow send to the main server runs beside the next job
+    let mut response = Vec::new();
+    dana_stream.read_to_end(&mut response).await?;
+    smol::spawn(async move {
+        if let Err(e) = dana_sendback(main_server, response).await {
+            eprintln!("[offload_server] send back to main server failed: {e}");
+        }
+    })
+    .detach();
     Ok(())
+}
+
+async fn dana_sendback(mut main_server: TcpStream, response: Vec<u8>) -> io::Result<()> {
+    main_server.write_all(&response).await?;
+    main_server.flush().await
 }
 
 async fn serve_main_proxy(
@@ -126,13 +156,18 @@ fn main() -> io::Result<()> {
         let listener = TcpListener::bind(&port_addr).await?;
         println!("TCP Server listening on {port_addr}");
 
+        // FIFO queue in front of Dana (Dana renders one request at a time)
+        let (jobs, queue) = smol::channel::unbounded();
+        smol::spawn(dana_worker(queue, DANA_ADDR)).detach();
+
         // Accept incoming connections loop
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
+            let jobs = jobs.clone();
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, DANA_ADDR, main_addr).await {
+                if let Err(e) = handle_client(stream, jobs, main_addr).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })
