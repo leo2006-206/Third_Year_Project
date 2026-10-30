@@ -170,7 +170,7 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
     send_raw(&mut client_stream, &response).await
 }
 
-// Work time (s) for mct_const: mean over the v3 replays (stat/run_a*_c1, run_a*_c2_p75,
+// Work time (s) for mct_const: mean over the v3 replays (stat/run_a*_c1_nonfifo, run_a*_c2_p75_nonfifo,
 // 4027 ok requests), weighted by how often each request really arrives
 const CONST_WORK_S: f64 = 5.59;
 

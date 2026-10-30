@@ -89,7 +89,7 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 | `seed` | `2026` | change for a different repeat of the same setup |
 | `duration_s` / `pre_roll_s` | `600` / `600` | replay window / warm-up before it |
 | `rho` | `0.8` | target offered load as a fraction of cluster capacity (realised value in `meta.csv`). Was 0.7; raised because the realised load came out lower (window mix) |
-| `net_round_trips` / `net_delay_ms` | `50` / `{om: 30, rs: 60}` | network overhead added to every busy time: round trips × one-way netem delay = 1.5 s (om), 3.0 s (rs). The measured fit was ~67 (2.0 s / 4.0 s), but that made the model conservative (real load 0.57 for a 0.64 target, `stat/run_a0.5_c1_p57/`). Calibration runs without delay, but in the cluster a site also fetches assets one by one and sends the result while it is busy; fitted on the first (uncorrected) runs, where planned ρ 0.7 was really ≈0.95 (`stat/run_*_p95/`) |
+| `net_round_trips` / `net_delay_ms` | `50` / `{om: 30, rs: 60}` | network overhead added to every busy time: round trips × one-way netem delay = 1.5 s (om), 3.0 s (rs). The measured fit was ~67 (2.0 s / 4.0 s), but that made the model conservative (real load 0.57 for a 0.64 target, `stat/run_a0.5_c1_p57_nonfifo/`). Calibration runs without delay, but in the cluster a site also fetches assets one by one and sends the result while it is busy; fitted on the first (uncorrected) runs, where planned ρ 0.7 was really ≈0.95 (`stat/run_*_p95_nonfifo/`) |
 | `clusters` | case 1: gpu+llvm+cpu on `om` and `rs`; case 2: 2 gpu on each (provisional) | which `(machine, tier)` sites each cluster has |
 
 ## Outputs (`servers_benchmark/sequences/`)

@@ -1,6 +1,6 @@
 # Results Report: Baseline Policies on the Two-Laptop Cluster
 
-Data: `stat/run_a{0.5,1.2}_c{1,2}_p95/*.csv` and `*_main.log`, produced 2026-10-28/29. Analysis script (gitignored):
+Data: `stat/run_a{0.5,1.2}_c{1,2}_p95_nonfifo/*.csv` and `*_main.log`, produced 2026-10-28/29. Analysis script (gitignored):
 `temp/report_analysis.py`, full output in `temp/report_out.txt`. All times are in seconds unless stated otherwise.
 
 **Summary**
@@ -357,7 +357,7 @@ that as noise until you have 3+ repeats.
 
 ## 8. iwrr551 (5:5:1): Running
 
-The runs `stat/run_a{0.5,1.2}_c1_p95/iwrr551_none_1.csv` started at 12:19.
+The runs `stat/run_a{0.5,1.2}_c1_p95_nonfifo/iwrr551_none_1.csv` started at 12:19.
 
 **Prediction made before the results arrive.** Using the real capacity ratio of 3 : 2.7 : 1,
 weights of 5:5:1 give each gpu/llvm site about 84 requests (ρ ≈ 1.0–1.25) and each cpu site about
