@@ -87,6 +87,7 @@ class Cluster:
     name: str
     sites: list[tuple[str, str]]  # (machine, tier)
     note: str = ""
+    rho: float | None = None  # overrides the global rho for this cluster
     caps: dict = field(default_factory=dict)
 
 
@@ -435,6 +436,9 @@ def main(out_dir: Path | None = None):
             "case2",
             [("om", "gpu")] * 2 + [("rs", "gpu")] * 2,
             note="provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run",
+            # At rho 0.8 case 2 measured ~0.07 lighter than case 1 (site occupancy a0.5 0.66 vs
+            # 0.74, a1.2 0.80 vs 0.86), so it gets a higher target to match case 1's real load
+            rho=0.88,
         ),
     ]
 
@@ -501,7 +505,8 @@ def main(out_dir: Path | None = None):
         req_mix = np.bincount([k for p in paths for k, _ in p], minlength=len(kinds)) / sum(map(len, paths))
         for c in clusters:
             caps = cluster_capacity(c.sites, tables, req_mix)
-            target_n = round(rho * caps["total"] * duration_s)
+            c_rho = c.rho or rho
+            target_n = round(c_rho * caps["total"] * duration_s)
             lam_v, requests = fit_viewer_rate(
                 paths, unit_gaps, target_n, target_n / duration_s / mean_len,
                 pre_roll_s, duration_s, viewer,
@@ -527,7 +532,7 @@ def main(out_dir: Path | None = None):
                 f"{len(requests)} requests from {n_users} viewers in window, real rho {real_rho:.3f}"
                 + (f"  ({c.note})" if c.note else "")
             )
-            meta.append([alpha, c.name, rho, f"{real_rho:.3f}", f"{caps['total']:.4f}", f"{lam_req:.4f}",
+            meta.append([alpha, c.name, c_rho, f"{real_rho:.3f}", f"{caps['total']:.4f}", f"{lam_req:.4f}",
                          f"{lam_v:.5f}", f"{mean_len:.3f}", len(requests), n_users, c.note])
 
     write_rows(
