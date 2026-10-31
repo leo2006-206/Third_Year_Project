@@ -79,9 +79,12 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     // Body streaming: limit on a gap with no data, not on the whole transfer
     const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
 
+    // A policy may hold the request until a site is free (throttled): that wait is reported
+    // on its own (X-OBM-Wait), and the network time starts after it
+    let t_wait_start = Instant::now();
+    let target_offload = balancer.select_wait(Some(path)).await;
+    let t_wait = t_wait_start.elapsed().as_millis() as i64;
     let t_start = Instant::now();
-
-    let target_offload = balancer.select(Some(path));
 
     // On an early return the selection guard is dropped, which reports the site as done
     let connect = with_timeout(CONNECT_TIMEOUT, TcpStream::connect(target_offload.endpoint)).await;
@@ -104,7 +107,7 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
             return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
         }
     };
-    let (new_head, times) = sm::time_append_header(&head, t_start, target_offload.endpoint);
+    let (new_head, times) = sm::time_append_header(&head, t_start, t_wait, target_offload.endpoint);
 
     // 2. Whole body into a buffer (the cache will store it from here) and check its length
     //    against Content-Length; nothing has been sent to the client yet, so a short or
@@ -126,7 +129,7 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     }
 
     // The site's part is over: report it (with timings) before talking to the client
-    let total_ms = times.t_net + times.t_queue + times.t_asset + times.t_work;
+    let total_ms = t_wait + times.t_net + times.t_queue + times.t_asset + times.t_work;
     let site_name = target_offload.name;
     target_offload.finish(Some(&times));
 
@@ -176,8 +179,8 @@ const CONST_WORK_S: f64 = 5.59;
 
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
-    // policy (default rr): rr | iwrr | esce | mct | mct_const (mct reads the cost model, see
-    // load_cost_model; mct_const uses CONST_WORK_S)
+    // policy (default rr): rr | iwrr | esce | mct | mct_const | aco | aco_const | throttled
+    // (mct / aco read the cost model, see load_cost_model; the _const ones use CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
         eprintln!(
@@ -197,6 +200,7 @@ fn main() -> io::Result<()> {
         "rr" => serve(lb::RoundRobinLB::new(offload_url)),
         "iwrr" => serve(lb::InterleavedWeightedRRLB::new(offload_url)),
         "esce" => serve(lb::EsceLB::new(offload_url)),
+        "throttled" => serve(lb::ThrottledLB::new(offload_url)),
         "mct" => {
             let predictor = load_cost_model().unwrap_or_else(|e| {
                 eprintln!("{e}");
@@ -220,6 +224,31 @@ fn main() -> io::Result<()> {
             let mct = lb::policy_mct::MCT::with_predict(&offload_url, const_predict, false);
             serve(lb::MctLB::with_policy(offload_url, mct))
         }
+        "aco" => {
+            let predictor = load_cost_model().unwrap_or_else(|e| {
+                eprintln!("{e}");
+                std::process::exit(2);
+            });
+            // same fallback switch as mct
+            let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
+            let seed = aco_seed();
+            println!(
+                "ACO: {} paths, fallback {}, seed {seed}",
+                predictor.len(),
+                if fallback { "on" } else { "off" }
+            );
+            let predict = move |path: &str, site: &lb::OffloadSite| predictor.predict(path, site);
+            let aco = lb::policy_aco::ACO::with_predict(&offload_url, predict, fallback, seed);
+            serve(lb::AcoLB::with_policy(offload_url, aco))
+        }
+        "aco_const" => {
+            // same work for every path and site: the pheromone has to learn the sizes
+            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
+            let seed = aco_seed();
+            println!("ACO: constant work {CONST_WORK_S} s, seed {seed}");
+            let aco = lb::policy_aco::ACO::with_predict(&offload_url, const_predict, false, seed);
+            serve(lb::AcoLB::with_policy(offload_url, aco))
+        }
         other => {
             eprintln!(
                 "Unknown policy '{other}' (expected {})",
@@ -228,6 +257,14 @@ fn main() -> io::Result<()> {
             std::process::exit(2);
         }
     }
+}
+
+/// [Dishonest I/O] ACO's random seed: OBM_ACO_SEED, default 2026 (same as the sequences)
+fn aco_seed() -> u64 {
+    std::env::var("OBM_ACO_SEED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2026)
 }
 
 /// [Dishonest I/O] Loads the cost model from OBM_COST_COEF / OBM_COST_FEATURES

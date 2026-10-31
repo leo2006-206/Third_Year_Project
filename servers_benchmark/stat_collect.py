@@ -79,6 +79,7 @@ def parse_timing_headers(headers: dict[str, str]) -> dict[str, int]:
         "render": 0,
         "encode": 0,
         "net": 0,
+        "wait": 0,
     }
 
     # Parse X-Dana-Timings: queue=X;asset=Y;work=Z;decode=A;render=B;encode=C
@@ -95,6 +96,11 @@ def parse_timing_headers(headers: dict[str, str]) -> dict[str, int]:
     obm_net = headers.get("x-obm-net") or headers.get("X-OBM-Net", "")
     if obm_net.isdigit():
         timings["net"] = int(obm_net)
+
+    # Parse X-OBM-Wait: N (ms waiting at the main server for a free site, throttled policy)
+    obm_wait = headers.get("x-obm-wait") or headers.get("X-OBM-Wait", "")
+    if obm_wait.isdigit():
+        timings["wait"] = int(obm_wait)
 
     return timings
 

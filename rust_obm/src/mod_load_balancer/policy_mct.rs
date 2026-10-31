@@ -8,7 +8,7 @@ pub struct EWMA {
 }
 
 impl EWMA {
-    fn new(a: f64, init: f64) -> Self {
+    pub(super) fn new(a: f64, init: f64) -> Self {
         assert!(a > 0.0);
         assert!(a < 1.0);
         assert!(init > 0.0);
@@ -17,10 +17,10 @@ impl EWMA {
             value: init,
         }
     }
-    fn update(&mut self, x: f64) {
+    pub(super) fn update(&mut self, x: f64) {
         self.value = (1.0 - self.learn_rate) * self.value + self.learn_rate * x;
     }
-    fn get(&self) -> f64 {
+    pub(super) fn get(&self) -> f64 {
         self.value
     }
 }
@@ -28,16 +28,16 @@ impl EWMA {
 // What select remembers for complete: the exact cost it added (so complete removes the same
 // number, even if the factors changed meanwhile) and the predicted work for the factor update
 pub struct MctTicket {
-    cost: f64,         // s added to the site's makespan
-    work: Option<f64>, // machine-neutral predicted work (s), None if the path was unknown
+    pub(super) cost: f64,         // s added to the site's makespan
+    pub(super) work: Option<f64>, // machine-neutral predicted work (s), None if the path was unknown
 }
 
 pub struct MctWorker {
-    id: String,       // short site id for the log, e.g. om1
-    machine_f: EWMA,  // actual work / predicted work
-    network_f: EWMA,  // net + asset time (s)
-    makespan: f64,    // sum of the costs of the requests in flight (s), self-correcting
-    in_flight: usize, // for the fallback when a path has no prediction
+    pub(super) id: String,       // short site id for the log, e.g. om1
+    pub(super) machine_f: EWMA,  // actual work / predicted work
+    pub(super) network_f: EWMA,  // net + asset time (s)
+    pub(super) makespan: f64,    // sum of the costs of the requests in flight (s), self-correcting
+    pub(super) in_flight: usize, // for the fallback when a path has no prediction
 }
 
 impl MctWorker {
@@ -51,19 +51,19 @@ impl MctWorker {
         }
     }
     // this request's own cost on this site
-    fn taskspan(&self, predicted_work: f64) -> f64 {
+    pub(super) fn taskspan(&self, predicted_work: f64) -> f64 {
         self.network_f.get() + (self.machine_f.get() * predicted_work)
     }
     // estimated completion time from now
-    fn predict(&self, predicted_work: f64) -> f64 {
+    pub(super) fn predict(&self, predicted_work: f64) -> f64 {
         self.makespan + self.taskspan(predicted_work)
     }
-    fn add(&mut self, predicted_taskspan: f64) {
+    pub(super) fn add(&mut self, predicted_taskspan: f64) {
         self.makespan += predicted_taskspan;
         self.in_flight += 1;
     }
     // returns the raw (unclamped) work ratio, None if there was no sample to learn from
-    fn remove_update(
+    pub(super) fn remove_update(
         &mut self,
         ticket: &MctTicket,
         feedback: Option<&TimesFeedback>,
@@ -102,25 +102,10 @@ where
     F: Fn(&str, &OffloadSite) -> Option<f64> + Send + Sync,
 {
     pub fn with_predict(offloads: &[OffloadSite], predict: F, fallback: bool) -> Self {
-        const LEARNING: f64 = 0.1;
-
-        let mut vec = Vec::with_capacity(offloads.len());
-
-        // priors: om = reference machine, near; rs ~25% faster, twice the RTT
-        // (main server site names look like "id=om1_ip=..."; tests use plain "om1")
-        for of in offloads {
-            let id = short_id(&of.name);
-            if id.starts_with("om") {
-                vec.push(MctWorker::new(id, 1.0, 1.5, LEARNING));
-            } else {
-                vec.push(MctWorker::new(id, 0.75, 3.0, LEARNING));
-            }
-        }
-
         Self {
             predict,
             fallback,
-            mct_vec: Mutex::new(vec),
+            mct_vec: Mutex::new(mct_workers(offloads)),
         }
     }
 
@@ -227,14 +212,31 @@ where
 
 pub type MctLB<F> = LoadBalancer<MCT<F>>;
 
+// One MctWorker per site with the priors: om = reference machine, near; rs ~25% faster, twice
+// the RTT (main server site names look like "id=om1_ip=..."; tests use plain "om1")
+pub(super) fn mct_workers(offloads: &[OffloadSite]) -> Vec<MctWorker> {
+    const LEARNING: f64 = 0.1;
+    offloads
+        .iter()
+        .map(|of| {
+            let id = short_id(&of.name);
+            if id.starts_with("om") {
+                MctWorker::new(id, 1.0, 1.5, LEARNING)
+            } else {
+                MctWorker::new(id, 0.75, 3.0, LEARNING)
+            }
+        })
+        .collect()
+}
+
 // "id=om1_ip=..." (main server site name) -> "om1"; a plain name is kept
-fn short_id(name: &str) -> &str {
+pub(super) fn short_id(name: &str) -> &str {
     let name = name.trim_start_matches("id=");
     name.split('_').next().unwrap_or(name)
 }
 
 // "-" for a missing value in the log
-fn fmt_opt(v: Option<f64>, digits: usize) -> String {
+pub(super) fn fmt_opt(v: Option<f64>, digits: usize) -> String {
     v.map_or_else(|| "-".to_string(), |v| format!("{v:.digits$}"))
 }
 
@@ -245,7 +247,7 @@ mod tests {
 
     // only "/p" is known: 1 s on a gpu render site, 4 s on a cpu one
     fn work(path: &str, site: &OffloadSite) -> Option<f64> {
-        (path == "/p").then(|| match site.config.render {
+        (path == "/p").then_some(match site.config.render {
             Render::Gpu => 1.0,
             _ => 4.0,
         })

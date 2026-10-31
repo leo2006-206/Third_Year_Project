@@ -1,4 +1,5 @@
 // use std::net::ToSocketAddrs;
+use std::future::Future;
 use std::sync::Arc;
 
 pub trait LoadBalancerPolicy: Send + Sync {
@@ -7,6 +8,15 @@ pub trait LoadBalancerPolicy: Send + Sync {
     type Ticket: Send;
     fn new(offloads: &[OffloadSite]) -> Self;
     fn select(&self, key: Option<&str>, workers: &[OffloadSite]) -> (usize, Self::Ticket);
+    // For a policy that may hold a request until a site is free (e.g. Throttled); the others
+    // decide at once. impl Future + Send, not async fn: the main server spawns the request task
+    fn select_wait(
+        &self,
+        key: Option<&str>,
+        workers: &[OffloadSite],
+    ) -> impl Future<Output = (usize, Self::Ticket)> + Send {
+        std::future::ready(self.select(key, workers))
+    }
     fn complete(
         &self,
         _worker_idx: usize,
@@ -113,6 +123,14 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
     }
     pub fn select(&self, key: Option<&str>) -> SelectionGuard<'_, P> {
         let (idx, ticket) = self.policy.select(key, &self.workers);
+        self.guard(idx, ticket)
+    }
+    // Same as select, but waits if the policy holds the request (main server path)
+    pub async fn select_wait(&self, key: Option<&str>) -> SelectionGuard<'_, P> {
+        let (idx, ticket) = self.policy.select_wait(key, &self.workers).await;
+        self.guard(idx, ticket)
+    }
+    fn guard(&self, idx: usize, ticket: P::Ticket) -> SelectionGuard<'_, P> {
         SelectionGuard {
             endpoint: &self.workers[idx].endpoint,
             name: &self.workers[idx].name,

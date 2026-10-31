@@ -114,24 +114,32 @@ pub async fn reply_gateway_error(
 /// [Dishonest / Clock Read]
 /// Takes the offload site's response head (as from `split_header_body`, without the final
 /// "\r\n\r\n") and returns it with the main server's timing headers appended (X-OBM-Net,
-/// Server-Timing, X-OBM-Worker), ready to send to the client, plus the ms from `t_start` to now
-/// (logged as the offload time). Call it right after the head arrives.
+/// X-OBM-Wait, Server-Timing, X-OBM-Worker), ready to send to the client. `t_start` is when the
+/// request was sent to the site, `t_wait` the ms it waited at the main server for a site before
+/// that (0 unless the policy holds requests). Call it right after the head arrives.
 /// Returns the new head and the timing feedback for the load balancer (all zero if the site
 /// sent no X-Dana-Timings).
-pub fn time_append_header(head: &[u8], t_start: Instant, worker: &str) -> (Vec<u8>, TimesFeedback) {
+pub fn time_append_header(
+    head: &[u8],
+    t_start: Instant,
+    t_wait: i64,
+    worker: &str,
+) -> (Vec<u8>, TimesFeedback) {
     let elapsed = t_start.elapsed().as_millis() as i64;
 
     let head_str = String::from_utf8_lossy(head);
     let times = parse_times_feedback(&head_str, elapsed).unwrap_or_default();
     let t_net_str = times.t_net.to_string();
-    let server_timing_str = format!("net;dur={}", times.t_net);
+    let t_wait_str = t_wait.to_string();
+    let server_timing_str = format!("net;dur={}, wait;dur={t_wait}", times.t_net);
     let extra_headers = [
         ("X-OBM-Net", t_net_str.as_str()),
+        ("X-OBM-Wait", t_wait_str.as_str()),
         ("Server-Timing", server_timing_str.as_str()),
         ("X-OBM-Worker", worker),
         (
             "Access-Control-Expose-Headers",
-            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Worker",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Wait, X-OBM-Worker",
         ),
     ];
     (http::response_append(&head_str, &extra_headers), times)

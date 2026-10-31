@@ -40,7 +40,8 @@ CSV_HEADERS = [
     "size_bytes",
     "worker",  # X-OBM-Worker: offload site chosen by the load balancer
     "net_ms",
-    "queue_ms",
+    "queue_ms",  # total wait: main server (wait_ms) + site queue
+    "wait_ms",  # X-OBM-Wait: part of queue_ms spent at the main server (throttled), else 0
     "asset_ms",
     "work_ms",
     "decode_ms",
@@ -123,9 +124,11 @@ def send_request(
             row["size_bytes"] = size
             row["worker"] = resp.headers.get("X-OBM-Worker", "")
             t = parse_timing_headers(dict(resp.headers))
-            for k in ("net", "queue", "asset", "work", "decode", "render", "encode"):
+            for k in ("net", "asset", "work", "decode", "render", "encode", "wait"):
                 row[f"{k}_ms"] = t[k]
-            server_ms = t["work"] + t["asset"] + t["queue"] + t["net"]
+            # queue = all waiting, so it compares across policies that queue at the site or here
+            row["queue_ms"] = t["queue"] + t["wait"]
+            server_ms = t["work"] + t["asset"] + row["queue_ms"] + t["net"]
             row["client_net_ms"] = (
                 max(0, row["latency_ms"] - server_ms) if server_ms else ""
             )
