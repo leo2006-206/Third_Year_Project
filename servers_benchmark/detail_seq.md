@@ -87,7 +87,7 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 | `viewer.max_segments` | `30` | session cap |
 | `viewer.first_gap_s` / `segment_gap_s` | `5.0` / `10.0` | time from a video's segment 0 request to its first decision / between later requests |
 | `n_viewers` | `3000` | viewers generated (must outlast pre-roll + window; the script warns otherwise) |
-| `seed` | `2026` | change for a different repeat of the same setup |
+| `seed` | `2037` | picked from 2000–2047 so all four sequences share one shape (two waves: rise to ~1.0, drain near 350 s, second rise to 1.3–1.55; pairwise correlation of the 60 s load ≥ 0.78; set 1 used 2026, whose sequences did not share a shape). Change for a different repeat of the same setup |
 | `duration_s` / `pre_roll_s` | `600` / `600` | replay window / warm-up before it |
 | `rho` | `0.8` | target offered load as a fraction of cluster capacity (realised value in `meta.csv`). Was 0.7; raised because the realised load came out lower (window mix) |
 | `run_globs` | `set1_unload/run_*`, `old_nonfifo/run_*` (under `stat/`) | replay runs whose asset + work + net per kind give the busy times; all eras agree within ~2% per kind (om cpu ~8%). Replaces the old network allowance (`net_round_trips` 50 × netem delay = 1.5 s om, 3.0 s rs on top of calibration) |

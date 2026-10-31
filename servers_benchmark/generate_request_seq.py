@@ -475,7 +475,7 @@ def main(out_dir: Path | None = None):
     ]
     viewer = ViewerParams()
     n_viewers = 3000  # generated viewers (only those overlapping the window are replayed)
-    seed = 2026
+    seed = 2037  # picked from 2000-2047: all 4 sequences share one two-wave shape (min corr 0.78)
 
     # 2. Replay window and target load
     duration_s = 600
