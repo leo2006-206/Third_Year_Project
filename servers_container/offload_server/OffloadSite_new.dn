@@ -294,7 +294,10 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							}
 						rinfo = rt.exp.resource(window, frameIndex)
 						}
-					
+					// asset time ends here, not at variantReady: the requested layer options' resources
+					// are only fetched after it (setLayerOptions + showVariant), in the loop above
+					rt.t_asset = cal.getMS() - rt.t_asset_start
+
 					//out.println("   - setting layer options")
 					
 					//out.println("   - waiting for resources at 0")
@@ -586,7 +589,6 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 				{
 				if (rt.exp === ed.source)
 					{
-					rt.t_asset = cal.getMS() - rt.t_asset_start
 					int timeStart = rt.timeFrom
 					int timeEnd = timeStart + SEG_SIZE
 					int frameStart = timeStart * FPS
