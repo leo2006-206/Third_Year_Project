@@ -16,20 +16,25 @@ Pipeline:
      continues to the next segment; when continuing it may change combination (redrawn from
      the same show's Zipf). Abandonment and combination changes are higher at a video's
      first decision ("video surfing").
-  3. Capacity (computed once per alpha, from the step-2 paths): per-kind busy time S_jk (asset +
-     work) per site from stat/*.csv, plus the machine's network overhead (round trips x netem
-     delay); site j's mean busy time E_j = sum_k q(k) * S_jk, where q(k) is kind k's share of
-     all requests in the generated paths (~P(show) * E[segments | show] * P(combination | show):
-     short shows get fewer requests than their popularity), and C = sum_j 1 / E_j.
-  4. Rates: target requests in the window N = rho * C * DURATION_S; lambda_viewers is
-     fitted (bisection) so the window holds exactly N requests.
+  3. Capacity (computed once per alpha, from the step-2 paths): per-kind busy time S_jk per site
+     type from the replay runs in stat/ (asset + work + net: measured in the cluster, so the
+     netem delay, load and Dana's untimed option fetches are in it; kinds a site type never ran
+     use the no-delay calibration x that site type's run/calibration ratio); site j's mean busy
+     time E_j = sum_k q(k) * S_jk, where q(k) is kind k's share of all requests in the generated
+     paths (~P(show) * E[segments | show] * P(combination | show): short shows get fewer
+     requests than their popularity), and C = sum_j 1 / E_j.
+  4. Rates: lambda_viewers is fitted (bisection) so the window's realised load (its requests
+     against the capacity under the window's own mix) is rho. The window is representative:
+     if any show's share in a cluster's window is more than show_share_tol from its share over
+     all generated requests, the viewer population is redrawn (next content + decision child
+     stream, same arrival gaps) and steps 2-4 repeat; the accepted attempt is in meta.csv.
   5. Timing: viewer v starts at T_v = -PRE_ROLL + sum(Exp(1)) / lambda_viewers. Like the OBM
      player, which buffers the next segment while the current one plays, a video's first
      decision (and next request) comes 5 s after its segment 0 request, later ones every
      10 s: a video started at t requests at t, t+5, t+15, t+25, ... Requests in
      [0, DURATION_S) are kept; the pre-roll makes the window start at steady load.
-  The window's actual mix differs from q (sessions, few viewers), so the realised load
-  (N / capacity under the window's own mix) is reported as real_rho in meta.csv.
+  Only ~35 viewers fall in the window, so its mix can differ a lot from q; fitting on the
+  window's own mix (step 4) keeps the load at rho, the share check keeps the mix close to q.
 
 Separate seeded random streams: viewer arrival gaps, show ranking (only if show_rank is None), content choices
 (show/combination), and viewer decisions (leave/switch/continue/change). Changing alpha only
@@ -53,6 +58,7 @@ import pandas as pd
 
 SEG_LEN_S = 10
 SEGMENT_PLACEHOLDER = "/t_start/t_end/"
+WORKER_IPS = {"10.10.0.2": "rs"}  # sites the main server reaches by ip (rs); om's by container name
 
 
 @dataclass
@@ -283,6 +289,24 @@ def tier_service_table(
     )
 
 
+def run_service_table(
+    kinds: list[str], cal: pd.DataFrame, runs: pd.DataFrame
+) -> tuple[pd.DataFrame, dict[str, tuple[int, float]]]:
+    """[Honest] Per-kind busy time (s) per tier for one machine in one cluster, from the cluster
+    runs: the mean of asset + work + net per kind (net is Dana still fetching the requested
+    options' resources, so it holds the site; the runs include the netem delay and the load).
+    Kinds a tier never ran use the calibration time (`cal`, no delay, tier_service_table) times
+    that tier's median run/calibration ratio over the kinds it did run.
+    Returns the table (tiers in `runs` only) and per tier (kinds measured, ratio)."""
+    table, coverage = {}, {}
+    for tier, r in runs.groupby("tier"):
+        measured = r.groupby("kind").busy_s.mean().reindex(kinds)
+        ratio = float((measured / cal[tier]).median())
+        table[tier] = measured.fillna(cal[tier] * ratio).values
+        coverage[tier] = (int(measured.notna().sum()), ratio)
+    return pd.DataFrame(table, index=kinds), coverage
+
+
 def cluster_capacity(
     sites: list[tuple[str, str]], tables: dict[str, pd.DataFrame], mix: np.ndarray
 ) -> dict[str, float]:
@@ -298,25 +322,41 @@ def cluster_capacity(
 def fit_viewer_rate(
     paths: list[list[tuple[int, int]]],
     unit_gaps: np.ndarray,
-    target_n: int,
+    target_rho: float,
+    sites: list[tuple[str, str]],
+    tables: dict[str, pd.DataFrame],
+    n_kinds: int,
     lam_guess: float,
     pre_roll_s: float,
     duration_s: float,
     params: ViewerParams,
-) -> tuple[float, list[Request]]:
-    """[Honest] Bisection on lambda_viewers so the window holds exactly target_n requests
-    (sessions make the realised count vary a lot around lambda_req * duration)."""
+) -> tuple[float, list[Request], float]:
+    """[Honest] Bisection on lambda_viewers so the window's realised load (its requests against
+    the capacity under its own mix) is target_rho. A count target would let the window's mix
+    move the load: a window short of heavy shows comes out lighter than planned.
+    Returns (lambda_viewers, requests, realised rho), the closest found."""
     lo, hi = lam_guess / 4, lam_guess * 4
     best = None
     for _ in range(60):
         lam = (lo + hi) / 2
         requests = place_viewers(paths, unit_gaps, lam, pre_roll_s, duration_s, params)
-        if best is None or abs(len(requests) - target_n) < abs(len(best[1]) - target_n):
-            best = (lam, requests)
-        if len(requests) == target_n:
+        rho = realised_rho(requests, sites, tables, n_kinds, duration_s) if requests else 0.0
+        if best is None or abs(rho - target_rho) < abs(best[2] - target_rho):
+            best = (lam, requests, rho)
+        if abs(rho - target_rho) < 0.002:
             break
-        lo, hi = (lam, hi) if len(requests) < target_n else (lo, lam)
+        lo, hi = (lam, hi) if rho < target_rho else (lo, lam)
     return best
+
+
+def show_shares(requests: list[Request], kind_shows: list[str]) -> pd.Series:
+    """[Honest] Share of the requests per show."""
+    return pd.Series([kind_shows[r.kind] for r in requests]).value_counts(normalize=True)
+
+
+def share_deviation(window: pd.Series, expected: pd.Series) -> float:
+    """[Honest] Largest gap between a window's show shares and the expected ones (missing = 0)."""
+    return float(window.reindex(expected.index, fill_value=0.0).sub(expected).abs().max())
 
 
 def realised_rho(
@@ -354,6 +394,37 @@ def load_busy_times(path: Path) -> pd.Series:
     )
     df["busy_s"] = (df.asset_ms + df.work_ms) / 1000
     return df.groupby("kind").busy_s.mean()
+
+
+def load_run_busy(stat_dir: Path, run_globs: list[str], clusters: list[Cluster]) -> pd.DataFrame:
+    """[Dishonest I/O] Every successful request of the replay runs (seq_bench CSVs in
+    stat/<run_glob>/, folder run_a<alpha>_<c1|c2>[_suffix]) as cluster, machine, tier, kind,
+    busy_s = (asset + work + net) / 1000. Site from the worker: obm-offload-<machine><n>:<port>
+    or <ip>:<port> (WORKER_IPS); tier = that machine's n-th site in the cluster, n from the
+    port (7010 -> 1st)."""
+    by_tag = {f"c{c.name.removeprefix('case')}": c for c in clusters}
+    frames = []
+    for pattern in run_globs:
+        for run_dir in sorted(stat_dir.glob(pattern)):
+            m = re.match(r"run_a[0-9.]+_(c\d+)(_|$)", run_dir.name)
+            if not m or m.group(1) not in by_tag:
+                continue
+            c = by_tag[m.group(1)]
+            for f in sorted(run_dir.glob("*.csv")):
+                d = pd.read_csv(f)
+                d = d[d.status == 200]
+                host_port = d.worker.str.extract(r"^(?:obm-offload-([a-z]+)\d+|([\d.]+)):(\d+)$")
+                d = d.assign(machine=host_port[0].fillna(host_port[1].map(WORKER_IPS)),
+                             n=host_port[2].astype(int) // 10 % 100 - 1)
+                tiers = {mc: [t for m2, t in c.sites if m2 == mc] for mc in {m2 for m2, _ in c.sites}}
+                d["tier"] = [tiers[mc][n] if mc in tiers and n < len(tiers[mc]) else None
+                             for mc, n in zip(d.machine, d.n)]
+                d["kind"] = d.path.str.replace(r"^(/offload/show/[^/]+)/\d+/\d+/",
+                                               r"\1" + SEGMENT_PLACEHOLDER, regex=True)
+                d["busy_s"] = (d.asset_ms + d.work_ms + d.net_ms) / 1000
+                frames.append(d.dropna(subset=["machine", "tier"])
+                              .assign(cluster=c.name)[["cluster", "machine", "tier", "kind", "busy_s"]])
+    return pd.concat(frames, ignore_index=True)
 
 
 def write_rows(path: Path, header: list[str], rows: list[list]):
@@ -409,17 +480,21 @@ def main(out_dir: Path | None = None):
     # 2. Replay window and target load
     duration_s = 600
     pre_roll_s = 600  # viewers start this long before t=0, so the window opens at steady load
-    rho = 0.8  # offered load as a fraction of cluster capacity
+    rho = 0.8  # offered load as a fraction of cluster capacity (window's own mix)
+    # Representative window: with only ~35 viewers in the window its show mix can be far from the
+    # model (set 1: alpha 0.5 forecast 12% vs 22% expected). Viewer populations are redrawn (new
+    # content + decision streams, same arrival gaps) until, for every cluster, each show's share
+    # in the window is within show_share_tol of its share over all generated requests
+    show_share_tol = 0.03
+    max_attempts = 2000
 
-    # Network overhead per request = round trips * one-way delay (netem delay of the machine's
-    # sites, cluster_endpoint_c*.csv). Calibration has no delay, but in the cluster a site is
-    # also busy fetching assets one by one and sending the result. Fitted on the first runs
-    # (site occupancy - work ~2.0 s at 30 ms, ~4.3 s at 60 ms -> ~67 round trips), which made the
-    # model conservative (real load 0.57 for a 0.64 target); 50 -> 1.5 s om, 3.0 s rs
-    net_round_trips = 50
-    net_delay_ms = {"om": 30, "rs": 60}
+    # Service times come from the replay runs (stat/<run_glob>/run_a<alpha>_<c1|c2>*/): asset +
+    # work + net per kind, measured in the cluster (netem delay, load, Dana's untimed option
+    # fetches included). Every run counts: busy per kind agrees within ~2% across eras (FIFO set 1
+    # vs the old gate), om cpu ~8% (power profile)
+    run_globs = ["set1_unload/run_*", "old_nonfifo/run_*"]
 
-    # 3. Clusters (machine, tier); service times come from stat/<machine>_<port>_<tier>_timing.csv
+    # 3. Clusters (machine, tier), in port order per machine (7010, 7020, ...)
     clusters = [
         Cluster(
             "case1",
@@ -435,10 +510,6 @@ def main(out_dir: Path | None = None):
         Cluster(
             "case2",
             [("om", "gpu")] * 2 + [("rs", "gpu")] * 2,
-            note="provisional: uses case-1 co-located gpu timings, not a measured 4-gpu run",
-            # At rho 0.8 case 2 measured ~0.07 lighter than case 1 (site occupancy a0.5 0.66 vs
-            # 0.74, a1.2 0.80 vs 0.86), so it gets a higher target to match case 1's real load
-            rho=0.88,
         ),
     ]
 
@@ -455,21 +526,30 @@ def main(out_dir: Path | None = None):
     catalog = json.loads((script_dir / "show_options.json").read_text(encoding="utf-8"))
     kind_shows = [re.search(r"/show/([^/]+)/", k).group(1) for k in kinds]
     show_segments = {s: int(durations[s]) // SEG_LEN_S for s in set(kind_shows)}
-    # Load calibration only for the machines the clusters use (stat/<machine>_<port>_<tier>_timing.csv)
-    tables = {}
+    # Calibration (no delay) only fills the kinds a site type never ran in the cluster runs
+    cal = {}
     for machine in sorted({m for c in clusters for m, _ in c.sites}):
         busy = {
             tier: load_busy_times(stat_dir / f"{machine}_{port}_{tier}_timing.csv")
             for tier, port in [("gpu", 7010), ("llvm", 7020), ("cpu", 7030)]
         }
-        net_s = net_round_trips * net_delay_ms[machine] / 1000
-        tables[machine] = tier_service_table(kinds, busy["gpu"], busy["llvm"], busy["cpu"]) + net_s
-        print(f"{machine}: network overhead {net_s:.2f} s/request "
-              f"({net_round_trips} round trips x {net_delay_ms[machine]} ms)")
+        cal[machine] = tier_service_table(kinds, busy["gpu"], busy["llvm"], busy["cpu"])
+    runs = load_run_busy(stat_dir, run_globs, clusters)
+    tables = {}  # cluster -> machine -> per-kind busy (s) per tier
+    for c in clusters:
+        tables[c.name] = {}
+        for machine in sorted({m for m, _ in c.sites}):
+            r = runs[(runs.cluster == c.name) & (runs.machine == machine)]
+            tables[c.name][machine], coverage = run_service_table(kinds, cal[machine], r)
+            print(f"{c.name} {machine}: {len(r)} run requests; " + ", ".join(
+                f"{t} {n}/{len(kinds)} kinds measured (run/calibration {ratio:.2f})"
+                for t, (n, ratio) in coverage.items()))
 
     out_dir.mkdir(exist_ok=True)
     arrival_ss, rank_ss, content_ss, decision_ss = np.random.SeedSequence(seed).spawn(4)
     unit_gaps = np.random.default_rng(arrival_ss).exponential(1.0, n_viewers)
+    # one child stream per attempt (representative-window search), so every attempt is reproducible
+    content_kids, decision_kids = content_ss.spawn(max_attempts), decision_ss.spawn(max_attempts)
 
     # =========================================================================
     # Generate viewer paths per alpha, then place viewers in time per cluster
@@ -482,13 +562,45 @@ def main(out_dir: Path | None = None):
         combos = show_tables(kind_shows, probs)
         shows = list(combos)
         show_p = np.array([probs[combos[s][0]].sum() for s in shows])
-        content_rng = np.random.default_rng(content_ss)
-        decision_rng = np.random.default_rng(decision_ss)
-        paths = [
-            viewer_path(shows, show_p, combos, show_segments, viewer, content_rng, decision_rng)
-            for _ in range(n_viewers)
-        ]
+
+        # Redraw the viewer population until every cluster's window is representative
+        closest = None  # (worst deviation, attempt) of the best rejected attempt, for the error
+        for attempt in range(max_attempts):
+            content_rng = np.random.default_rng(content_kids[attempt])
+            decision_rng = np.random.default_rng(decision_kids[attempt])
+            paths = [
+                viewer_path(shows, show_p, combos, show_segments, viewer, content_rng, decision_rng)
+                for _ in range(n_viewers)
+            ]
+            mean_len = float(np.mean([len(p) for p in paths]))
+            # Request mix: how often each kind is requested, not chosen. Counted over every generated
+            # path, so it includes the segments watched per show (P(show) * E[segments | show] * ...)
+            req_mix = np.bincount([k for p in paths for k, _ in p], minlength=len(kinds)) / sum(map(len, paths))
+            expected = pd.Series(req_mix).groupby(np.array(kind_shows)).sum().sort_values(ascending=False)
+            windows, worst = {}, 0.0
+            for c in clusters:
+                caps = cluster_capacity(c.sites, tables[c.name], req_mix)
+                c_rho = c.rho or rho
+                lam_v, requests, real_rho = fit_viewer_rate(
+                    paths, unit_gaps, c_rho, c.sites, tables[c.name], len(kinds),
+                    c_rho * caps["total"] / mean_len, pre_roll_s, duration_s, viewer,
+                )
+                dev = share_deviation(show_shares(requests, kind_shows), expected)
+                worst = max(worst, dev if abs(real_rho - c_rho) <= 0.01 else float("inf"))
+                if worst > show_share_tol:
+                    break
+                windows[c.name] = (c, caps, c_rho, lam_v, requests, real_rho, dev)
+            if worst <= show_share_tol:
+                break
+            if closest is None or worst < closest[0]:
+                closest = (worst, attempt)
+        else:
+            raise SystemExit(f"[Error] alpha {alpha}: no representative window in {max_attempts} attempts "
+                             f"(closest: attempt {closest[1]}, show share off by {closest[0]:.3f}); "
+                             f"raise show_share_tol or max_attempts")
+
         print(f"\nshow popularity ranking: {', '.join(used_rank)}")
+        print(f"representative window: attempt {attempt} (show share tolerance {show_share_tol})")
         print_summary(alpha, paths, kinds, kind_shows, viewer)
 
         write_rows(
@@ -499,20 +611,8 @@ def main(out_dir: Path | None = None):
              for step, ((k, s), offset) in enumerate(zip(p, path_offsets(p, viewer)))],
         )
 
-        mean_len = float(np.mean([len(p) for p in paths]))
-        # Request mix: how often each kind is requested, not chosen. Counted over every generated
-        # path, so it includes the segments watched per show (P(show) * E[segments | show] * ...)
-        req_mix = np.bincount([k for p in paths for k, _ in p], minlength=len(kinds)) / sum(map(len, paths))
-        for c in clusters:
-            caps = cluster_capacity(c.sites, tables, req_mix)
-            c_rho = c.rho or rho
-            target_n = round(c_rho * caps["total"] * duration_s)
-            lam_v, requests = fit_viewer_rate(
-                paths, unit_gaps, target_n, target_n / duration_s / mean_len,
-                pre_roll_s, duration_s, viewer,
-            )
+        for c, caps, c_rho, lam_v, requests, real_rho, dev in windows.values():
             lam_req = len(requests) / duration_s
-            real_rho = realised_rho(requests, c.sites, tables, len(kinds), duration_s)
             last_start = -pre_roll_s + unit_gaps.sum() / lam_v
             if last_start < duration_s:
                 print(f"[Warning] {c.name}: viewers run out at {last_start:.0f}s, increase n_viewers",
@@ -523,22 +623,29 @@ def main(out_dir: Path | None = None):
                 [[i, round(r.t_s * 1000), segment_path(kinds[r.kind], r.seg)] for i, r in enumerate(requests)],
             )
             n_users = len({r.uid for r in requests})
+            first_half = sum(r.t_s < duration_s / 2 for r in requests) / len(requests)
+            window = show_shares(requests, kind_shows).reindex(expected.index, fill_value=0.0)
             site_caps = " ".join(
                 f"{k.split(':')[1]}={v * duration_s:.0f}" for k, v in caps.items() if k != "total"
             )
             print(
                 f"  {c.name}: capacity {caps['total'] * duration_s:.0f} req/{duration_s}s [{site_caps}] "
                 f"-> lambda_req {lam_req:.3f}/s, lambda_viewers {lam_v:.4f}/s, "
-                f"{len(requests)} requests from {n_users} viewers in window, real rho {real_rho:.3f}"
+                f"{len(requests)} requests from {n_users} viewers in window, real rho {real_rho:.3f}, "
+                f"first half {first_half:.2f}"
                 + (f"  ({c.note})" if c.note else "")
             )
+            print("    show share window/expected: " + ", ".join(
+                f"{s.removesuffix('.json')} {window[s]:.2f}/{expected[s]:.2f}" for s in expected.index))
             meta.append([alpha, c.name, c_rho, f"{real_rho:.3f}", f"{caps['total']:.4f}", f"{lam_req:.4f}",
-                         f"{lam_v:.5f}", f"{mean_len:.3f}", len(requests), n_users, c.note])
+                         f"{lam_v:.5f}", f"{mean_len:.3f}", len(requests), n_users, attempt, f"{dev:.3f}",
+                         f"{first_half:.2f}", c.note])
 
     write_rows(
         out_dir / "meta.csv",
         ["alpha", "cluster", "rho", "real_rho", "capacity_rps", "lambda_req_rps", "lambda_viewers_rps",
-         "mean_segments_per_viewer", "n_in_window", "viewers_in_window", "note"],
+         "mean_segments_per_viewer", "n_in_window", "viewers_in_window", "attempt", "show_share_dev",
+         "first_half", "note"],
         meta,
     )
     print(f"\n[Done] sequences written to {out_dir}")

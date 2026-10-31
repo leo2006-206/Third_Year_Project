@@ -33,7 +33,7 @@ viewer decides (while watching)       a video's first decision │ later decisio
 
 Typical result: 8 segments per viewer (median 6, P90 19), about 3.3 videos and 0.9 combination changes per viewer, a 65 s session.
 
-**Step 3: capacity (per cluster, computed once from the step-2 paths).** For each site $j$, $S_{j,k}$ is the measured busy time (asset + work) of kind $k$ from `stat/`, plus the machine's network overhead (round trips × netem delay, below); cpu sites extrapolate unmeasured kinds from 8 representative ones. Each site's mean busy time weights every kind by how often it is *requested*, $q(k)$, its share of all requests in the step-2 paths (about 24,000 requests from 3,000 viewers):
+**Step 3: capacity (per cluster, computed once from the step-2 paths).** For each site $j$, $S_{j,k}$ is the busy time of kind $k$ on that site type, measured in the cluster's own replay runs (`run_globs`: `stat/set1_unload/run_*`, `stat/old_nonfifo/run_*`, folders `run_a<α>_<c1|c2>*`) as the mean of asset + work + net. Net counts because it is almost all Dana fetching the requested layer options' resources, which holds the site (the FIFO queue shows a site is occupied for asset + work + net). The runs therefore already include the netem delay, the load and the co-located containers, and case 2 uses its own 4-gpu runs. Kinds a site type never ran (45–60 of 145) use the no-delay calibration time (`stat/<machine>_<port>_<tier>_timing.csv`; cpu sites extrapolate from 8 measured kinds) times that site type's median run/calibration ratio (om gpu 1.35, llvm 1.31, cpu 0.79; rs gpu 2.20, llvm 1.92, cpu 1.06). On the set 1 sequences this predicts the measured busy fraction within 0.001–0.03 (the earlier calibration + 50 round-trip model was off by up to 0.07). Each site's mean busy time weights every kind by how often it is *requested*, $q(k)$, its share of all requests in the step-2 paths (about 24,000 requests from 3,000 viewers):
 
 $$E_j = \sum_k q(k)\, S_{j,k}, \qquad q(k) \approx \frac{P(\text{show})\, \mathbb{E}[\text{segments} \mid \text{show}]\, P(\text{combination} \mid \text{show})}{\sum (\cdot)}, \qquad C = \sum_{j} \frac{1}{E_j}$$
 
@@ -41,7 +41,7 @@ $q$ differs from $P(\text{kind})$ because a viewer requests several segments of 
 
 Each site serves one request at a time, so it completes $1/E_j$ requests per second; the cluster's capacity is the sum.
 
-**Step 4: target load (per cluster).** The window must hold exactly $N = \rho\, C\, T$ requests ($\rho = 0.8$, $T = 600$ s).
+**Step 4: target load (per cluster).** The window's realised load must be $\rho$ ($\rho = 0.8$, $T = 600$ s): its request count divided by $C_w T$, where $C_w$ is the capacity (step 3) under the window's *own* mix rather than $q$.
 
 **Step 5: place viewers in time (per cluster).** Viewer arrivals are a Poisson process, i.e. exponential gaps between viewers, $f(\Delta t) = \lambda_v e^{-\lambda_v \Delta t}$:
 
@@ -51,9 +51,9 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 - The two requests 5 s apart at every video start make arrivals burstier than evenly paced viewers (variance/mean of arrivals per 10 s rises from 0.93 to about 1.2; Poisson = 1), so queues form more often at the same load.
 - The same $\text{Exp}(1)$ draws are used for every cluster; only $\lambda_v$ differs.
 - **Pre-roll** $T_{\text{pre}} = 600$ s: viewers start before $t = 0$, so the window opens on an audience already mid-session (no empty start). Requests after $T$ are simply dropped, so there is no pile-up at the end.
-- $\lambda_v$ is fitted by bisection so the window holds exactly $N$ requests (sessions would otherwise make the count vary by about ±22% between seeds).
+- $\lambda_v$ is fitted by bisection so the window's realised load is $\rho$ (within 0.002).
 
-**Realised load (`real_rho`).** The window's actual mix differs from $q$: viewers stay on a show for many segments, and only about 30–50 viewers fall in the window, so the window is effectively 30–50 samples, not hundreds. The error shrinks with a longer window (more viewers); for a very long sequence the realised load converges to the target. The realised load, $N$ divided by the capacity under the window's own mix, is written to `meta.csv`. Over 10 seeds it averaged about 0.69 with a spread of about ±0.02 for a 10 min window, against ±0.04 for 5 min. All policies replay the same sequence (paired comparison), so this spread affects every policy equally; report `real_rho` next to the results.
+**Representative window.** Only about 35–50 viewers fall in the window and each stays on a show for many segments, so the window is effectively 40–50 show choices, and its mix can be far from $q$. In set 1 (`sequences/set1_unload/`, fitted on a request count), α 0.5 had forecast at 12% against 22% expected and f1 at 23% against 17%, which made it about 0.05 lighter than its target. Two fixes: step 4 fits the load on the window's own mix, so it is $\rho$ whatever the mix, and steps 2–5 are repeated with a fresh viewer population (the next child of the content and decision random streams; the arrival gaps stay the same) until, in every cluster's window, each show's share is within `show_share_tol` (0.03) of its share of all generated requests. The search takes a few to a few dozen attempts (seconds). It is a curated sample: the window is chosen to match the model, which should be stated with the results. `meta.csv` records `real_rho`, the accepted `attempt`, the largest show-share gap (`show_share_dev`) and the share of requests in the first half (`first_half`).
 
 **Independent random seeds.** `seed` is split into four streams: viewer arrival gaps, show ranking (only used if `show_rank` is `None`), content choices (show/combination), and viewer decisions (leave/switch/continue/change). Changing α only changes which shows and combinations are drawn.
 
@@ -71,7 +71,8 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 | `servers_benchmark/request_kind.txt` | the 145 request kinds (URL templates with `t_start/t_end`) |
 | `servers_benchmark/video_duration.csv` | number of 10 s segments per show |
 | `servers_benchmark/show_options.json` | layouts, layers, options and **defaults** per show, for combination popularity |
-| `stat/<machine>_{7010_gpu,7020_llvm,7030_cpu}_timing.csv` | per-kind busy time on each site type, for capacity; loaded for every machine the clusters use (now `om`, `rs`) |
+| `stat/<run_glob>/run_a<α>_<c1\|c2>*/*.csv` | seq_bench replay results: busy time (asset + work + net) per kind on each site type, for capacity |
+| `stat/<machine>_{7010_gpu,7020_llvm,7030_cpu}_timing.csv` | no-delay calibration: only fills kinds a site type never ran in the replay runs (scaled by its run/calibration ratio) |
 
 ## Settings you can change (in `main()`)
 
@@ -89,8 +90,9 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 | `seed` | `2026` | change for a different repeat of the same setup |
 | `duration_s` / `pre_roll_s` | `600` / `600` | replay window / warm-up before it |
 | `rho` | `0.8` | target offered load as a fraction of cluster capacity (realised value in `meta.csv`). Was 0.7; raised because the realised load came out lower (window mix) |
-| `net_round_trips` / `net_delay_ms` | `50` / `{om: 30, rs: 60}` | network overhead added to every busy time: round trips × one-way netem delay = 1.5 s (om), 3.0 s (rs). The measured fit was ~67 (2.0 s / 4.0 s), but that made the model conservative (real load 0.57 for a 0.64 target, `stat/old_nonfifo/run_a0.5_c1_p57/`). Calibration runs without delay, but in the cluster a site also fetches assets one by one and sends the result while it is busy; fitted on the first (uncorrected) runs, where planned ρ 0.7 was really ≈0.95 (`stat/old_nonfifo/run_*_p95/`) |
-| `clusters` | case 1: gpu+llvm+cpu on `om` and `rs`; case 2: 2 gpu on each (provisional) | which `(machine, tier)` sites each cluster has |
+| `run_globs` | `set1_unload/run_*`, `old_nonfifo/run_*` (under `stat/`) | replay runs whose asset + work + net per kind give the busy times; all eras agree within ~2% per kind (om cpu ~8%). Replaces the old network allowance (`net_round_trips` 50 × netem delay = 1.5 s om, 3.0 s rs on top of calibration) |
+| `show_share_tol` / `max_attempts` | `0.03` / `2000` | representative window: largest allowed gap between a show's share in a cluster's window and its share of all generated requests; viewer populations tried before giving up |
+| `clusters` | case 1: gpu+llvm+cpu on `om` and `rs`; case 2: 2 gpu on each | which `(machine, tier)` sites each cluster has, in port order per machine (7010, 7020, ...), so a run's worker maps to its tier |
 
 ## Outputs (`servers_benchmark/sequences/`)
 
@@ -98,6 +100,6 @@ $$T_v = -T_{\text{pre}} + \frac{1}{\lambda_v}\sum_{i \le v} \Delta u_i, \quad \D
 |---|---|
 | `seq_a{α}_viewers.csv` | every viewer's path: `user_id, step, offset_s, kind_idx, show, seg_start, seg_end` (`offset_s` = time after the viewer's start) |
 | `seq_a{α}_{case}.csv` | **the replay file:** `req_idx, t_ms, path`, within 0–600 s |
-| `meta.csv` | target and realised load (`real_rho`), capacity, λ_req, λ_viewers, mean segments per viewer, requests and viewers in window, per α and cluster |
+| `meta.csv` | target and realised load (`real_rho`), capacity, λ_req, λ_viewers, mean segments per viewer, requests and viewers in window, accepted attempt, largest show-share gap, first-half share, per α and cluster |
 
 A replayer sends `path` at `t_ms`.
