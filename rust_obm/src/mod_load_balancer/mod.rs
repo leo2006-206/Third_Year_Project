@@ -12,10 +12,10 @@ pub use policy_esce::EsceLB;
 pub use policy_iwrr::InterleavedWeightedRRLB;
 pub use policy_mct::MctLB;
 pub use policy_robin::RoundRobinLB;
-pub use policy_throttled::ThrottledLB;
+pub use policy_throttled::{Throttled2LB, ThrottledLB};
 
 /// Every policy name main_server accepts (for usage / error messages); keep in sync with its match.
-pub const POLICIES: [&str; 8] = [
+pub const POLICIES: [&str; 9] = [
     "rr",
     "iwrr",
     "esce",
@@ -24,4 +24,5 @@ pub const POLICIES: [&str; 8] = [
     "aco",
     "aco_const",
     "throttled",
+    "throttled2",
 ];

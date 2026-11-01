@@ -179,7 +179,7 @@ const CONST_WORK_S: f64 = 5.59;
 
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
-    // policy (default rr): rr | iwrr | esce | mct | mct_const | aco | aco_const | throttled
+    // policy (default rr): rr | iwrr | esce | mct | mct_const | aco | aco_const | throttled | throttled2
     // (mct / aco read the cost model, see load_cost_model; the _const ones use CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
@@ -201,6 +201,8 @@ fn main() -> io::Result<()> {
         "iwrr" => serve(lb::InterleavedWeightedRRLB::new(offload_url)),
         "esce" => serve(lb::EsceLB::new(offload_url)),
         "throttled" => serve(lb::ThrottledLB::new(offload_url)),
+        // at most 2 requests per site: the next job is already at the site when one ends (no idle gap)
+        "throttled2" => serve(lb::Throttled2LB::new(offload_url)),
         "mct" => {
             let predictor = load_cost_model().unwrap_or_else(|e| {
                 eprintln!("{e}");
