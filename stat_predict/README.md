@@ -8,6 +8,7 @@ Network, asset and queue time are left to the load balancer.
 ```
 python3 stat_predict/evaluate.py      # dataset, all test splits, models -> model_all.json, model_all_runs.json
 python3 stat_predict/export.py        # model_all_runs.json -> coef.csv + features.csv for the Rust load balancer
+python3 stat_predict/lookup_table.py  # replay runs -> lookup.csv (measured work table, mct_lookup)
 ```
 
 | File | Contents |
@@ -20,6 +21,8 @@ python3 stat_predict/export.py        # model_all_runs.json -> coef.csv + featur
 | `evaluation_report.txt` | full output of the last `evaluate.py` run |
 | `export.py` | writes `coef.csv` (one row per stage model) and `features.csv` (features of 1,362 request paths: every BBC / synthetic kind × every segment, plus all paths in sequences and measurements) |
 | `coef.csv`, `features.csv` | read by `rust_obm/src/cost_predict.rs` |
+| `lookup_table.py` | lookup-table predictor: measured work per (site config, request path) from the set 1 + set 2 replay runs, rs samples scaled to om by the per-config rs/om ratio, median |
+| `lookup.csv` | `config,time_s,n,path`, read by `rust_obm/src/cost_lookup.rs` (main server policy `mct_lookup`) |
 
 ## Rust predictor (`rust_obm/src/cost_predict.rs`)
 

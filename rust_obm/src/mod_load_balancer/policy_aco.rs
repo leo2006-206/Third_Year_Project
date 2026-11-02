@@ -42,7 +42,7 @@ where
             predict,
             fallback,
             state: Mutex::new(AcoState {
-                sites: mct_workers(offloads),
+                sites: mct_workers(offloads, None),
                 pheromone: HashMap::new(),
                 rng: fastrand::Rng::with_seed(seed),
             }),

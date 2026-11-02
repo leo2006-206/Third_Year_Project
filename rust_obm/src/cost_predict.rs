@@ -16,7 +16,7 @@ use std::io;
 use std::path::Path;
 
 use crate::mod_load_balancer::base_balancer::OffloadSite;
-use crate::mod_load_balancer::base_balancer::config::{Decode, Encode, Render};
+use crate::mod_load_balancer::base_balancer::config::{Config, Decode, Encode, Render};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 enum Stage {
@@ -167,20 +167,7 @@ impl CostPredictor {
             .features
             .get(path)
             .or_else(|| self.features.get(&percent_decode(path)))?;
-        let cfg = &site.config;
-        let decode = match cfg.decode {
-            Decode::Gpu => "gpu",
-            Decode::Cpu => "cpu",
-        };
-        let render = match cfg.render {
-            Render::Gpu => "gpu",
-            Render::Llvmpipe => "llvmpipe",
-            Render::Cpu => "cpu",
-        };
-        let encode = match cfg.encode {
-            Encode::Cpu => "cpu",
-            Encode::Gpu => "gpu",
-        };
+        let (decode, render, encode) = backend_names(&site.config);
         let stage_time = |stage: Stage, backend: String| {
             let m = self.models.get(&(stage, backend))?;
             Some(m.a + m.beta.iter().map(|(i, b)| b * x[*i]).sum::<f64>())
@@ -201,6 +188,24 @@ impl CostPredictor {
     }
 }
 
+/// [Honest] The (decode, render, encode) backend names as the cluster CSVs spell them.
+pub(crate) fn backend_names(cfg: &Config) -> (&'static str, &'static str, &'static str) {
+    let decode = match cfg.decode {
+        Decode::Gpu => "gpu",
+        Decode::Cpu => "cpu",
+    };
+    let render = match cfg.render {
+        Render::Gpu => "gpu",
+        Render::Llvmpipe => "llvmpipe",
+        Render::Cpu => "cpu",
+    };
+    let encode = match cfg.encode {
+        Encode::Cpu => "cpu",
+        Encode::Gpu => "gpu",
+    };
+    (decode, render, encode)
+}
+
 /// [Honest] Parses CSV fields as finite f64.
 fn parse_numbers(fields: &[&str]) -> Result<Vec<f64>, String> {
     fields
@@ -213,7 +218,7 @@ fn parse_numbers(fields: &[&str]) -> Result<Vec<f64>, String> {
 }
 
 /// [Honest] Decodes %XX escapes (the main server sees e.g. `%7C` for `|` and `%20` for a space).
-fn percent_decode(s: &str) -> String {
+pub(crate) fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -236,7 +241,6 @@ fn percent_decode(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mod_load_balancer::base_balancer::config::Config;
 
     const COEF: &str = "stage,backend,a,n_video,chroma_frac,video_frac\n\
                         decode,gpu,0.1,0.5,0,0\n\

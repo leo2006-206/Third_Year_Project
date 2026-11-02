@@ -7,6 +7,7 @@ use smol::{
     prelude::*,
 };
 
+use rust_obm::cost_lookup::CostLookup;
 use rust_obm::cost_predict::CostPredictor;
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
@@ -179,7 +180,8 @@ const CONST_WORK_S: f64 = 5.59;
 
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
-    // policy (default rr): rr | iwrr | esce | mct | mct_const | aco | aco_const | throttled | throttled2
+    // policy (default rr): rr | iwrr | esce | mct | mct_lookup | mct_const | mct_const_flat | aco | aco_const |
+    // throttled | throttled2
     // (mct / aco read the cost model, see load_cost_model; the _const ones use CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
@@ -219,11 +221,47 @@ fn main() -> io::Result<()> {
             let mct = lb::policy_mct::MCT::with_predict(&offload_url, predict, fallback);
             serve(lb::MctLB::with_policy(offload_url, mct))
         }
+        "mct_lookup" => {
+            // MCT with measured work per (site config, path) from the replay runs (load_cost_lookup);
+            // a pair never measured falls back to the cost model (logged as "mct_lookup miss")
+            let (lookup, predictor) = match (load_cost_lookup(), load_cost_model()) {
+                (Ok(l), Ok(p)) => (l, p),
+                (Err(e), _) | (_, Err(e)) => {
+                    eprintln!("{e}");
+                    std::process::exit(2);
+                }
+            };
+            println!(
+                "MCT: lookup {} (config, path) rows, cost model {} paths for the rest",
+                lookup.len(),
+                predictor.len()
+            );
+            let predict = move |path: &str, site: &lb::OffloadSite| {
+                lookup.predict(path, site).or_else(|| {
+                    println!("mct_lookup miss site={} path={path}", site.name);
+                    predictor.predict(path, site)
+                })
+            };
+            let mct = lb::policy_mct::MCT::with_predict(&offload_url, predict, false);
+            serve(lb::MctLB::with_policy(offload_url, mct))
+        }
         "mct_const" => {
             // same work for every path and site: MCT without the cost model (ablation)
             let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
             println!("MCT: constant work {CONST_WORK_S} s");
             let mct = lb::policy_mct::MCT::with_predict(&offload_url, const_predict, false);
+            serve(lb::MctLB::with_policy(offload_url, mct))
+        }
+        "mct_const_flat" => {
+            // mct_const without the om / rs priors: every site starts at factor 1.0, network 1.0 s
+            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
+            println!("MCT: constant work {CONST_WORK_S} s, flat prior (factor 1.0, network 1.0 s)");
+            let mct = lb::policy_mct::MCT::with_prior(
+                &offload_url,
+                const_predict,
+                false,
+                Some((1.0, 1.0)),
+            );
             serve(lb::MctLB::with_policy(offload_url, mct))
         }
         "aco" => {
@@ -267,6 +305,15 @@ fn aco_seed() -> u64 {
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(2026)
+}
+
+/// [Dishonest I/O] Loads the work lookup table from OBM_COST_LOOKUP
+/// (default /app/stat_predict/lookup.csv, baked into the main server image)
+fn load_cost_lookup() -> io::Result<CostLookup> {
+    let csv = std::env::var("OBM_COST_LOOKUP")
+        .unwrap_or_else(|_| "/app/stat_predict/lookup.csv".to_string());
+    CostLookup::load(&csv)
+        .map_err(|e| io::Error::new(e.kind(), format!("MCT: can't load lookup table {csv}: {e}")))
 }
 
 /// [Dishonest I/O] Loads the cost model from OBM_COST_COEF / OBM_COST_FEATURES

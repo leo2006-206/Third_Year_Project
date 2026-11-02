@@ -15,12 +15,14 @@ pub use policy_robin::RoundRobinLB;
 pub use policy_throttled::{Throttled2LB, ThrottledLB};
 
 /// Every policy name main_server accepts (for usage / error messages); keep in sync with its match.
-pub const POLICIES: [&str; 9] = [
+pub const POLICIES: [&str; 11] = [
     "rr",
     "iwrr",
     "esce",
     "mct",
+    "mct_lookup",
     "mct_const",
+    "mct_const_flat",
     "aco",
     "aco_const",
     "throttled",

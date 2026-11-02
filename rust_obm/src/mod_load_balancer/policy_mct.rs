@@ -102,10 +102,20 @@ where
     F: Fn(&str, &OffloadSite) -> Option<f64> + Send + Sync,
 {
     pub fn with_predict(offloads: &[OffloadSite], predict: F, fallback: bool) -> Self {
+        Self::with_prior(offloads, predict, fallback, None)
+    }
+
+    // prior: Some((machine factor, network s)) for every site instead of the om / rs priors
+    pub fn with_prior(
+        offloads: &[OffloadSite],
+        predict: F,
+        fallback: bool,
+        prior: Option<(f64, f64)>,
+    ) -> Self {
         Self {
             predict,
             fallback,
-            mct_vec: Mutex::new(mct_workers(offloads)),
+            mct_vec: Mutex::new(mct_workers(offloads, prior)),
         }
     }
 
@@ -213,14 +223,17 @@ where
 pub type MctLB<F> = LoadBalancer<MCT<F>>;
 
 // One MctWorker per site with the priors: om = reference machine, near; rs ~25% faster, twice
-// the RTT (main server site names look like "id=om1_ip=..."; tests use plain "om1")
-pub(super) fn mct_workers(offloads: &[OffloadSite]) -> Vec<MctWorker> {
+// the RTT (main server site names look like "id=om1_ip=..."; tests use plain "om1").
+// prior Some((f, n)): the same start for every site instead
+pub(super) fn mct_workers(offloads: &[OffloadSite], prior: Option<(f64, f64)>) -> Vec<MctWorker> {
     const LEARNING: f64 = 0.1;
     offloads
         .iter()
         .map(|of| {
             let id = short_id(&of.name);
-            if id.starts_with("om") {
+            if let Some((mach, net)) = prior {
+                MctWorker::new(id, mach, net, LEARNING)
+            } else if id.starts_with("om") {
                 MctWorker::new(id, 1.0, 1.5, LEARNING)
             } else {
                 MctWorker::new(id, 0.75, 3.0, LEARNING)
@@ -372,5 +385,23 @@ mod tests {
             assert_eq!(g.name, "om1");
         } // dropped without finish
         assert_eq!(lb.select(Some("/p")).name, "om1"); // backlog back to 0, gpu still cheapest
+    }
+
+    #[test]
+    fn test_mct_flat_prior_same_start_for_om_and_rs() {
+        let cfg = Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu);
+        let s = vec![
+            OffloadSite::new("a:1", "om1", cfg),
+            OffloadSite::new("b:1", "rs1", cfg),
+        ];
+        // default priors: om 1.5 + 1.0 * 1 = 2.5, rs 3.0 + 0.75 * 1 = 3.75
+        let p = mct(&s);
+        let (i, t) = p.select(Some("/p"), &s);
+        assert_eq!(i, 0);
+        assert!(approx(t.cost, 2.5));
+        // flat: both 1.0 + 1.0 * 1 = 2.0
+        let p = MCT::with_prior(&s, work, true, Some((1.0, 1.0)));
+        let w = p.lock();
+        assert!(w.iter().all(|w| approx(w.taskspan(1.0), 2.0)));
     }
 }
