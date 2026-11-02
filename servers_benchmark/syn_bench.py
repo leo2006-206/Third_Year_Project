@@ -10,7 +10,7 @@ Rows are appended after every round, so an interrupted run keeps what it measure
 
 Usage: ./syn_bench.py [KINDS_FILE] [--sites N] [--reps R] [--base-url URL] [--timeout S] [--out CSV] [--match TEXT]
   KINDS_FILE  default syn_video/request_kind_syn.txt
-  --out       default stat/syn_timings.csv (appended to, header written once)
+  --out       default stat/timings/syn_timings.csv (appended to, header written once)
 Needs the main server running with policy rr and the syn shows in obm/ (see README section 5).
 """
 import argparse
@@ -80,7 +80,7 @@ def main():
     ap.add_argument("--reps", type=int, default=6, help="rounds per kind (= requests per site per kind)")
     ap.add_argument("--base-url", default="http://localhost:7000")
     ap.add_argument("--timeout", type=float, default=900)
-    ap.add_argument("--out", default=str(ROOT / "stat/syn_timings.csv"))
+    ap.add_argument("--out", default=str(ROOT / "stat/timings/syn_timings.csv"))
     ap.add_argument("--match", default="", help="only kinds containing this text")
     args = ap.parse_args()
 

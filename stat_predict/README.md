@@ -15,7 +15,7 @@ python3 stat_predict/lookup_table.py  # replay runs -> lookup.csv (measured work
 |---|---|
 | `features.py` | request → feature vector; full and **partial** offload (features of the first N root nodes only) |
 | `model.py` | `CostModel`: fit (non-negative least squares), predict, explain, save/load (JSON) |
-| `evaluate.py` | dataset from `stat/*_timing.csv` (BBC calibration) + `stat/syn_timings.csv` (synthetic shows), 6 splits, baseline, final model |
+| `evaluate.py` | dataset from `stat/timings/*_timing.csv` (BBC calibration) + `stat/timings/syn_timings.csv` (synthetic shows), 6 splits, baseline, final model |
 | `model_all.json` | model fitted on calibration (BBC + synthetic), ~2 KB |
 | `model_all_runs.json` | model fitted on calibration + replay requests (recommended for the load balancer) |
 | `evaluation_report.txt` | full output of the last `evaluate.py` run |

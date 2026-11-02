@@ -530,7 +530,7 @@ def main(out_dir: Path | None = None):
     cal = {}
     for machine in sorted({m for c in clusters for m, _ in c.sites}):
         busy = {
-            tier: load_busy_times(stat_dir / f"{machine}_{port}_{tier}_timing.csv")
+            tier: load_busy_times(stat_dir / "timings" / f"{machine}_{port}_{tier}_timing.csv")
             for tier, port in [("gpu", 7010), ("llvm", 7020), ("cpu", 7030)]
         }
         cal[machine] = tier_service_table(kinds, busy["gpu"], busy["llvm"], busy["cpu"])

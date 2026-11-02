@@ -40,7 +40,7 @@ def all_paths() -> list[str]:
         for k in filter(None, (line.strip() for line in kinds.read_text().splitlines())):
             paths.update(segment_paths(k))
     for f in list((ROOT / "servers_benchmark/sequences").glob("seq_a*_case*.csv")) + list((ROOT / "stat").glob("run_*/*.csv")) \
-            + [ROOT / "stat/syn_timings.csv"]:
+            + [ROOT / "stat/timings/syn_timings.csv"]:
         with f.open() as fh:
             paths.update(row["path"] for row in csv.DictReader(fh))
     return sorted(paths)

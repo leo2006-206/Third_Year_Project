@@ -51,15 +51,15 @@ def row(kind: str, show: str, source: str, machine: str, tier: str, dec: float, 
 
 
 def load_dataset() -> pd.DataFrame:
-    """[Dishonest I/O] BBC calibration (stat/<machine>_<port>_<tier>_timing.csv), syn cluster timings and
+    """[Dishonest I/O] BBC calibration (stat/timings/<machine>_<port>_<tier>_timing.csv), syn cluster timings and
     replay requests (stat/run_*/*.csv; in case 2 both ports are gpu sites)."""
     rows = []
-    for f in sorted((ROOT / "stat").glob("*_70?0_*_timing.csv")):
+    for f in sorted((ROOT / "stat/timings").glob("*_70?0_*_timing.csv")):
         machine, _, tier = f.stem.removesuffix("_timing").split("_")
         for _, r in pd.read_csv(f).iterrows():
             rows.append(row(r.request, r.request.split("/")[3], "bbc", machine, tier,
                             r.decode_ms / 1e3, r.render_ms / 1e3, r.encode_ms / 1e3))
-    syn = pd.read_csv(ROOT / "stat/syn_timings.csv")
+    syn = pd.read_csv(ROOT / "stat/timings/syn_timings.csv")
     for _, r in syn[syn.status == 200].iterrows():
         machine = "rs" if r.worker.startswith("10.10") else "om"
         rows.append(row(r.path, r.path.split("/")[3], "syn", machine, PORT_TIER[r.worker[-4:]],
