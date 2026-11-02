@@ -262,6 +262,8 @@ for f in syn_video/assets/syn/video/*_seg_0_10.h264; do echo "$f"; ffplay -logle
 
 # use the shows in the cluster: copy into obm/ on om (sites fetch everything from the main server)
 cp -r syn_video/assets/syn obm/assets/ && cp syn_video/shows/syn_* obm/shows/
+
+ffplay -autoexit temp/syn_test/out/011_syn_combo_s0.h264
 ```
 
 `temp/` is gitignored: `temp/syn_test/` holds a copy of the OBM code with `OffloadSite_new` compiled
