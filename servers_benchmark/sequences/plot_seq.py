@@ -25,14 +25,16 @@ from pathlib import Path
 import matplotlib
 
 matplotlib.use("Agg")
-import matplotlib.pyplot as plt  # noqa: E402
-import numpy as np  # noqa: E402
-import pandas as pd  # noqa: E402
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
 # Reference palette (dataviz skill, light mode): categorical slots in fixed order + chrome
 SERIES = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6", "#e34948"]
 SURFACE, INK, INK_2, MUTED = "#fcfcfb", "#0b0b0b", "#52514e", "#898781"
 GRID, AXIS = "#e1e0d9", "#c3c2b7"
+# Font sizes (pt), sized for slides
+FS_SUPTITLE, FS_TITLE, FS_LABEL, FS_TICK, FS_NOTE = 18, 15, 14, 13, 13
 
 
 # ==============================================================================
@@ -114,18 +116,20 @@ def style_axis(ax: plt.Axes) -> None:
         ax.spines[side].set_visible(False)
     for side in ("left", "bottom"):
         ax.spines[side].set_color(AXIS)
-    ax.tick_params(colors=MUTED, labelcolor=INK_2, labelsize=9)
+    ax.tick_params(colors=MUTED, labelcolor=INK_2, labelsize=FS_TICK)
     ax.yaxis.label.set_color(INK_2)
     ax.xaxis.label.set_color(INK_2)
+    ax.yaxis.label.set_fontsize(FS_LABEL)
+    ax.xaxis.label.set_fontsize(FS_LABEL)
 
 
 def plot_seq(d: pd.DataFrame, title: str, capacity_rps: float, bin_s: float, window_s: float,
              duration_s: float, out: Path) -> None:
     """[Dishonest Plot] Writes the three-panel timeline PNG."""
     t = d.t_s.to_numpy()
-    fig, axes = plt.subplots(3, 1, figsize=(11, 9), sharex=True, gridspec_kw={"height_ratios": [3, 2, 3]})
+    fig, axes = plt.subplots(3, 1, figsize=(18, 10), sharex=True, gridspec_kw={"height_ratios": [3, 2, 3]})
     fig.patch.set_facecolor(SURFACE)
-    fig.suptitle(title, color=INK, fontsize=13, x=0.06, ha="left")
+    fig.suptitle(title, color=INK, fontsize=FS_SUPTITLE, x=0.06, ha="left")
 
     # 1. arrivals per bin vs capacity per bin
     ax = axes[0]
@@ -138,12 +142,12 @@ def plot_seq(d: pd.DataFrame, title: str, capacity_rps: float, bin_s: float, win
     cap_va, mean_va = ("bottom", "top") if mean <= cap else ("top", "bottom")
     ax.axhline(cap, color=INK_2, linestyle="--", linewidth=1.2)
     ax.text(duration_s, cap, f" capacity {cap:.1f}", color=INK_2, va=cap_va if close else "center",
-            fontsize=9)
+            fontsize=FS_NOTE)
     ax.axhline(mean, color=MUTED, linestyle=":", linewidth=1.2)
     ax.text(duration_s, mean, f" mean {mean:.1f}", color=MUTED, va=mean_va if close else "center",
-            fontsize=9)
+            fontsize=FS_NOTE)
     ax.set_ylabel(f"requests / {bin_s:g} s")
-    ax.set_title("Arrivals over the window", color=INK, fontsize=10, loc="left")
+    ax.set_title("Arrivals over the window", color=INK, fontsize=FS_TITLE, loc="left")
     style_axis(ax)
 
     # 2. sliding count load
@@ -153,10 +157,10 @@ def plot_seq(d: pd.DataFrame, title: str, capacity_rps: float, bin_s: float, win
     ax.plot(ts, load, color=SERIES[1], linewidth=2)
     ax.fill_between(ts, 1.0, load, where=load > 1.0, color=SERIES[1], alpha=0.18, linewidth=0)
     ax.axhline(1.0, color=INK_2, linestyle="--", linewidth=1.2)
-    ax.text(duration_s, 1.0, " = capacity", color=INK_2, va="center", fontsize=9)
+    ax.text(duration_s, 1.0, " = capacity", color=INK_2, va="center", fontsize=FS_NOTE)
     ax.set_ylabel(f"load (last {window_s:g} s)")
     ax.set_title(f"Request-count load over a sliding {window_s:g} s window (above 1: queue grows)",
-                 color=INK, fontsize=10, loc="left")
+                 color=INK, fontsize=FS_TITLE, loc="left")
     style_axis(ax)
 
     # 3. requests per show per window, stacked, fixed show order (most requested first)
@@ -173,9 +177,9 @@ def plot_seq(d: pd.DataFrame, title: str, capacity_rps: float, bin_s: float, win
         bottom += c
     ax.set_ylabel(f"requests / {window_s:g} s")
     ax.set_xlabel("time in the replay window (s)")
-    ax.set_title("Which shows the requests are", color=INK, fontsize=10, loc="left")
-    leg = ax.legend(ncol=min(len(shows), 6), fontsize=9, frameon=False, loc="upper left",
-                    bbox_to_anchor=(0, -0.18))
+    ax.set_title("Which shows the requests are", color=INK, fontsize=FS_TITLE, loc="left")
+    leg = ax.legend(ncol=min(len(shows), 6), fontsize=FS_LABEL, frameon=False, loc="upper left",
+                    bbox_to_anchor=(0, -0.22))
     for text in leg.get_texts():
         text.set_color(INK_2)
     style_axis(ax)
