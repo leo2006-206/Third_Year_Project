@@ -40,7 +40,12 @@ Separate seeded random streams: viewer arrival gaps, show ranking (only if show_
 (show/combination), and viewer decisions (leave/switch/continue/change). Changing alpha only
 changes which shows/combinations are drawn.
 
-Outputs (servers_benchmark/sequences/):
+Usage:
+  servers_benchmark/generate_request_seq.py                                   # the current set (seed 2037)
+  servers_benchmark/generate_request_seq.py --seed 2042 --out-dir servers_benchmark/sequences/seed2042
+A seed other than the default needs --out-dir, so the current set in sequences/ is never overwritten.
+
+Outputs (servers_benchmark/sequences/, or --out-dir):
   seq_a<alpha>_viewers.csv    every viewer's path (user_id, step, kind, segment), no times
   seq_a<alpha>_<cluster>.csv  replay file for a cluster: req_idx, t_ms, path (within the window)
   meta.csv                    capacity, rates and request counts per (alpha, cluster)
@@ -457,7 +462,7 @@ def print_summary(
     print("show share: " + ", ".join(f"{s} {v:.2f}" for s, v in shows.items()))
 
 
-def main(out_dir: Path | None = None):
+def main(out_dir: Path | None = None, seed: int = 2037):
     # =========================================================================
     # Configuration Variables (Edit directly here)
     # =========================================================================
@@ -475,7 +480,7 @@ def main(out_dir: Path | None = None):
     ]
     viewer = ViewerParams()
     n_viewers = 3000  # generated viewers (only those overlapping the window are replayed)
-    seed = 2037  # picked from 2000-2047: all 4 sequences share one two-wave shape (min corr 0.78)
+    # seed: default 2037, picked from 2000-2047: all 4 sequences share one two-wave shape (min corr 0.78)
 
     # 2. Replay window and target load
     duration_s = 600
@@ -545,7 +550,7 @@ def main(out_dir: Path | None = None):
                 f"{t} {n}/{len(kinds)} kinds measured (run/calibration {ratio:.2f})"
                 for t, (n, ratio) in coverage.items()))
 
-    out_dir.mkdir(exist_ok=True)
+    out_dir.mkdir(parents=True, exist_ok=True)
     arrival_ss, rank_ss, content_ss, decision_ss = np.random.SeedSequence(seed).spawn(4)
     unit_gaps = np.random.default_rng(arrival_ss).exponential(1.0, n_viewers)
     # one child stream per attempt (representative-window search), so every attempt is reproducible
@@ -652,4 +657,12 @@ def main(out_dir: Path | None = None):
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+
+    ap = argparse.ArgumentParser(description="OBM request sequence generator (viewer model)")
+    ap.add_argument("--seed", type=int, default=2037, help="random seed (default 2037, the current set)")
+    ap.add_argument("--out-dir", type=Path, help="output folder (default servers_benchmark/sequences/)")
+    args = ap.parse_args()
+    if args.seed != 2037 and args.out_dir is None:
+        ap.error("a seed other than 2037 needs --out-dir (keeps the current set in sequences/)")
+    main(args.out_dir, args.seed)
