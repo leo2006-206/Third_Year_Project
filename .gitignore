@@ -2,6 +2,7 @@
 .claude/*
 
 *.png
+!highlight/*.png
 *.zip
 
 docs/*.pdf

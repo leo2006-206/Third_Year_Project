@@ -1,271 +1,237 @@
-# OBM Video Offload & Load Balancing Project
+# Compute Offload Framework for Cloud/Edge Media Rendering in Object-Based Media
 
-A distributed Object-Based Media (OBM) system with server-side video rendering offloading and load balancing.
+Third-year project, supervised by Barry Porter (October 2026 – March 2027).
 
-______________________________________________________________________
+**Object-Based Media (OBM)** keeps the objects of a video (camera feeds, graphics, captions, a weather presenter)
+separate until delivery, so each viewer can choose their own combination. Compositing that combination in the
+browser's WebAssembly player needs considerable computing power on the viewer's device. An **offload framework**
+moves the work to the server side: an offload site decodes the layers, composes them and encodes the chosen
+combination as a 10-second H.264 segment.
 
-## 1. System Architecture & What the Servers Do
+Rendering per request is expensive and very uneven. Cost depends on the site's hardware (GPU, software rasteriser
+or plain CPU, near or far) and on the chosen layers: a light 2D overlay takes milliseconds on a GPU, full-frame chroma
+keying takes seconds on a CPU. Viewers are impatient: abandonment rises by about 5.8% for every second of startup
+delay beyond 2 s (Krishnan & Sitaraman), and popularity is heavily skewed towards a few videos and default
+combinations (Cha et al.).
 
-- **Main Server (Rust + `smol`)** — Port `7000`:
-  - Serves the testing web client UI (benchmark and evaluation harness).
-  - Serves raw media assets (`/assets/...`) and show specifications (`/shows/...`).
-  - Acts as a reverse proxy / load balancer for `/offload/shows/...`: receives segment rendering requests, routes them to offload worker servers, and streams generated H.264 video chunks back to the client.
-- **Offload Nodes (Rust + Dana Engine)** — Configurable Ports (e.g. `7010`, `7020`, `7030`):
-  - **Rust Offload Server**: Exposed container entrypoint. Acts as a reverse proxy, forwards offload requests to the local Dana engine, and serves as a local asset cache (`ASSET_HOST`) for Dana.
-  - **Dana Offload Engine** (Port `9009` internal): Headless Mesa/GL rendering engine structured into a modular 3-stage pipeline matching the project presentation:
-    - **1. Decoding (`cpu`, `gpu`)**: Software CPU decoding via `libavcodec` vs hardware GPU decoding via VA-API (`Decoder.h264va`, saving 3–4s).
-    - **2. Composition & Readback (`cpu`, `llvmpipe`, `gpu`)**: Pure CPU SDL blitter (21–25s) vs Mesa LLVMpipe CPU rasterizer (5–8s across multi-threaded cores) vs physical GPU direct rendering via VirtualGL (3–7s).
-    - **3. Encoding (`cpu`)**: Standards-compliant multi-threaded H.264 CPU software encoding via `libx264` (GPU encoding disabled).
-    - **Fastest Combination**: `gpu, gpu, cpu` => ~3.2s per 10s segment.
-  - **Pre-Flight Hardware Verification**: Each offload container asserts and verifies its active graphics driver and decoding pipeline against the requested configuration at startup; if an acceleration mismatch occurs or falls back to software unexpectedly on `gpu`, the container prints a fatal error and terminates immediately (`exit 1`).
-- **Networking**:
-  - **Local (Same host)**: Docker network `obm-net` (containers resolve each other directly by name, e.g. `obm-offload-1:7010`, `obm-offload-2:7020`, `obm-offload-3:7030`).
-  - **Distributed (Multi-machine)**: Tailscale P2P WireGuard mesh (`100.x.y.z:<PORT>`) for direct peer-to-peer communication across hosts.
-  - **Public Access (Self-Hosted Edge Tunnel)**: Cloud VPS (Caddy on `195.58.134.234`) with automatic Let's Encrypt TLS terminating at `https://obm-main.leowong.space/` and proxying over Tailscale to local port `7000` (bypassing Cloudflare's 100 MB cap and 100s streaming timeouts).
+**Goal:** minimise viewer-perceived latency while keeping the offload sites reasonably utilised, under realistic
+workloads, by studying two levers:
 
-______________________________________________________________________
+1. **Load balancing**: which offload site should render each request? *(done, results below)*
+2. **Computational optimisations**: avoiding repeated work with segment / asset caching, request coalescing,
+   proactive prediction and partial segment caching. *(next, see [Project plan and status](#project-plan-and-status))*
 
-## 2. Host Machine Requirements for Offload Pipeline Acceleration
+The method is quantitative: a real distributed OBM system on a controlled testbed, a discrete-event simulator for
+scale, and analysis of the trade-offs between latency, utilisation and cache cost.
 
-To run the full modular pipeline (`decoding: cpu|gpu`, `composition: cpu|llvmpipe|gpu`, `encoding: cpu`) correctly on a machine without startup assertions failing, the host system must meet the following requirements:
+### Load balancing results at a glance
 
-### Pipeline Acceleration Matrix
+- **Minimum Completion Time + a learned cost model is the best policy**: on the mixed GPU / CPU cluster it cuts mean
+  latency by **2.7–4.5 s (13–19%)** against the standard policies (least connections, throttled, weighted round
+  robin) and p99 latency from **80–130 s to 51–60 s**; against plain round robin it is **3.4× / 7.5×** lower (mean / p99).
+- **The cost model predicts render work from metadata alone**: 12% error on unseen request kinds, 18% on unseen shows,
+  8.5% median error live inside the load balancer.
+- **Cost awareness matters when hardware differs**: on identical GPU sites every reasonable policy is within ~1 s.
+- 46 replays on real hardware, 0 failed requests; run-to-run noise ~0.8 s on the mean.
 
-| Stage / Component | Hardware Accelerated (`gpu`) | Software OpenGL (`llvmpipe`) | Pure Software (`cpu`) |
-| :--- | :--- | :--- | :--- |
-| **Decoding** | GPU VA-API hardware acceleration (`Decoder.h264va`, ~1.3s) | Software CPU decoding (`libavcodec`, ~4.5s) | Software CPU decoding (`libavcodec`, ~4.5s) |
-| **Composition & Readback** | VirtualGL 3.1.5 + Mesa DRI hardware OpenGL (~3.5s) | CPU Mesa software rasterizer (`llvmpipe`, ~6.5s) | Pure SDL2 software blitter (~23s) |
-| **Encoding** | Multi-threaded CPU `libx264` (~0.35s) | Multi-threaded CPU `libx264` (~0.35s) | Multi-threaded CPU `libx264` (~0.35s) |
-| **Total Segment Time** | **~3.2s – 4.5s** (Fastest: `gpu,gpu,cpu`) | **~7.0s – 8.5s** (`cpu,llvmpipe,cpu`) | **~21s – 28s** (`cpu,cpu,cpu`) |
-| **Physical Hardware** | Dedicated or integrated GPU with H.264 decode (Intel/AMD) | Any multi-core x86_64 CPU (No GPU required) | Any multi-core x86_64 CPU (No GPU required) |
-| **Linux DRM Subsystem** | `/dev/dri/card*` (VirtualGL) and `/dev/dri/renderD*` (VA-API) | Not required | Not required |
-| **Docker Device Mount** | Mandatory: `--device /dev/dri:/dev/dri` | None | None |
-| **Strict Assertion** | Fails startup if `/dev/dri` missing or renderer is software | Asserts active renderer is `llvmpipe` | Disables GLX / sets software driver |
+![Mean and p99 latency of the key policies on all four sequences](highlight/headline.png)
 
-### Host System Checklist
+> Full operating manual (architecture, host requirements, cluster setup, every config file):
+> [breakdown.md](breakdown.md)
 
-1. **Operating System**: Linux x86_64 with kernel 5.4+ (Ubuntu 20.04/22.04/24.04, Debian 11+, Arch, etc.).
-2. **DRM Device Access (for `gpu` tier)**:
-   - Ensure the kernel DRM driver exposes both card and render nodes:
-     ```bash
-     ls -la /dev/dri
-     # Expected: card0/card1 and renderD128/renderD129
-     ```
-   - Ensure your host user has read/write permissions to `/dev/dri`:
-     ```bash
-     sudo usermod -aG video,render $USER
-     ```
-3. **CPU & Memory Sizing**:
-   - **RAM**: Minimum 8 GB (each active rendering worker container consumes ~200MB – 460MB during 1080p/720p compositing).
-   - **CPU**: Minimum 4 physical cores recommended (8+ vCPUs recommended for multi-node clusters, as `libx264` utilizes 3–4 threads per active encoding segment).
-4. **Docker Engine**: Docker 20.10+ with BuildKit support.
+---
 
-______________________________________________________________________
+## What I built
 
-## 3. Two-Laptop Cluster
+| Part | What it does | Where |
+|---|---|---|
+| Main server (Rust, `smol`) | serves the web client, assets and show specs; reverse proxy + load balancer for `/offload/...` render requests | `rust_server/src/main_server.rs` |
+| Load balancer library (Rust) | one trait, 11 policies, per-site feedback (`X-Dana-Timings`), async wait queue | `rust_obm/src/mod_load_balancer/` |
+| Offload site (Rust + Dana) | container per render site: FIFO job queue in front of the unmodified Dana OBM engine; decode `gpu`, render `gpu` / `llvmpipe` / `cpu`, encode `cpu` | `rust_server/src/offload_server.rs`, `servers_container/` |
+| Cost model (Python → Rust) | predicts a request's render work from generic metadata only, no show name | `stat_predict/`, `rust_obm/src/cost_predict.rs` |
+| Workload generator | viewer model (Zipf popularity, surfing / leaving, player buffering) → open-loop request sequences at a target load | `servers_benchmark/generate_request_seq.py` |
+| Replay benchmark + analysis | replays a sequence against the cluster, records per-request timing breakdown, plots | `servers_benchmark/seq_bench.py`, `stat/` |
+| Synthetic shows | ffmpeg-generated shows that fill gaps in the BBC data (chroma area, resolution, stream count) | `syn_video/` |
 
-The experiments run on two laptops joined by one Ethernet cable. `om` runs the main server (load balancer, assets) and the near offload sites; `rs` runs the far offload sites.
+**Testbed:** two identical laptops (i9-13900HX, Intel iGPU) linked by Ethernet. The "near" machine (om) runs the main
+server and 2–3 sites at 30 ± 3 ms emulated delay (`netem`); the "far" machine (rs) runs 2–3 sites at 60 ± 6 ms.
+Two cluster cases: **mixed** (gpu / llvmpipe / cpu render on each machine) and **all-GPU** (2 gpu sites per machine).
+Each sequence is ~300 requests over 600 s at 80% of the cluster's measured capacity, with bursts above capacity;
+α = 0.5 spreads views over the shows, α = 1.2 concentrates them.
 
-| Machine | Role | Cable interface | Cable IP | Site delay (netem) |
-|---|---|---|---|---|
-| `om` (main laptop, weaker) | main server `:7000` + near sites | `eno1` | `10.10.0.1` | 30 ± 3 ms |
-| `rs` (second laptop, ~1.3× faster) | far sites | `enp6s0` | `10.10.0.2` | 60 ± 6 ms |
+![A replay sequence: arrivals, load over time, which shows](highlight/workload_c1.png)
+
+---
+
+## Highlight 1: MCT with learned site factors
+
+Minimum Completion Time sends each request to the site where it is predicted to **finish first**:
 
 ```
-                        om (10.10.0.1)                                 rs (10.10.0.2)
- client ──:7000──> obm-main-server ──obm-net──> obm-offload-om1..3     obm-offload-rs1..3 (:7010..)
-                        ▲   │                                               ▲      │
-                        │   └──────────────── cable: offload requests ──────┘      │
-                        └────────────── cable: /shows + /assets from 10.10.0.1:7000 ┘
+site = argmin_s  makespan_s + n_s + f_s × work_est(config_s, request)
 ```
 
-- The main server reaches om's sites by **container name** on the Docker network `obm-net`, and rs's sites by **cable IP**.
-- Every offload site (both machines) downloads `/shows` and `/assets` from the main server at **`10.10.0.1:7000`** (default of `MAIN_SERVER_ADDR`).
-- The cable itself adds < 1 ms; near / far delays come only from each site's netem setting (egress-only, applied to everything the site sends, incl. asset downloads, so every round trip the site makes grows by `delay_ms`). netem runs with `rate 1gbit`: per-packet jitter alone reorders packets, which TCP treats as loss (large responses ~10× slower); the rate keeps packets in order without limiting bandwidth.
+- `makespan_s`: predicted time until site *s* finishes everything already sent to it (sum of estimates in flight)
+- `n_s`: learned asset-loading + network time of the site (seconds)
+- `f_s`: learned machine factor (how fast this machine is relative to the reference machine)
+- `work_est`: the cost model's prediction for this request on this site's backend
 
-### 3.1 One-Time Setup (each laptop)
+`f` and `n` are learned online from every completed request with an exponentially weighted moving average:
 
-**1. Software and access** (both): Docker usable without `sudo` (`docker ps` works; user in the `docker` group), Rust/cargo, the user in `video` and `render` for the gpu sites (`sudo usermod -aG video,render $USER`), and the host's `sch_netem` module (a site with a delay aborts at startup without it).
-
-**2. Project and media** (both):
-
-```bash
-git clone <this repository> ThirdYearProject && cd ThirdYearProject
-# obm/ (assets + shows) is gitignored: copy it into the project root (USB / scp / clone barryfp/obm)
+```
+n_s ← 0.9 · n_s + 0.1 · (asset + net)
+f_s ← 0.9 · f_s + 0.1 · clamp(actual_work / predicted_work, 0.25, 4)
 ```
 
-**3. Cable link** (NetworkManager profile; saved, so afterwards just plug the cable in):
+No hand tuning is needed: starting every site at `f = 1, n = 1 s` performs the same as hand-set priors (within ±1 s),
+because the starting value is forgotten after ~20 completions (0.9²⁰ ≈ 12%). With the cost model the factor learns
+only the machine difference (om ≈ 1.0, rs ≈ 0.8, matching the measured 0.71–0.82 speed ratio).
 
-```bash
-# om
-sudo nmcli con add type ethernet ifname eno1 con-name obm-link \
-  ipv4.method manual ipv4.addresses 10.10.0.1/24 ipv6.method disabled \
-  connection.autoconnect-priority 10
-sudo nmcli con up obm-link
+## Highlight 2: a cost model from generic metadata
 
-# rs
-sudo nmcli con add type ethernet ifname enp6s0 con-name obm-link \
-  ipv4.method manual ipv4.addresses 10.10.0.2/24 ipv6.method disabled \
-  connection.autoconnect-priority 10
-sudo nmcli con up obm-link
+Render work is split into Dana's three stages, with one small non-negative linear model per (stage, backend):
+
+```
+work_est(config, req) = seg_frac × ( decode[config.decode](x) + render[config.render](x) + encode[config.render, config.encode](x) )
+each stage:  t = a + Σ βᵢ · xᵢ      a, β ≥ 0   (fitted with NNLS on relative error)
 ```
 
-No gateway is set, so internet stays on Wi-Fi. `autoconnect-priority 10` makes `obm-link` win over NetworkManager's default DHCP profile (`Wired connection 1`), which would wait for a router that isn't there.
+The features `x` come from the show's layer graph and asset metadata (decoded megapixels, number of video streams,
+screen area that is chroma-keyed, alpha-masked or scaled, moving-video area), so **unseen shows can be predicted**.
+The fitted costs are physically sensible: the CPU renderer pays ~6 s before drawing anything, chroma keying costs
+~16 s per screen of area on CPU, and scaling video is almost free on the GPU.
 
-**4. Firewall on om** (`ufw` is active there and drops these by default):
-
-```bash
-docker network create obm-net 2>/dev/null || true
-docker network inspect obm-net -f '{{range .IPAM.Config}}{{.Subnet}}{{end}}'   # 172.18.0.0/16 on om
-sudo ufw allow from 172.18.0.0/16 to any port 7000 proto tcp   # om's own site containers -> 10.10.0.1:7000
-sudo ufw allow from 10.10.0.0/24 to any port 7000 proto tcp    # rs's sites over the cable
-```
-
-If `ufw` is active on rs too: `sudo ufw allow from 10.10.0.0/24` (om -> rs offload ports).
-
-**5. Check** (once, and whenever something looks wrong):
-
-```bash
-ping -c 3 10.10.0.2                                                  # on om: < 1 ms
-curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/     # on rs (main server running): 200
-```
-
-### 3.2 Cluster Cases and Config Files
-
-| Case | Sites per machine | rs runs | om runs | Main server (on om) |
-|---|---|---|---|---|
-| 1 (heterogeneous) | gpu + llvmpipe + cpu | `offload_rs_c1.csv` | `offload_om_c1.csv` | `cluster_endpoint_c1.csv` |
-| 2 (homogeneous) | 2 × gpu | `offload_rs_c2.csv` | `offload_om_c2.csv` | `cluster_endpoint_c2.csv` |
-
-All files are in `servers_container/`. Each `offload_*` file holds the same rows as its `cluster_endpoint_*` file without the `ip` column; keep them in sync when changing a case.
-
-- **`offload_{om,rs}_{c1,c2}.csv`** (sites one machine starts): `id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms`.
-  - `id`: machine + number (`om1`, `rs2`; letters, digits, `-` only). The container is `obm-offload-<id>`.
-  - `decoding` `cpu|gpu`, `composition` `cpu|llvmpipe|gpu`, `encoding` `cpu` (gpu encoding disabled).
-  - `cpu` / `memory`: docker `--cpus` / `--memory` (GB) caps, `-1` = no cap.
-  - `delay_ms` / `jitter_ms`: netem delay / jitter (normal distribution), `0` = none.
-- **`cluster_endpoint_{c1,c2}.csv`** (sites the load balancer uses): same columns plus `ip` after `id`. The endpoint is `ip:port`, and the site name in the logs is every `col=value` joined by `_` (e.g. `id=rs1_ip=10.10.0.2_port=7010_decoding=gpu_…`).
-  - **`ip` rule:** om's sites by container name (`obm-offload-om1`), rs's by `10.10.0.2`. The main server runs in a container on om, and om's containers cannot reach om's own `10.10.0.1` on the site ports.
-- Lines starting with `#` are comments (each file documents its columns).
-
-The load-balancing policy is chosen in `main()` of `rust_server/src/main_server.rs` (`RoundRobinLB` / `InterleavedWeightedRRLB`); changing it needs a main server rebuild (run `run_sh.sh` without `--skip-build`).
-
-### 3.3 Running a Case (in this order)
-
-```bash
-# 0. both: plug the cable in, same commit on both machines
-git pull
-
-# 1. rs: start the far sites (builds the offload binary + image, one gnome-terminal tab per site; -d = detached)
-./servers_container/run_all_offload.py servers_container/offload_rs_c1.csv
-
-# 2. om: start the near sites
-./servers_container/run_all_offload.py servers_container/offload_om_c1.csv
-
-# 3. om: start the main server (needs a real terminal; Ctrl+C stops it)
-./servers_container/main_server/run_sh.sh servers_container/cluster_endpoint_c1.csv [--skip-build]
-```
-
-`run_all_offload.py` checks the CSV (duplicate ids / ports, values), compiles the Rust offload server, builds the image `obm-offload-server`, removes old containers of the same ids, and starts the sites. `main_server/run_sh.sh` compiles `main_server`, builds `obm-main-server`, and runs it on `obm-net` with port `7000`, mounting read-only:
-- `obm/assets/` → `/app/obm/assets`, `obm/shows/` → `/app/obm/shows`
-- the cluster CSV → `/app/cluster_endpoint.csv` (passed as the server's argument; changing the cluster needs only a restart).
-
-**Main server in the background** (instead of step 3, e.g. over SSH; image already built):
-
-```bash
-docker run -d --rm --init --network obm-net -p 7000:7000 \
-    -v "$PWD/obm/assets:/app/obm/assets:ro" \
-    -v "$PWD/obm/shows:/app/obm/shows:ro" \
-    -v "$PWD/servers_container/cluster_endpoint_c1.csv:/app/cluster_endpoint.csv:ro" \
-    --name obm-main-server obm-main-server /app/cluster_endpoint.csv
-docker logs -f obm-main-server
-```
-
-**Verify before a benchmark** (on om):
-
-```bash
-docker logs obm-main-server | grep -E "Offload site|Load balancer"          # all sites of the case, the policy
-docker logs obm-offload-om1 | grep "Assets from"                             # 10.10.0.1:7000 (same on rs)
-curl -s -o seg.h264 -D - "http://localhost:7000/offload/show/spiders.json/0/10/1280/720/main/landscape/2/main|race/spider_blocker|Off" \
-  | grep -E "HTTP|X-OBM-Worker|X-Dana-Timings"                               # 200, the chosen site, timings
-ffplay -f h264 -autoexit seg.h264                                            # optional: watch the segment
-```
-
-Repeating the `curl` once per site should walk through every site (round robin). Expected work time: om ≈ 8.7 s gpu / 10.7 s llvm / 34 s cpu, rs ≈ 1.3× faster; rs's asset and net times are ~0.6 s higher (far delay).
-
-**4. Benchmark** (on om): replay a generated sequence open-loop; the two labels name the run.
-
-```bash
-python3 servers_benchmark/seq_bench.py servers_benchmark/sequences/seq_a0.5_case1.csv rr SA
-# -> stat/run_a0.5_c1/rr_SA_1.csv (then _2, _3, ... for repeats); --limit 50 for a smoke test
-```
-
-Use `seq_a*_case1.csv` with case 1 and `seq_a*_case2.csv` with case 2. The policy label must match the policy compiled into the main server.
-
-### 3.4 Switching Case and Stopping
-
-- **Switch case:** rerun steps 1–3 with the other case's files (step 1/2 replace the old sites only if the ids match, so stop the old sites first). No rebuild needed for the main server: `--skip-build`.
-- **Stop** (each machine):
-
-```bash
-docker rm -f $(docker ps -q --filter name=obm-)     # offload sites (+ main server on om)
-```
-
-### 3.5 Troubleshooting
-
-| Symptom | Cause / fix |
+| Test | Error |
 |---|---|
-| `ping 10.10.0.2` fails after plugging in | NetworkManager picked `Wired connection 1`: `sudo nmcli con up obm-link` |
-| Need the Ethernet port on a normal network | `sudo nmcli con up "Wired connection 1"`; remove the cable setup with `sudo nmcli con delete obm-link` |
-| Requests to a site never return (connect works) | the site can't download assets: check `docker logs obm-offload-<id> \| grep "Assets from"` shows `10.10.0.1:7000`, and from inside it `docker exec obm-offload-<id> curl -s -o /dev/null -w "%{http_code}\n" http://10.10.0.1:7000/` gives `200` (else the om `ufw` rules) |
-| Main server requests to om's sites hang | the cluster CSV uses `10.10.0.1` for om; use the container names |
-| `the input device is not a TTY` / `cannot attach stdin` | `main_server/run_sh.sh` needs a terminal; use the background `docker run` above |
-| A site with a delay exits at startup | netem could not be applied (missing `sch_netem` on the host) |
-| A gpu site exits at startup | the hardware check failed (`/dev/dri` missing or software renderer); see section 2 |
+| unseen request kinds (random 80/20) | 12% mean (no-feature baseline 28%) |
+| unseen shows (train on synthetic shows only, test on all BBC shows) | 18% mean |
+| live inside the running MCT (machine factor × model, per request) | 8.5% median, 25% p90 |
 
-______________________________________________________________________
+The synthetic shows matter: with the forecast show held out, a BBC-only model has never seen chroma keying (50% error);
+adding the synthetic shows brings it to 17%.
 
-## 4. `servers_container/` Directory Breakdown
+![Predicted vs measured work per request inside the running MCT](highlight/cost_model.png)
 
-| File / Directory | Purpose |
-| :--- | :--- |
-| `main_server/` | Main server image and `run_sh.sh [CLUSTER_CSV] [--skip-build]` (port `7000`). |
-| `offload_server/` | Offload site image (Rust proxy + Dana engine) and `run_sh.sh <ID> <PORT> <dec> <comp> <enc> [CPU] [MEMORY_GB] [DELAY_MS] [JITTER_MS]` for a single site (`DETACH=1` = background, `MAIN_SERVER_ADDR` = asset source). |
-| `run_all_offload.py` | `[ENDPOINT_CSV] [-d] [-w]`: validates an endpoint CSV and starts all its sites (default CSV `offload_endpoint.csv`). |
-| `offload_{om,rs}_{c1,c2}.csv` | Sites each machine starts for case 1 / 2. |
-| `cluster_endpoint_{c1,c2}.csv` | Sites the main server load-balances over for case 1 / 2. |
-| `offload_endpoint.csv` | Default endpoint CSV of `run_all_offload.py` (not used by the cluster cases). |
+---
 
-______________________________________________________________________
+## Results
 
-## 5. Synthetic Shows (`syn_video/`)
+46 replays of the four sequences (every policy twice, least-connections three times), 0 failed requests.
+Run-to-run noise is ~0.8 s on the mean and 3–9 s on p99, so gaps of 2–4 s are real and ~1 s gaps are ties.
 
-Generated test shows (unseen content and layer structures) for the cost-prediction study. Details,
-classes and expected effects: [syn_video/docs.md](syn_video/docs.md).
+| Policy (mean / p99 latency, s) | mixed α 0.5 | mixed α 1.2 | all-GPU α 0.5 | all-GPU α 1.2 |
+|---|---|---|---|---|
+| **MCT + cost model** | **18.4 / 51** | **19.4 / 60** | **16.4 / 50** | 19.3 / 52 |
+| MCT + measured lookup table | 17.4 / 46 | 18.9 / 60 | 16.5 / 50 | 18.4 / 50 |
+| MCT, constant work estimate | 20.0 / 69 | 22.6 / 78 | 17.1 / 53 | 18.8 / 53 |
+| throttled, 2 jobs per site | 22.1 / 80 | 23.7 / 80 | 17.7 / 52 | 18.8 / 52 |
+| least connections (esce) | 21.1 / 115 | 23.9 / 130 | 17.4 / 54 | 19.4 / 55 |
+| ant colony (aco) | 22.0 / 64 | 24.5 / 82 | 17.7 / 55 | 19.7 / 65 |
+| round robin | 62.4 / 385 | 61.9 / 394 | 18.9 / 76 | 18.8 / 77 |
 
-```bash
-# build videos (ffmpeg) + shows + request list; needs ffmpeg and Dana (dana, dnc) on the host
-syn_video/build.py
+![Every policy, mean / p50 / p90 / p99, mixed cluster](highlight/latency_c1.png)
 
-# render every request kind through the real Dana offload site on the host (no Docker), check the
-# output (frames, clean decode, picture content) -> temp/syn_test/out/*.h264 + results.csv
-temp/syn_test/test_render.py --segment 0          # --match syn_combo, --limit N, --gpu-decode
+**Where the gain comes from.** Latency splits exactly into queue + work + asset/network + response body. On the mixed
+cluster MCT wins on *both* parts a policy controls: less work (better placement, heavy requests kept off CPU sites)
+and less queueing (better balancing). Throttling only moves the queue from the sites to the main server.
 
-# watch all rendered outputs one after another (q / Esc = next video, Ctrl+C in the terminal = stop)
-for f in temp/syn_test/out/*.h264; do echo "$f"; ffplay -loglevel error -autoexit -window_title "$(basename "$f")" "$f" || break; done
+![Where the latency goes, per policy](highlight/breakdown_c1.png)
 
-# the same, as one continuous stream (segment 0 only)
-cat temp/syn_test/out/*_s0.h264 | ffplay -loglevel error -autoexit -f h264 -
+### Findings
 
-# watch the source videos themselves
-for f in syn_video/assets/syn/video/*_seg_0_10.h264; do echo "$f"; ffplay -loglevel error -autoexit -window_title "$(basename "$f")" "$f" || break; done
+- **Cost-aware placement pays off in proportion to how different the sites are.** On the mixed cluster MCT with the
+  cost model beats least connections, throttled and weighted round robin by 2.7–4.5 s mean and cuts p99 from
+  80–130 s to 51–60 s. On the all-GPU cluster every reasonable
+  policy is within ~1 s; only the tails differ.
+- **Better prediction has diminishing returns.** A lookup table of measured times halves the prediction error but
+  improves mean latency by only ~1 s. The remaining gap is the cost of not knowing the future, not prediction error.
+- **The median misleads.** Round robin has the best p50 on three of four sequences and by far the worst tail: requests
+  that land on GPU sites are fast while CPU sites build queues of several minutes.
+- **Least connections has a good middle but a fat tail** on mixed hardware: it counts jobs, not seconds, so a slow
+  CPU site keeps getting work. Capping each site at two jobs (throttled) fixes most of the tail.
+- **Nature-inspired ACO does not help here.** The pheromone mostly learns that some shows are heavy (which cannot
+  change a choice), and random exploration costs 2.6–5 s versus MCT; as its β → ∞ it becomes MCT.
+- **Distance can outweigh speed.** The far machine renders ~1.3× faster but pays ~1.9 s more asset loading (asset
+  loading takes ~50 round trips over the delayed link), so for GPU / llvmpipe sites the "slower" near machine wins.
 
-# use the shows in the cluster: copy into obm/ on om (sites fetch everything from the main server)
-cp -r syn_video/assets/syn obm/assets/ && cp syn_video/shows/syn_* obm/shows/
+### How far from optimal?
 
-ffplay -autoexit temp/syn_test/out/011_syn_combo_s0.h264
+In a trace simulator, a search over full schedules with perfect knowledge of the future (an NP-hard problem) beats online MCT by ~6–8 s mean, split roughly evenly between prediction error and not knowing future arrivals.
+
+**Recommendation:** MCT with a cost model; without a model, a per-site concurrency cap (throttled, limit 2) for its
+tail; least connections only on near-identical sites.
+
+---
+
+## Engineering notes
+
+- **Debugged a restart race in the render engine.** Dana recycles itself after 10 jobs when its queue is empty; a job
+  sent in that instant got a connection reset (1 failed request in 30 runs). The offload server now resends a job that
+  Dana closed without any response byte (it cannot have rendered it). 0 failures in the 46 runs since.
+- **Reproducible workloads:** the generator is seeded; regenerating the current set reproduces it byte for byte, and new
+  seeds go to their own folders (`--seed`, `--out-dir`, `seq_bench --run-root`).
+- **Every decision is checked:** a log checker verifies after each run that MCT picked the argmin, ACO's probabilities
+  match its pheromone table, and throttled never exceeded its limit or let a request overtake.
+- **Overnight batches** run unattended with a watchdog (progress, failed requests, containers on both machines,
+  temperatures, memory).
+
+## Project plan and status
+
+The project follows the four stages of the proposal ([reports/proposal/main.pdf](reports/proposal/main.pdf)); the
+direction is unchanged, a few details changed on the way (below).
+
+| Stage (weeks) | Plan | Status |
+|---|---|---|
+| 1. Initial scoping (1–2) | system design, offload pipeline, metrics, workload model | done |
+| 2. Real-world experiment (3–7) | containerised main server + heterogeneous offload sites, `netem` near / far clusters, load balancing and computational optimisations under generated workloads | **load balancing done**: 11 policies, cost model, repeated replays, second workload seed running. **Computational optimisations: next** |
+| 3. Software simulation (8–12) | discrete-event simulator driven by the measured timings, for large clusters and sustained load | trace-simulator prototypes already used (offline bound, policy what-ifs); full simulator (`rust_sim/`) not started |
+| 4. Analysis and reflection (13–15) | cross-validate simulator vs testbed, bottleneck analysis, Pareto trade-off of latency, utilisation and cache cost, design recommendations | first bottleneck analysis done (latency decomposition: queueing and asset loading dominate); Pareto analysis after the optimisations |
+| 5. Report (16–18) | final report | – |
+
+### Computational optimisations (planned)
+
+| Optimisation | Idea | Groundwork |
+|---|---|---|
+| Segment and asset caching (LRU / LFU) | reuse rendered segments of popular combinations; cache assets at the offload sites | on-disk cache table written (`rust_obm/src/file_cache.rs`), not wired in; asset loading is ~1.8 s near / ~3.5 s far per request, the largest cost after rendering |
+| Request coalescing | one render for identical requests in flight | planned in the main server's request path (hit / miss / in-flight) |
+| Proactive request prediction | render the likely next segment before it is asked for | viewer model already predicts continue / switch / leave |
+| Partial segment caching (GDSF) | cache the shared, computationally heavy part of a combination (e.g. a chroma-keyed layer) with Greedy Dual Size Frequency, keeping OBM's flexibility at a sensible storage cost | cost model gives the per-layer render cost GDSF needs |
+
+The baseline deliberately stays at a "normal default" level (no cache, no keep-alive), so each optimisation's effect
+can be measured on its own with the same replay benchmark and metrics.
+
+### Metrics (as planned)
+
+- client-perceived latency: mean, p50, p90, p99
+- latency decomposition from response headers: T_asset, T_queue (site queue + central wait), T_work = T_decode +
+  T_render + T_encode, T_offload-RTT, and the client remainder
+- offload site utilisation (busy time; workloads are generated at 80% of measured capacity)
+- cache cost (storage), once caching is in
+
+### Changes from the proposal
+
+- **Network:** a direct Ethernet link between the two machines with `netem` delay instead of a Tailscale VPN and a
+  cloud tunnel: more controlled and repeatable.
+- **Policies:** Throttled (a per-site concurrency cap) was added, MCT got three variants (measured lookup table,
+  constant work, no priors), and Min-Min / Max-Min are not implemented yet.
+- **Workload:** the planned exponential arrivals and Zipf-with-cutoff popularity are kept, inside a viewer-session
+  model (segment continuation, switching, leaving, player buffering) fitted to a target load.
+
+## Repository map
+
+```
+rust_server/        main server + offload server (Rust)
+rust_obm/           load balancer library, cost model and lookup predictors (Rust)
+stat_predict/       cost model fitting and evaluation (Python)
+servers_benchmark/  sequence generator, replay benchmark, sequences
+servers_container/  Docker images, cluster and site configs
+syn_video/          synthetic shows
+rust_sim/           discrete-event simulator (stage 3, scaffold only)
+reports/proposal/   project proposal (plan, background, references)
+stat/               replay results and plot scripts (latency_plot.py, latency_detail_plot.py)
+highlight/          figures in this README (make_figures.py regenerates them)
+breakdown.md        full operating manual
 ```
 
-`temp/` is gitignored: `temp/syn_test/` holds a copy of the OBM code with `OffloadSite_new` compiled
-by `dnc` (recreate it with `rsync -a --exclude assets --exclude shows obm/ temp/syn_test/obm/`,
-copy `servers_container/offload_server/OffloadSite_new.dn` in, then `dnc OffloadSite_new.dn` there).
+The OBM engine (written in Dana) and the BBC shows come from the supervisor's OBM project and are used unmodified;
+`obm/` is not in this repository.
