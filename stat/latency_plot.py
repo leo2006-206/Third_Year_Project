@@ -189,7 +189,8 @@ def plot(summary: pd.DataFrame, title: str, out: Path):
         fontsize=FS_TICK - 2,
         color="#52514e",
     )
-    fig.tight_layout(rect=(0, 0.03, 1, 1))
+    # fixed margins: tight_layout gives up when a rank badge sits above the axes
+    fig.subplots_adjust(left=0.05, right=0.99, top=0.84, bottom=0.22, wspace=0.18)
     fig.savefig(out, dpi=150)
     print(f"plot -> {out}")
 
