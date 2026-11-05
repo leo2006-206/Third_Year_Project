@@ -1,0 +1,5 @@
+alpha,cluster,rho,real_rho,capacity_rps,lambda_req_rps,lambda_viewers_rps,mean_segments_per_viewer,n_in_window,viewers_in_window,attempt,show_share_dev,first_half,note
+0.5,case1,0.8,0.799,0.6424,0.5000,0.07993,8.342,300,46,23,0.029,0.44,
+0.5,case2,0.8,0.800,0.6021,0.4783,0.07820,8.342,287,47,23,0.030,0.46,
+1.2,case1,0.8,0.800,0.6224,0.5050,0.07541,8.192,303,47,31,0.026,0.54,
+1.2,case2,0.8,0.800,0.5866,0.4750,0.07012,8.192,285,45,31,0.014,0.58,
