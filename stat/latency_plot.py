@@ -4,7 +4,9 @@ End-to-end latency per policy for one sequence directory of replay runs.
 
 Usage:
   stat/latency_plot.py <run dir> [--out PNG] [--exclude POLICY ...]
+  stat/latency_plot.py <run dir> --features [LABEL ...] [--policy mct] [--out PNG]
   e.g. stat/latency_plot.py stat/run_a0.5_c1 --exclude rr
+       stat/latency_plot.py stat/run_a0.5_c1 --features --policy mct   (mct alone vs mct + each feature)
 
 Reads every <policy>_none_<N>.csv in the directory (one replay run each; files marked _e are
 skipped), takes the latency of the requests that succeeded (status 200) and computes per run the
@@ -17,6 +19,12 @@ the bar, the five lowest ranked 1-5. The y axis stops at the second highest bar 
 bar (e.g. rr in c1, p99 ~385 s) is cut and its value written inside. Policies are coloured by
 family (static, count-based, ACO, MCT) and shaded within it; hatched bars use no cost model
 (constant work). --exclude leaves policies out of the plot; the table always lists all of them.
+
+--features also reads the feature runs <policy>_<features>_<N>.csv (e.g. mct_S_1, mct_Alfu_1;
+labels have no '_'); a bar is then '<policy>' (no feature) or '<policy>+<features>' (e.g. mct+S).
+With no LABEL every feature run is taken, otherwise only those labels. --policy keeps one policy.
+Default output for --features: stat/feature_plot/latency_features_<run dir name>.png; bars are
+never cut there (the no-feature bar is the baseline).
 """
 
 import argparse
@@ -32,6 +40,8 @@ import numpy as np
 import pandas as pd
 
 RUN_FILE = re.compile(r"^(?P<policy>.+)_none_(?P<run>\d+)\.csv$")
+# <policy>_<features>_<N>.csv; the feature label has no '_' (mct_const_flat_none_1 -> mct_const_flat, none)
+FEATURE_FILE = re.compile(r"^(?P<policy>.+)_(?P<features>[^_]+)_(?P<run>\d+)\.csv$")
 STATS = ["mean", "p50", "p90", "p99"]
 TOP = 5  # lowest bars per statistic that get a rank badge
 FS_TITLE, FS_LABEL, FS_TICK, FS_VALUE = 20, 18, 13, 11
@@ -51,6 +61,14 @@ STYLE = {
     "mct_const_flat": ("#9ec5f4", True),
 }
 OTHER = ("#c3c2b7", False)  # a policy not listed above
+# feature bars '<policy>+<label>': segment caches purple (S darker, B lighter), asset caches amber
+# (lru lighter, lfu darker); order = bar order after the plain policy bars
+FEATURE_STYLE = {
+    "S": ("#6b3fa0", False),
+    "B": ("#b28ad9", False),
+    "Alru": ("#e8b74a", False),
+    "Alfu": ("#b9770e", False),
+}
 
 
 def run_stats(csv: Path) -> dict:
@@ -67,14 +85,29 @@ def run_stats(csv: Path) -> dict:
     }
 
 
-def load(run_dir: Path) -> pd.DataFrame:
-    """[Dishonest I/O] One row per run: policy, run, the four statistics, fail."""
+def load(run_dir: Path, features=None, policy=None) -> pd.DataFrame:
+    """[Dishonest I/O] One row per run: policy, run, the four statistics, fail.
+    features None = no-feature runs only; [] = also every feature run; [labels] = also those.
+    A feature run's 'policy' is '<policy>+<label>'. policy keeps only that policy's runs."""
     rows = []
-    for csv in sorted(run_dir.glob("*_none_*.csv")):
-        m = RUN_FILE.match(csv.name)
-        if m:
-            rows.append({"policy": m["policy"], "run": int(m["run"]), **run_stats(csv)})
+    pattern = RUN_FILE if features is None else FEATURE_FILE
+    for csv in sorted(run_dir.glob("*.csv")):
+        m = pattern.match(csv.name)
+        if not m or (policy and m["policy"] != policy):
+            continue
+        feat = m.groupdict().get("features", "none")
+        if feat != "none" and features and feat not in features:
+            continue
+        name = m["policy"] if feat == "none" else f"{m['policy']}+{feat}"
+        rows.append({"policy": name, "run": int(m["run"]), **run_stats(csv)})
     return pd.DataFrame(rows)
+
+
+def style(name: str):
+    """[Honest] (colour, hatched) of a bar: a policy, or '<policy>+<feature label>'."""
+    if "+" in name:
+        return FEATURE_STYLE.get(name.split("+", 1)[1], OTHER)
+    return STYLE.get(name, OTHER)
 
 
 def summarise(runs: pd.DataFrame) -> pd.DataFrame:
@@ -84,7 +117,11 @@ def summarise(runs: pd.DataFrame) -> pd.DataFrame:
     for s in STATS:
         out[s] = g[s].mean()
         out[f"{s}_sd"] = g[s].std(ddof=1).fillna(0.0)
-    order = [p for p in STYLE if p in out.index] + sorted(set(out.index) - set(STYLE))
+    order = [p for p in STYLE if p in out.index]
+    for p in STYLE:  # feature bars of a policy follow, in FEATURE_STYLE order, then unknown labels
+        feats = [f"{p}+{f}" for f in FEATURE_STYLE if f"{p}+{f}" in out.index]
+        order += feats + sorted(i for i in out.index if i.startswith(f"{p}+") and i not in feats)
+    order += sorted(set(out.index) - set(order))
     return out.loc[order]
 
 
@@ -98,7 +135,9 @@ def print_table(summary: pd.DataFrame, title: str):
         print(f"{policy:16} {int(r['n']):>2} {int(r['fail']):>4}{cells}")
 
 
-def plot(summary: pd.DataFrame, title: str, out: Path):
+def plot(
+    summary: pd.DataFrame, title: str, out: Path, heading: str = "Latency per policy", cut: bool = True
+):
     """One bar chart per statistic, each with its own y axis. The axis stops at the second highest
     bar (+ std) + 10%, so one very bad policy doesn't flatten the rest: its bar is cut and its value
     written inside. Every bar is labelled with its value, the TOP lowest with a rank badge."""
@@ -109,9 +148,10 @@ def plot(summary: pd.DataFrame, title: str, out: Path):
         val = summary[s].to_numpy()
         sd = summary[f"{s}_sd"].to_numpy()
         tops = np.sort(val + sd)
-        ymax = (tops[-2] if len(tops) > 1 else tops[-1]) * 1.1
+        # cut=False (feature plots): the no-feature baseline is the point of comparison, never cut it
+        ymax = (tops[-2] if cut and len(tops) > 1 else tops[-1]) * (1.1 if cut else 1.18)
         for i, policy in enumerate(policies):
-            colour, hatched = STYLE.get(policy, OTHER)
+            colour, hatched = style(policy)
             ax.bar(
                 x[i],
                 val[i],
@@ -179,7 +219,7 @@ def plot(summary: pd.DataFrame, title: str, out: Path):
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
     axes[0].set_ylabel("End-to-end latency (s)", fontsize=FS_LABEL)
-    fig.suptitle(f"Latency per policy: {title}", fontsize=FS_TITLE)
+    fig.suptitle(f"{heading}: {title}", fontsize=FS_TITLE)
     fig.text(
         0.99,
         0.01,
@@ -191,6 +231,7 @@ def plot(summary: pd.DataFrame, title: str, out: Path):
     )
     # fixed margins: tight_layout gives up when a rank badge sits above the axes
     fig.subplots_adjust(left=0.05, right=0.99, top=0.84, bottom=0.22, wspace=0.18)
+    out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=150)
     print(f"plot -> {out}")
 
@@ -206,17 +247,34 @@ def main():
     ap.add_argument(
         "--exclude", nargs="+", default=[], help="policies left out of the plot"
     )
+    ap.add_argument(
+        "--features",
+        nargs="*",
+        metavar="LABEL",
+        help="also read feature runs <policy>_<LABEL>_<N>.csv (no LABEL = all of them)",
+    )
+    ap.add_argument("--policy", help="keep only this policy (with its feature runs)")
     args = ap.parse_args()
-    runs = load(args.run_dir)
+    runs = load(args.run_dir, args.features, args.policy)
     if runs.empty:
-        sys.exit(f"no <policy>_none_<N>.csv files in {args.run_dir}")
+        sys.exit(f"no matching run csv files in {args.run_dir}")
     summary = summarise(runs)
     # stat/run_a0.5_c1 -> run_a0.5_c1; another set, stat/seed2042/run_a0.5_c1 -> seed2042_run_a0.5_c1
     d = args.run_dir.resolve()
     title = d.name if d.parent.name == "stat" else f"{d.parent.name}_{d.name}"
     print_table(summary, title)
     shown = summary.drop(index=args.exclude, errors="ignore")
-    plot(shown, title, args.out or Path(__file__).parent / f"latency_{title}.png")
+    if args.features is None:
+        plot(shown, title, args.out or Path(__file__).parent / f"latency_{title}.png")
+    else:
+        who = args.policy or "policy"
+        plot(
+            shown,
+            title,
+            args.out or Path(__file__).parent / "feature_plot" / f"latency_features_{title}.png",
+            heading=f"{who} with no feature vs {who} + one feature",
+            cut=False,
+        )
 
 
 if __name__ == "__main__":
