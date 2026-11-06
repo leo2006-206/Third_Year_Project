@@ -1,10 +1,11 @@
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
 use rust_obm::cost_lookup::CostLookup;
 use rust_obm::cost_predict::CostPredictor;
-use rust_obm::mod_feature::{BinCache, CachePolicy, PolicyCache, SegmentCache};
+use rust_obm::mod_feature::{BinCache, CachePolicy, Coalescer, PolicyCache, SegmentCache};
 use rust_obm::mod_load_balancer::base_balancer::{LoadBalancer, LoadBalancerPolicy};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
 use rust_obm::mod_load_balancer::policy_aco::ACO;
@@ -221,7 +222,13 @@ pub fn load_cost_model() -> io::Result<CostPredictor> {
 pub struct ServerState<P: LoadBalancerPolicy> {
     pub balancer: LoadBalancer<P>,
     pub segment_cache: Option<SegmentCache>,
+    /// in-flight table: identical requests rendering at the same time share one render
+    pub coalescer: Option<SegmentCoalescer>,
 }
+
+/// What a coalescing leader hands its followers: the segment body (status 200 only), shared
+/// with the leader's own client write and the cache add
+pub type SegmentCoalescer = Coalescer<Arc<Vec<u8>>>;
 
 impl<P: LoadBalancerPolicy> ServerState<P> {
     /// [Dishonest I/O] Wraps `balancer` and loads every feature from its env vars, printing
@@ -236,9 +243,12 @@ impl<P: LoadBalancerPolicy> ServerState<P> {
             Some(cache) => println!("Segment cache ON: {}", cache.describe()),
             None => println!("Segment cache OFF"),
         }
+        let coalescer = coalescer_loader()?;
+        println!("Coalescing {}", if coalescer.is_some() { "ON" } else { "OFF" });
         Ok(Self {
             balancer,
             segment_cache,
+            coalescer,
         })
     }
 }
@@ -297,6 +307,46 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
             }))
         }
     }
+}
+
+/// [Dishonest I/O] Request coalescing from OBM_COALESCE: 1 = on, unset / 0 = off, anything else
+/// is an error. Independent of the segment cache (either, both or none can be on).
+pub fn coalescer_loader() -> io::Result<Option<SegmentCoalescer>> {
+    match util::env_parse::<u8>("OBM_COALESCE")? {
+        None | Some(0) => Ok(None),
+        Some(1) => Ok(Some(Coalescer::new())),
+        Some(other) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("OBM_COALESCE={other}: expected 0 or 1"),
+        )),
+    }
+}
+
+/// [Honest / Pure Domain Logic]
+/// Response head for a coalesced follower: the zero timing headers of a cache hit (so the
+/// benchmark parsers keep working), worker "coalesce", and X-OBM-Coalesce = ms it waited for
+/// the leader (read by nothing old: a new header, the CSV is unchanged).
+pub fn coalesce_response_head(body_len: u64, wait_ms: u128) -> Vec<u8> {
+    // Dana's Content-type for segments (OffloadSite_new.dn sendDataChunks)
+    const SEGMENT_CONTENT_TYPE: &str = "h264";
+    let wait = wait_ms.to_string();
+    let headers = [
+        ("X-OBM-Coalesce", wait.as_str()),
+        ("X-OBM-Worker", "coalesce"),
+        (
+            "X-Dana-Timings",
+            "queue=0;asset=0;work=0;decode=0;render=0;encode=0",
+        ),
+        ("X-OBM-Net", "0"),
+        ("X-OBM-Wait", "0"),
+        ("Server-Timing", "net;dur=0, wait;dur=0"),
+        ("Access-Control-Allow-Origin", "*"),
+        (
+            "Access-Control-Expose-Headers",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Wait, X-OBM-Worker, X-OBM-Coalesce",
+        ),
+    ];
+    http::format_response_header("200 OK", SEGMENT_CONTENT_TYPE, body_len, &headers)
 }
 
 // ---- Load balancer builders: one per policy that needs more than `new`. Each returns one
@@ -420,6 +470,19 @@ mod test {
     }
 
     const CSV: &str = "# Columns:\n#   id: worker id\n\nid,ip,port,decoding,composition,encoding\n1,obm-offload-1,7010,gpu,gpu,cpu\n2, 100.116.177.11 ,7020,gpu,llvmpipe,cpu\n";
+
+    #[test]
+    fn test_coalesce_response_head() {
+        let head = String::from_utf8(coalesce_response_head(1234, 56)).unwrap();
+        assert!(head.starts_with("HTTP/1.1 200 OK\r\n"));
+        assert!(head.contains("Content-Length: 1234\r\n"));
+        assert!(head.contains("X-OBM-Coalesce: 56\r\n"));
+        assert!(head.contains("X-OBM-Worker: coalesce\r\n"));
+        assert!(head.ends_with("\r\n\r\n"));
+        // the benchmark reads the same zero timings as a cache hit
+        let times = parse_times_feedback(&head, 0).unwrap();
+        assert_eq!((times.t_queue, times.t_asset, times.t_work, times.t_net), (0, 0, 0, 0));
+    }
 
     #[test]
     fn test_parse_cluster_csv() {

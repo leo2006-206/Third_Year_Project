@@ -17,6 +17,10 @@ OBM_BIN_CACHE_LOWER_MB=0
 OBM_BIN_CACHE_UPPER_MB=0
 OBM_BIN_CACHE_THRESHOLD_S=6
 
+# ---- Request coalescing (main server): 1 = on, 0 = off. Identical requests in flight at the same
+# time share one render (followers: worker 'coalesce'). Independent of the segment cache.
+OBM_COALESCE=0
+
 # ---- Asset cache (on every offload site, per site): cap in MiB, 0 = off; policy lru | lfu
 # 50 MB ~ half a site's assets per run; LFU ~3 pts more file hits than LRU there (temp/asset_cache_sim.py)
 OBM_ASSET_CACHE_MB=0

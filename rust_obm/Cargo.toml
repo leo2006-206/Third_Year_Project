@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 async-channel = "2.5"
+async-lock = "3.4"
 fastrand = "2.5"
 
 [dev-dependencies]
