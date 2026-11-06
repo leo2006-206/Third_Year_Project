@@ -2,7 +2,7 @@ use std::fs::File;
 use std::io;
 use std::path::Path;
 
-use crate::mod_feature::LruCache;
+use crate::mod_feature::{CachePolicy, PolicyCache};
 use crate::mod_load_balancer::TimesFeedback;
 use crate::mod_load_balancer::config::{Config, Render};
 
@@ -22,19 +22,19 @@ impl std::fmt::Display for Bin {
     }
 }
 
-/// Two LRU caches split by cost: segments that cost less than `threshold_s` to make go to the
+/// Two LRU caches (PolicyCache, Lru) split by cost: segments that cost less than `threshold_s` to make go to the
 /// lower cache, the rest to the upper one. Cost = asset time + work time / render factor, in
 /// seconds; the factor turns work on a slow renderer into gpu-equivalent work. Asset loading is
 /// not divided: it does not depend on the renderer.
 pub struct BinCache {
-    lower_cache: LruCache,
-    upper_cache: LruCache,
+    lower_cache: PolicyCache,
+    upper_cache: PolicyCache,
     threshold_s: f64,
 }
 
 impl BinCache {
     /// Errors: InvalidInput if `threshold_s` is not a positive number or both caches would use
-    /// the same directory (each LruCache deletes files it evicts, so they must not share);
+    /// the same directory (each PolicyCache deletes files it evicts, so they must not share);
     /// or the I/O error from creating a cache directory.
     pub fn new(
         lower_path: impl AsRef<Path>,
@@ -56,8 +56,8 @@ impl BinCache {
             ));
         }
         Ok(Self {
-            lower_cache: LruCache::new(lower_path, lower_cap)?,
-            upper_cache: LruCache::new(upper_path, upper_cap)?,
+            lower_cache: PolicyCache::new(lower_path, lower_cap, CachePolicy::Lru)?,
+            upper_cache: PolicyCache::new(upper_path, upper_cap, CachePolicy::Lru)?,
             threshold_s,
         })
     }
@@ -80,7 +80,7 @@ impl BinCache {
     }
 
     /// Caches `buffer` in the bin its cost picks and returns that bin. Errors as
-    /// `LruCache::add`; an AlreadyExists names the bin holding the key: "in upper bin" (same
+    /// `PolicyCache::add`; an AlreadyExists names the bin holding the key: "in upper bin" (same
     /// bin), or "in other bin, upper" when this copy's cost fell on the other side of the
     /// threshold. Two concurrent misses can still both add, one per bin: harmless, as `get`
     /// returns either copy and LRU evicts the unused one.
@@ -116,7 +116,7 @@ impl BinCache {
         }
     }
 
-    fn cache(&self, bin: Bin) -> &LruCache {
+    fn cache(&self, bin: Bin) -> &PolicyCache {
         match bin {
             Bin::Lower => &self.lower_cache,
             Bin::Upper => &self.upper_cache,

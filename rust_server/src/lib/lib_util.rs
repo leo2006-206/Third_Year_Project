@@ -143,6 +143,21 @@ pub fn match_content_type(path: &str) -> &'static str {
     }
 }
 
+/// [Dishonest I/O] Reads env var `name` as a T: None if unset, an error naming the variable if
+/// it does not parse (so a typo never silently runs with the default).
+pub fn env_parse<T: std::str::FromStr>(name: &str) -> io::Result<Option<T>>
+where
+    T::Err: std::fmt::Display,
+{
+    let Ok(text) = std::env::var(name) else {
+        return Ok(None);
+    };
+    text.trim()
+        .parse()
+        .map(Some)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{name}={text:?}: {e}")))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;

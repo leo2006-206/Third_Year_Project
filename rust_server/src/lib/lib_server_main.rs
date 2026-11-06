@@ -1,12 +1,10 @@
-use std::fs::File;
 use std::io;
 use std::path::Path;
-use std::str::FromStr;
 use std::time::Instant;
 
 use rust_obm::cost_lookup::CostLookup;
 use rust_obm::cost_predict::CostPredictor;
-use rust_obm::mod_feature::{Bin, BinCache, LruCache};
+use rust_obm::mod_feature::{BinCache, CachePolicy, PolicyCache, SegmentCache};
 use rust_obm::mod_load_balancer::base_balancer::{LoadBalancer, LoadBalancerPolicy};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
 use rust_obm::mod_load_balancer::policy_aco::ACO;
@@ -245,102 +243,21 @@ impl<P: LoadBalancerPolicy> ServerState<P> {
     }
 }
 
-/// The segment cache of a run: one plain LRU, or two LRU bins split by cost. They do the same
-/// job (store rendered segments, answer repeats), so a run has at most one: being one enum,
-/// they can never both be on.
-pub enum SegmentCache {
-    Lru {
-        cache: LruCache,
-        mb: usize,
-    },
-    Bin {
-        cache: BinCache,
-        lower_mb: usize,
-        upper_mb: usize,
-        threshold_s: f64,
-    },
-}
-
-impl SegmentCache {
-    /// Opens the cached file for `key`. None on a miss.
-    pub fn get(&self, key: &str) -> Option<(File, usize)> {
-        match self {
-            Self::Lru { cache, .. } => cache.get(key),
-            Self::Bin { cache, .. } => cache.get(key),
-        }
-    }
-
-    /// Caches a rendered segment. `times` and `config` are the site's timings and render config
-    /// for it: the bins need them for the cost, the plain LRU ignores them.
-    /// Returns the bin it went to (None for the plain LRU). Errors as `LruCache::add` /
-    /// `BinCache::add` (a bin's AlreadyExists names the bin that holds the key).
-    pub fn add(
-        &self,
-        key: &str,
-        data: &[u8],
-        times: &TimesFeedback,
-        config: &Config,
-    ) -> io::Result<Option<Bin>> {
-        match self {
-            Self::Lru { cache, .. } => cache.add(key, data).map(|()| None),
-            Self::Bin { cache, .. } => cache.add(times, config, key, data).map(Some),
-        }
-    }
-
-    /// Bytes held (both bins together for Bin).
-    pub fn used(&self) -> usize {
-        match self {
-            Self::Lru { cache, .. } => cache.used(),
-            Self::Bin { cache, .. } => cache.used(),
-        }
-    }
-
-    /// For the startup line, e.g. "45 MB" or "bins lower 30 MB, upper 15 MB, threshold 6 s"
-    pub fn describe(&self) -> String {
-        match self {
-            Self::Lru { mb, .. } => format!("{mb} MB"),
-            Self::Bin {
-                lower_mb,
-                upper_mb,
-                threshold_s,
-                ..
-            } => {
-                format!("bins lower {lower_mb} MB, upper {upper_mb} MB, threshold {threshold_s} s")
-            }
-        }
-    }
-}
-
-/// [Dishonest I/O] Reads env var `name` as a T: None if unset, an error naming the variable if
-/// it does not parse (so a typo never silently runs with the default).
-fn env_parse<T: FromStr>(name: &str) -> io::Result<Option<T>>
-where
-    T::Err: std::fmt::Display,
-{
-    let Ok(text) = std::env::var(name) else {
-        return Ok(None);
-    };
-    text.trim()
-        .parse()
-        .map(Some)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{name}={text:?}: {e}")))
-}
-
 /// [Dishonest I/O] The segment cache from env vars, None = off. Either:
-/// - plain LRU: OBM_SEGMENT_CACHE_MB (unset / 0 = off), files in OBM_SEGMENT_CACHE_DIR
-///   (default /tmp/obm_cache/segment);
+/// - single cache: OBM_SEGMENT_CACHE_MB (unset / 0 = off), OBM_SEGMENT_CACHE_POLICY lru | lfu
+///   (default lru), files in OBM_SEGMENT_CACHE_DIR (default /tmp/obm_cache/segment);
 /// - cost bins: OBM_BIN_CACHE_LOWER_MB + OBM_BIN_CACHE_UPPER_MB (both unset / sum 0 = off; an
 ///   unset one is 0 MB), OBM_BIN_CACHE_THRESHOLD_S (default 6.0), files in
 ///   OBM_BIN_CACHE_DIR/{lower,upper} (default /tmp/obm_cache/bin).
 ///
 /// Both on is an error: they are the same feature. Folders are emptied at start.
 pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
-    let lru_mb = env_parse::<usize>("OBM_SEGMENT_CACHE_MB")?.unwrap_or(0);
-    let lower_mb = env_parse::<usize>("OBM_BIN_CACHE_LOWER_MB")?.unwrap_or(0);
-    let upper_mb = env_parse::<usize>("OBM_BIN_CACHE_UPPER_MB")?.unwrap_or(0);
+    let single_mb = util::env_parse::<usize>("OBM_SEGMENT_CACHE_MB")?.unwrap_or(0);
+    let lower_mb = util::env_parse::<usize>("OBM_BIN_CACHE_LOWER_MB")?.unwrap_or(0);
+    let upper_mb = util::env_parse::<usize>("OBM_BIN_CACHE_UPPER_MB")?.unwrap_or(0);
     let bin_on = lower_mb + upper_mb > 0;
 
-    match (lru_mb > 0, bin_on) {
+    match (single_mb > 0, bin_on) {
         (false, false) => Ok(None),
         (true, true) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -350,12 +267,17 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
         (true, false) => {
             let dir = std::env::var("OBM_SEGMENT_CACHE_DIR")
                 .unwrap_or_else(|_| "/tmp/obm_cache/segment".to_string());
-            let cache = LruCache::new(&dir, lru_mb << 20)
+            let policy = util::env_parse::<CachePolicy>("OBM_SEGMENT_CACHE_POLICY")?
+                .unwrap_or(CachePolicy::Lru);
+            let cache = PolicyCache::new(&dir, single_mb << 20, policy)
                 .map_err(|e| io::Error::new(e.kind(), format!("segment cache dir {dir}: {e}")))?;
-            Ok(Some(SegmentCache::Lru { cache, mb: lru_mb }))
+            Ok(Some(SegmentCache::Single {
+                cache,
+                mb: single_mb,
+            }))
         }
         (false, true) => {
-            let threshold_s = env_parse::<f64>("OBM_BIN_CACHE_THRESHOLD_S")?.unwrap_or(6.0);
+            let threshold_s = util::env_parse::<f64>("OBM_BIN_CACHE_THRESHOLD_S")?.unwrap_or(6.0);
             let dir = std::env::var("OBM_BIN_CACHE_DIR")
                 .unwrap_or_else(|_| "/tmp/obm_cache/bin".to_string());
             let dir = Path::new(&dir);
@@ -475,27 +397,9 @@ pub fn aco_const_balancer(sites: Vec<OffloadSite>) -> LoadBalancer<impl LoadBala
     AcoLB::with_policy(sites, aco)
 }
 
-/// [Honest / Pure Domain Logic] True if the response head's status code is 200
-/// (only those are worth caching: an error body must never be replayed).
-pub fn is_status_ok(head: &[u8]) -> bool {
-    String::from_utf8_lossy(head)
-        .lines()
-        .next()
-        .is_some_and(|status_line| status_line.split_whitespace().nth(1) == Some("200"))
-}
-
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn test_is_status_ok() {
-        assert!(is_status_ok(b"HTTP/1.0 200 OK\r\nContent-length: 10"));
-        assert!(is_status_ok(b"HTTP/1.1 200 OK"));
-        assert!(!is_status_ok(b"HTTP/1.0 500 Internal Server Error\r\n"));
-        assert!(!is_status_ok(b"HTTP/1.0 2000 OK"));
-        assert!(!is_status_ok(b""));
-    }
 
     #[test]
     fn test_parse_times_feedback() {

@@ -152,6 +152,8 @@ fi
 
 # Network emulation is applied by entrypoint.sh (tc netem), which needs NET_ADMIN in the container
 DOCKER_NET_ARGS=(-e MAIN_SERVER_ADDR="${MAIN_SERVER_ADDR:-10.10.0.1:7000}")
+# site features (asset cache): every OBM_ASSET_* set in this shell goes into the container
+for v in $(compgen -e | grep '^OBM_ASSET_'); do DOCKER_NET_ARGS+=(-e "$v"); done
 if [ "$DELAY_MS" != "0" ]; then
     DOCKER_NET_ARGS+=(--cap-add NET_ADMIN -e NETEM_DELAY_MS="$DELAY_MS" -e NETEM_JITTER_MS="$JITTER_MS")
 fi

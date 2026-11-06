@@ -1,5 +1,9 @@
+pub mod asset_cache;
 pub mod base_cache;
 pub mod bin_cache;
+pub mod segment_cache;
 
-pub use base_cache::LruCache;
-pub use bin_cache::*;
+pub use asset_cache::AssetCache;
+pub use base_cache::{CachePolicy, PolicyCache};
+pub use bin_cache::{Bin, BinCache};
+pub use segment_cache::SegmentCache;

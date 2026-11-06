@@ -8,6 +8,7 @@ use smol::{
     prelude::*,
 };
 
+use rust_obm::mod_feature::AssetCache;
 use rust_server::lib_http as http;
 use rust_server::lib_server_offload as offl;
 use rust_server::lib_util as util;
@@ -16,6 +17,7 @@ async fn handle_client(
     mut client_stream: TcpStream,
     jobs: Sender<offl::DanaJob>,
     main_addr: &str,
+    asset_cache: Option<&'static AssetCache>,
 ) -> io::Result<()> {
     use http::{response_404, send_raw};
 
@@ -44,7 +46,10 @@ async fn handle_client(
             .await
             .map_err(|_| io::Error::other("Dana worker has stopped"))
     } else if path.starts_with("/shows") || path.starts_with("/assets") {
-        serve_main_proxy(client_stream, path, main_addr).await
+        match asset_cache {
+            Some(cache) => serve_main_proxy_cached(client_stream, path, main_addr, cache).await,
+            None => serve_main_proxy(client_stream, path, main_addr).await,
+        }
     } else {
         send_raw(&mut client_stream, &response_404()).await
     }
@@ -177,6 +182,70 @@ async fn serve_main_proxy(
     Ok(())
 }
 
+/// `serve_main_proxy` with the asset cache: a hit is sent from the site's own disk (no trip to
+/// the main server); a miss is streamed to Dana exactly like the uncached proxy while a copy is
+/// kept, and the body is stored after Dana has it (200 only). Every outcome is logged [ASSET].
+async fn serve_main_proxy_cached(
+    mut dana_stream: TcpStream,
+    resource_path: &str,
+    main_addr: &str,
+    cache: &'static AssetCache,
+) -> io::Result<()> {
+    const OFFLOAD_AGENT: &str = "OBM Offload site/1.0";
+    // the same headers the main server sends with a resource (serve_resource)
+    const RESOURCE_HEADERS: [(&str, &str); 2] = [
+        ("Cross-Origin-Resource-Policy", "cross-origin"),
+        ("Cache-Control", "no-cache, no-store, must-revalidate"),
+    ];
+
+    if let Some((file, size)) = cache.get(resource_path) {
+        let content_type = util::match_content_type(resource_path);
+        http::send_file(&mut dana_stream, file, content_type, &RESOURCE_HEADERS).await?;
+        util::log_message(&format!("[ASSET] hit {size} B | {resource_path}"));
+        return Ok(());
+    }
+
+    let mut main_stream = TcpStream::connect(main_addr).await?;
+    let req = http::request_get(resource_path, main_addr, OFFLOAD_AGENT, &[]);
+    main_stream.write_all(&req).await?;
+    main_stream.flush().await?;
+
+    // tee: every chunk goes on to Dana at once and into `response` for the cache
+    let mut chunk = vec![0u8; 64 << 10];
+    let mut response = Vec::new();
+    loop {
+        let n = main_stream.read(&mut chunk).await?;
+        if n == 0 {
+            break;
+        }
+        dana_stream.write_all(&chunk[..n]).await?;
+        response.extend_from_slice(&chunk[..n]);
+    }
+    dana_stream.flush().await?;
+
+    let key = resource_path.to_string();
+    smol::unblock(move || {
+        let outcome = match http::split_response(&response) {
+            Some((head, body)) if http::is_status_ok(head) => match cache.add(&key, body) {
+                Ok(()) => format!("added {} B (used {} B)", body.len(), cache.used()),
+                Err(e) => {
+                    let reason = match e.kind() {
+                        // a concurrent miss on the same file stored it first
+                        io::ErrorKind::AlreadyExists => "already cached".to_string(),
+                        io::ErrorKind::InvalidInput => "bigger than the cache".to_string(),
+                        _ => e.to_string(),
+                    };
+                    format!("add failed ({} B): {reason}", body.len())
+                }
+            },
+            _ => "skip: status not 200".to_string(),
+        };
+        util::log_message(&format!("[ASSET] {outcome} | {key}"));
+    })
+    .detach();
+    Ok(())
+}
+
 fn main() -> io::Result<()> {
     const DANA_ADDR: &str = "127.0.0.1:9009";
     // Where Dana's /shows and /assets downloads go: the main server on om over the cable link
@@ -185,6 +254,22 @@ fn main() -> io::Result<()> {
         .unwrap_or_else(|_| "10.10.0.1:7000".to_string())
         .leak();
     println!("Assets from main server {main_addr}");
+    // Lives for the whole run: leaked to a 'static reference like main_addr
+    let asset_cache: Option<&'static AssetCache> = match offl::asset_cache_loader() {
+        Ok(cache) => cache.map(|c| &*Box::leak(Box::new(c))),
+        Err(e) => {
+            eprintln!("[offload_server] {e}");
+            std::process::exit(2);
+        }
+    };
+    match asset_cache {
+        Some(cache) => println!(
+            "Asset cache ON: {} MB, {}",
+            std::env::var("OBM_ASSET_CACHE_MB").unwrap_or_default(),
+            cache.policy()
+        ),
+        None => println!("Asset cache OFF"),
+    }
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -203,7 +288,7 @@ fn main() -> io::Result<()> {
             let jobs = jobs.clone();
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, jobs, main_addr).await {
+                if let Err(e) = handle_client(stream, jobs, main_addr, asset_cache).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })

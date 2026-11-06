@@ -266,7 +266,7 @@ def spawn_detached(endpoints: list[Endpoint], offload_run_sh: Path) -> None:
     Starts every offload node as a detached container (no terminal needed, e.g. over SSH).
     """
     print("\n=== [3/3] Starting Offload Server Nodes (detached) ===")
-    env = dict(os.environ, DETACH="1")
+    env = dict(os.environ, DETACH="1")  # incl. OBM_ASSET_* -> run_sh.sh -> container
     for inst_id, port, decoding, composition, encoding, cpu, memory, delay, jitter in endpoints:
         subprocess.run(
             [str(offload_run_sh), inst_id, str(port), decoding, composition, encoding,

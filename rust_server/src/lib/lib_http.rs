@@ -284,8 +284,41 @@ pub fn request_get(
     request_bodyless("GET", get_path, host, user_agent, extra_headers)
 }
 
+/// [Honest / Pure Domain Logic] True if the response head's status code is 200
+/// (only those are worth caching: an error body must never be replayed).
+pub fn is_status_ok(head: &[u8]) -> bool {
+    String::from_utf8_lossy(head)
+        .lines()
+        .next()
+        .is_some_and(|status_line| status_line.split_whitespace().nth(1) == Some("200"))
+}
+
+/// [Honest / Pure Domain Logic] Splits a whole HTTP response in memory into head (without the
+/// final "\r\n\r\n", like `split_header_body`) and body. None if there is no end of head.
+pub fn split_response(response: &[u8]) -> Option<(&[u8], &[u8])> {
+    let end = response.windows(4).position(|w| w == b"\r\n\r\n")?;
+    Some((&response[..end], &response[end + 4..]))
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn test_is_status_ok() {
+        assert!(is_status_ok(b"HTTP/1.0 200 OK\r\nContent-length: 10"));
+        assert!(is_status_ok(b"HTTP/1.1 200 OK"));
+        assert!(!is_status_ok(b"HTTP/1.0 500 Internal Server Error\r\n"));
+        assert!(!is_status_ok(b"HTTP/1.0 2000 OK"));
+        assert!(!is_status_ok(b""));
+    }
+
+    #[test]
+    fn test_split_response() {
+        let (head, body) = split_response(b"HTTP/1.0 200 OK\r\nA: b\r\n\r\nbody\r\n\r\nx").unwrap();
+        assert_eq!(head, b"HTTP/1.0 200 OK\r\nA: b");
+        assert_eq!(body, b"body\r\n\r\nx");
+        assert!(split_response(b"HTTP/1.0 200 OK\r\n").is_none());
+    }
+
     use super::*;
 
     /// Test reader that returns at most `chunk` bytes per read, like a socket delivering

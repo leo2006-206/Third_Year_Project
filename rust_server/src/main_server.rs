@@ -7,7 +7,7 @@ use smol::{
     prelude::*,
 };
 
-use rust_obm::mod_feature::BinCache;
+use rust_obm::mod_feature::{BinCache, SegmentCache};
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 use rust_server::lib_http as http;
@@ -213,7 +213,7 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy + 'static>(
 
     Ok(Some(RenderedSegment {
         data,
-        status_ok: sm::is_status_ok(&head),
+        status_ok: http::is_status_ok(&head),
         times,
         config,
     }))
@@ -248,10 +248,10 @@ fn offload_cache_add<P: blb::LoadBalancerPolicy + 'static>(
         let size = data.len();
         // bins: which side of the threshold this segment fell
         let cost = match cache {
-            sm::SegmentCache::Bin { .. } => {
+            SegmentCache::Bin { .. } => {
                 format!(" cost {:.2} s", BinCache::cost_s(&times, &config))
             }
-            sm::SegmentCache::Lru { .. } => String::new(),
+            SegmentCache::Single { .. } => String::new(),
         };
         let outcome = match cache.add(&key, &data, &times, &config) {
             Ok(bin) => {

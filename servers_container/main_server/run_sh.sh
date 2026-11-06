@@ -58,6 +58,7 @@ docker run -it --rm \
     --init \
     --network obm-net \
     -p 7000:7000 \
+    --env-file "$PROJECT_ROOT/servers_container/env_setting.txt" \
     -v "$PROJECT_ROOT/obm/assets:/app/obm/assets:ro" \
     -v "$PROJECT_ROOT/obm/shows:/app/obm/shows:ro" \
     -v "$CLUSTER_CSV:/app/cluster_endpoint.csv:ro" \
