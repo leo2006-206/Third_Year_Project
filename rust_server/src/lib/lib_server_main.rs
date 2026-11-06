@@ -1,7 +1,11 @@
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 use std::time::Instant;
 
+use rust_obm::cost_lookup::CostLookup;
+use rust_obm::cost_predict::CostPredictor;
+use rust_obm::mod_feature::LruCache;
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
 use rust_obm::mod_load_balancer::{OffloadSite, TimesFeedback};
 
@@ -178,9 +182,82 @@ pub fn parse_times_feedback(return_header: &str, elapsed: i64) -> Option<TimesFe
     })
 }
 
+/// [Dishonest I/O] ACO's random seed: OBM_ACO_SEED, default 2026 (same as the sequences)
+pub fn aco_seed() -> u64 {
+    std::env::var("OBM_ACO_SEED")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(2026)
+}
+
+/// [Dishonest I/O] Loads the work lookup table from OBM_COST_LOOKUP
+/// (default /app/stat_predict/lookup.csv, baked into the main server image)
+pub fn load_cost_lookup() -> io::Result<CostLookup> {
+    let csv = std::env::var("OBM_COST_LOOKUP")
+        .unwrap_or_else(|_| "/app/stat_predict/lookup.csv".to_string());
+    CostLookup::load(&csv)
+        .map_err(|e| io::Error::new(e.kind(), format!("MCT: can't load lookup table {csv}: {e}")))
+}
+
+/// [Dishonest I/O] Loads the cost model from OBM_COST_COEF / OBM_COST_FEATURES
+/// (default /app/stat_predict/{coef,features}.csv, baked into the main server image)
+pub fn load_cost_model() -> io::Result<CostPredictor> {
+    let coef =
+        std::env::var("OBM_COST_COEF").unwrap_or_else(|_| "/app/stat_predict/coef.csv".to_string());
+    let features = std::env::var("OBM_COST_FEATURES")
+        .unwrap_or_else(|_| "/app/stat_predict/features.csv".to_string());
+    CostPredictor::load(&coef, &features).map_err(|e| {
+        io::Error::new(
+            e.kind(),
+            format!("MCT: can't load cost model {coef}, {features}: {e}"),
+        )
+    })
+}
+
+/// [Dishonest I/O] Segment cache from OBM_SEGMENT_CACHE_MB: unset or 0 = off (None).
+/// Files go to OBM_SEGMENT_CACHE_DIR (default /tmp/obm_cache/segment), emptied at start.
+/// A bad value is an error, so a typo never silently runs without the cache.
+pub fn segment_cache_loader() -> io::Result<Option<Arc<LruCache>>> {
+    let Ok(mb_str) = std::env::var("OBM_SEGMENT_CACHE_MB") else {
+        return Ok(None);
+    };
+    let mb: usize = mb_str.trim().parse().map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("OBM_SEGMENT_CACHE_MB={mb_str:?}: {e}"),
+        )
+    })?;
+    if mb == 0 {
+        return Ok(None);
+    }
+    let dir = std::env::var("OBM_SEGMENT_CACHE_DIR")
+        .unwrap_or_else(|_| "/tmp/obm_cache/segment".to_string());
+    let cache = LruCache::new(&dir, mb << 20)
+        .map_err(|e| io::Error::new(e.kind(), format!("segment cache dir {dir}: {e}")))?;
+    Ok(Some(Arc::new(cache)))
+}
+
+/// [Honest / Pure Domain Logic] True if the response head's status code is 200
+/// (only those are worth caching: an error body must never be replayed).
+pub fn is_status_ok(head: &[u8]) -> bool {
+    String::from_utf8_lossy(head)
+        .lines()
+        .next()
+        .is_some_and(|status_line| status_line.split_whitespace().nth(1) == Some("200"))
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
+
+    #[test]
+    fn test_is_status_ok() {
+        assert!(is_status_ok(b"HTTP/1.0 200 OK\r\nContent-length: 10"));
+        assert!(is_status_ok(b"HTTP/1.1 200 OK"));
+        assert!(!is_status_ok(b"HTTP/1.0 500 Internal Server Error\r\n"));
+        assert!(!is_status_ok(b"HTTP/1.0 2000 OK"));
+        assert!(!is_status_ok(b""));
+    }
 
     #[test]
     fn test_parse_times_feedback() {

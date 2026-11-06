@@ -7,8 +7,7 @@ use smol::{
     prelude::*,
 };
 
-use rust_obm::cost_lookup::CostLookup;
-use rust_obm::cost_predict::CostPredictor;
+use rust_obm::mod_feature::LruCache;
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 use rust_server::lib_http as http;
@@ -18,6 +17,7 @@ use rust_server::lib_util as util;
 async fn handle_client<P: blb::LoadBalancerPolicy>(
     mut client_stream: TcpStream,
     balancer: Arc<blb::LoadBalancer<P>>,
+    segment_cache: Option<Arc<LruCache>>,
 ) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
 
@@ -37,7 +37,7 @@ async fn handle_client<P: blb::LoadBalancerPolicy>(
         if path.starts_with("/times") {
             path = path.strip_prefix("/times").expect("Must start with /times");
         }
-        serve_offload(client_stream, balancer, path).await
+        serve_offload(client_stream, balancer, segment_cache, path).await
     } else {
         serve_web_page(client_stream, path).await
     }
@@ -64,9 +64,59 @@ async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io
     send_file(&mut client_stream, file, content_type, &RESOURCE_HEADERS).await
 }
 
+/// Offload request: answered from the segment cache on a hit (the load balancer never sees it),
+/// else rendered by a site chosen by the load balancer.
 async fn serve_offload<P: blb::LoadBalancerPolicy>(
+    client_stream: TcpStream,
+    balancer: Arc<blb::LoadBalancer<P>>,
+    segment_cache: Option<Arc<LruCache>>,
+    path: &str,
+) -> io::Result<()> {
+    if let Some(cache) = &segment_cache
+        && let Some((file, _size)) = cache.get(path)
+    {
+        return serve_offload_cache(client_stream, path, file).await;
+    }
+    serve_offload_request(client_stream, balancer, segment_cache, path).await
+}
+
+/// Sends a cached segment. The timing headers are present with zero values (so the benchmark
+/// parsers keep working) and the worker is "cache".
+async fn serve_offload_cache(
+    mut client_stream: TcpStream,
+    path: &str,
+    file: std::fs::File,
+) -> io::Result<()> {
+    // Dana's Content-type for segments (OffloadSite_new.dn sendDataChunks)
+    const SEGMENT_CONTENT_TYPE: &str = "h264";
+    const HIT_HEADERS: [(&str, &str); 8] = [
+        ("X-OBM-Cache", "hit"),
+        ("X-OBM-Worker", "cache"),
+        (
+            "X-Dana-Timings",
+            "queue=0;asset=0;work=0;decode=0;render=0;encode=0",
+        ),
+        ("X-OBM-Net", "0"),
+        ("X-OBM-Wait", "0"),
+        ("Server-Timing", "net;dur=0, wait;dur=0"),
+        ("Access-Control-Allow-Origin", "*"),
+        (
+            "Access-Control-Expose-Headers",
+            "X-Dana-Timings, Server-Timing, X-OBM-Net, X-OBM-Wait, X-OBM-Worker, X-OBM-Cache",
+        ),
+    ];
+    let t_start = std::time::Instant::now();
+    http::send_file(&mut client_stream, file, SEGMENT_CONTENT_TYPE, &HIT_HEADERS).await?;
+
+    let ms = t_start.elapsed().as_millis();
+    util::log_message(&format!("[OFFLOAD] -> cache | {ms}ms | {path}"));
+    Ok(())
+}
+
+async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
     mut client_stream: TcpStream,
     balancer: Arc<blb::LoadBalancer<P>>,
+    segment_cache: Option<Arc<LruCache>>,
     path: &str,
 ) -> io::Result<()> {
     use http::{request_get, send_raw};
@@ -142,6 +192,33 @@ async fn serve_offload<P: blb::LoadBalancerPolicy>(
     let message = format!("[OFFLOAD] -> {} | {}ms | {}", site_name, total_ms, path);
     util::log_message(&message);
 
+    // 4. Store the rendered segment, after the client has it; the file write runs on a
+    //    blocking thread so it never stalls the async executor. Every outcome is logged.
+    if let Some(cache) = segment_cache {
+        if !sm::is_status_ok(&head) {
+            util::log_message(&format!("[CACHE] skip: status not 200 | {path}"));
+        } else {
+            let key = path.to_string();
+            smol::unblock(move || {
+                let size = data.len();
+                let outcome = match cache.add(&key, &data) {
+                    Ok(()) => format!("added {size} B (used {} B)", cache.used()),
+                    Err(e) => {
+                        let reason = match e.kind() {
+                            // a concurrent miss on the same path rendered and stored it first
+                            io::ErrorKind::AlreadyExists => "already cached".to_string(),
+                            io::ErrorKind::InvalidInput => "bigger than the cache".to_string(),
+                            _ => e.to_string(),
+                        };
+                        format!("add failed ({size} B): {reason}")
+                    }
+                };
+                util::log_message(&format!("[CACHE] {outcome} | {key}"));
+            })
+            .detach();
+        }
+    }
+
     Ok(())
 }
 
@@ -206,7 +283,7 @@ fn main() -> io::Result<()> {
         // at most 2 requests per site: the next job is already at the site when one ends (no idle gap)
         "throttled2" => serve(lb::Throttled2LB::new(offload_url)),
         "mct" => {
-            let predictor = load_cost_model().unwrap_or_else(|e| {
+            let predictor = sm::load_cost_model().unwrap_or_else(|e| {
                 eprintln!("{e}");
                 std::process::exit(2);
             });
@@ -224,7 +301,7 @@ fn main() -> io::Result<()> {
         "mct_lookup" => {
             // MCT with measured work per (site config, path) from the replay runs (load_cost_lookup);
             // a pair never measured falls back to the cost model (logged as "mct_lookup miss")
-            let (lookup, predictor) = match (load_cost_lookup(), load_cost_model()) {
+            let (lookup, predictor) = match (sm::load_cost_lookup(), sm::load_cost_model()) {
                 (Ok(l), Ok(p)) => (l, p),
                 (Err(e), _) | (_, Err(e)) => {
                     eprintln!("{e}");
@@ -265,13 +342,13 @@ fn main() -> io::Result<()> {
             serve(lb::MctLB::with_policy(offload_url, mct))
         }
         "aco" => {
-            let predictor = load_cost_model().unwrap_or_else(|e| {
+            let predictor = sm::load_cost_model().unwrap_or_else(|e| {
                 eprintln!("{e}");
                 std::process::exit(2);
             });
             // same fallback switch as mct
             let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
-            let seed = aco_seed();
+            let seed = sm::aco_seed();
             println!(
                 "ACO: {} paths, fallback {}, seed {seed}",
                 predictor.len(),
@@ -284,7 +361,7 @@ fn main() -> io::Result<()> {
         "aco_const" => {
             // same work for every path and site: the pheromone has to learn the sizes
             let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
-            let seed = aco_seed();
+            let seed = sm::aco_seed();
             println!("ACO: constant work {CONST_WORK_S} s, seed {seed}");
             let aco = lb::policy_aco::ACO::with_predict(&offload_url, const_predict, false, seed);
             serve(lb::AcoLB::with_policy(offload_url, aco))
@@ -299,38 +376,6 @@ fn main() -> io::Result<()> {
     }
 }
 
-/// [Dishonest I/O] ACO's random seed: OBM_ACO_SEED, default 2026 (same as the sequences)
-fn aco_seed() -> u64 {
-    std::env::var("OBM_ACO_SEED")
-        .ok()
-        .and_then(|v| v.parse().ok())
-        .unwrap_or(2026)
-}
-
-/// [Dishonest I/O] Loads the work lookup table from OBM_COST_LOOKUP
-/// (default /app/stat_predict/lookup.csv, baked into the main server image)
-fn load_cost_lookup() -> io::Result<CostLookup> {
-    let csv = std::env::var("OBM_COST_LOOKUP")
-        .unwrap_or_else(|_| "/app/stat_predict/lookup.csv".to_string());
-    CostLookup::load(&csv)
-        .map_err(|e| io::Error::new(e.kind(), format!("MCT: can't load lookup table {csv}: {e}")))
-}
-
-/// [Dishonest I/O] Loads the cost model from OBM_COST_COEF / OBM_COST_FEATURES
-/// (default /app/stat_predict/{coef,features}.csv, baked into the main server image)
-fn load_cost_model() -> io::Result<CostPredictor> {
-    let coef =
-        std::env::var("OBM_COST_COEF").unwrap_or_else(|_| "/app/stat_predict/coef.csv".to_string());
-    let features = std::env::var("OBM_COST_FEATURES")
-        .unwrap_or_else(|_| "/app/stat_predict/features.csv".to_string());
-    CostPredictor::load(&coef, &features).map_err(|e| {
-        io::Error::new(
-            e.kind(),
-            format!("MCT: can't load cost model {coef}, {features}: {e}"),
-        )
-    })
-}
-
 fn serve<P: blb::LoadBalancerPolicy + 'static>(
     load_balancer: blb::LoadBalancer<P>,
 ) -> io::Result<()> {
@@ -340,6 +385,14 @@ fn serve<P: blb::LoadBalancerPolicy + 'static>(
     );
 
     let balancer = Arc::new(load_balancer);
+    let segment_cache = sm::segment_cache_loader()?;
+    match &segment_cache {
+        Some(_) => println!(
+            "Segment cache ON: {} MB",
+            std::env::var("OBM_SEGMENT_CACHE_MB").unwrap_or_default()
+        ),
+        None => println!("Segment cache OFF"),
+    }
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -352,9 +405,10 @@ fn serve<P: blb::LoadBalancerPolicy + 'static>(
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
             let lb_clone = Arc::clone(&balancer);
+            let cache_clone = segment_cache.clone();
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, lb_clone).await {
+                if let Err(e) = handle_client(stream, lb_clone, cache_clone).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })
