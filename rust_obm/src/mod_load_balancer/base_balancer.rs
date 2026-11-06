@@ -95,6 +95,7 @@ pub struct LoadBalancer<P: LoadBalancerPolicy> {
 pub struct SelectionGuard<'a, P: LoadBalancerPolicy> {
     pub endpoint: &'a str,
     pub name: &'a str,
+    pub config: config::Config,
     worker_idx: usize,
     policy: Arc<P>,
     ticket: Option<P::Ticket>, // Some until the request is reported to the policy
@@ -134,6 +135,7 @@ impl<P: LoadBalancerPolicy> LoadBalancer<P> {
         SelectionGuard {
             endpoint: &self.workers[idx].endpoint,
             name: &self.workers[idx].name,
+            config: self.workers[idx].config,
             worker_idx: idx,
             policy: Arc::clone(&self.policy),
             ticket: Some(ticket),

@@ -114,6 +114,11 @@ impl LruCache {
         self.table.get(key)
     }
 
+    /// True if `key` is cached. A peek: does not count as a use and opens no file.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.lock().map.contains_key(key)
+    }
+
     /// Bytes held by cached entries.
     pub fn used(&self) -> usize {
         self.lock().used
@@ -204,6 +209,22 @@ mod test {
         assert_eq!(err.kind(), io::ErrorKind::InvalidInput);
         assert!(cache.get("a").is_some()); // nothing evicted
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 1);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn test_contains_key_is_not_a_use() {
+        let dir = test_dir("contains");
+        let cache = LruCache::new(&dir, 10).unwrap();
+
+        cache.add("a", &[0; 4]).unwrap();
+        cache.add("b", &[0; 4]).unwrap();
+        assert!(cache.contains_key("a")); // peek: a stays the oldest
+        assert!(!cache.contains_key("z"));
+        cache.add("c", &[0; 4]).unwrap(); // evicts a
+
+        assert!(!cache.contains_key("a"));
+        assert!(cache.contains_key("b"));
         fs::remove_dir_all(&dir).unwrap();
     }
 

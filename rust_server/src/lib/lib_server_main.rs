@@ -1,13 +1,17 @@
+use std::fs::File;
 use std::io;
 use std::path::Path;
-use std::sync::Arc;
+use std::str::FromStr;
 use std::time::Instant;
 
 use rust_obm::cost_lookup::CostLookup;
 use rust_obm::cost_predict::CostPredictor;
-use rust_obm::mod_feature::LruCache;
+use rust_obm::mod_feature::{Bin, BinCache, LruCache};
+use rust_obm::mod_load_balancer::base_balancer::{LoadBalancer, LoadBalancerPolicy};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
-use rust_obm::mod_load_balancer::{OffloadSite, TimesFeedback};
+use rust_obm::mod_load_balancer::policy_aco::ACO;
+use rust_obm::mod_load_balancer::policy_mct::MCT;
+use rust_obm::mod_load_balancer::{AcoLB, MctLB, OffloadSite, TimesFeedback};
 
 use crate::lib_core_type as ct;
 use crate::lib_http as http;
@@ -214,27 +218,261 @@ pub fn load_cost_model() -> io::Result<CostPredictor> {
     })
 }
 
-/// [Dishonest I/O] Segment cache from OBM_SEGMENT_CACHE_MB: unset or 0 = off (None).
-/// Files go to OBM_SEGMENT_CACHE_DIR (default /tmp/obm_cache/segment), emptied at start.
-/// A bad value is an error, so a typo never silently runs without the cache.
-pub fn segment_cache_loader() -> io::Result<Option<Arc<LruCache>>> {
-    let Ok(mb_str) = std::env::var("OBM_SEGMENT_CACHE_MB") else {
+/// Everything the main server shares across connections for its whole life: the load balancer
+/// and the optional features (None = off). A new feature is one more field here.
+pub struct ServerState<P: LoadBalancerPolicy> {
+    pub balancer: LoadBalancer<P>,
+    pub segment_cache: Option<SegmentCache>,
+}
+
+impl<P: LoadBalancerPolicy> ServerState<P> {
+    /// [Dishonest I/O] Wraps `balancer` and loads every feature from its env vars, printing
+    /// what is on.
+    pub fn new(balancer: LoadBalancer<P>) -> io::Result<Self> {
+        println!(
+            "Load balancer type = {}",
+            std::any::type_name_of_val(&balancer)
+        );
+        let segment_cache = segment_cache_loader()?;
+        match &segment_cache {
+            Some(cache) => println!("Segment cache ON: {}", cache.describe()),
+            None => println!("Segment cache OFF"),
+        }
+        Ok(Self {
+            balancer,
+            segment_cache,
+        })
+    }
+}
+
+/// The segment cache of a run: one plain LRU, or two LRU bins split by cost. They do the same
+/// job (store rendered segments, answer repeats), so a run has at most one: being one enum,
+/// they can never both be on.
+pub enum SegmentCache {
+    Lru {
+        cache: LruCache,
+        mb: usize,
+    },
+    Bin {
+        cache: BinCache,
+        lower_mb: usize,
+        upper_mb: usize,
+        threshold_s: f64,
+    },
+}
+
+impl SegmentCache {
+    /// Opens the cached file for `key`. None on a miss.
+    pub fn get(&self, key: &str) -> Option<(File, usize)> {
+        match self {
+            Self::Lru { cache, .. } => cache.get(key),
+            Self::Bin { cache, .. } => cache.get(key),
+        }
+    }
+
+    /// Caches a rendered segment. `times` and `config` are the site's timings and render config
+    /// for it: the bins need them for the cost, the plain LRU ignores them.
+    /// Returns the bin it went to (None for the plain LRU). Errors as `LruCache::add` /
+    /// `BinCache::add` (a bin's AlreadyExists names the bin that holds the key).
+    pub fn add(
+        &self,
+        key: &str,
+        data: &[u8],
+        times: &TimesFeedback,
+        config: &Config,
+    ) -> io::Result<Option<Bin>> {
+        match self {
+            Self::Lru { cache, .. } => cache.add(key, data).map(|()| None),
+            Self::Bin { cache, .. } => cache.add(times, config, key, data).map(Some),
+        }
+    }
+
+    /// Bytes held (both bins together for Bin).
+    pub fn used(&self) -> usize {
+        match self {
+            Self::Lru { cache, .. } => cache.used(),
+            Self::Bin { cache, .. } => cache.used(),
+        }
+    }
+
+    /// For the startup line, e.g. "45 MB" or "bins lower 30 MB, upper 15 MB, threshold 6 s"
+    pub fn describe(&self) -> String {
+        match self {
+            Self::Lru { mb, .. } => format!("{mb} MB"),
+            Self::Bin {
+                lower_mb,
+                upper_mb,
+                threshold_s,
+                ..
+            } => {
+                format!("bins lower {lower_mb} MB, upper {upper_mb} MB, threshold {threshold_s} s")
+            }
+        }
+    }
+}
+
+/// [Dishonest I/O] Reads env var `name` as a T: None if unset, an error naming the variable if
+/// it does not parse (so a typo never silently runs with the default).
+fn env_parse<T: FromStr>(name: &str) -> io::Result<Option<T>>
+where
+    T::Err: std::fmt::Display,
+{
+    let Ok(text) = std::env::var(name) else {
         return Ok(None);
     };
-    let mb: usize = mb_str.trim().parse().map_err(|e| {
-        io::Error::new(
+    text.trim()
+        .parse()
+        .map(Some)
+        .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{name}={text:?}: {e}")))
+}
+
+/// [Dishonest I/O] The segment cache from env vars, None = off. Either:
+/// - plain LRU: OBM_SEGMENT_CACHE_MB (unset / 0 = off), files in OBM_SEGMENT_CACHE_DIR
+///   (default /tmp/obm_cache/segment);
+/// - cost bins: OBM_BIN_CACHE_LOWER_MB + OBM_BIN_CACHE_UPPER_MB (both unset / sum 0 = off; an
+///   unset one is 0 MB), OBM_BIN_CACHE_THRESHOLD_S (default 6.0), files in
+///   OBM_BIN_CACHE_DIR/{lower,upper} (default /tmp/obm_cache/bin).
+///
+/// Both on is an error: they are the same feature. Folders are emptied at start.
+pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
+    let lru_mb = env_parse::<usize>("OBM_SEGMENT_CACHE_MB")?.unwrap_or(0);
+    let lower_mb = env_parse::<usize>("OBM_BIN_CACHE_LOWER_MB")?.unwrap_or(0);
+    let upper_mb = env_parse::<usize>("OBM_BIN_CACHE_UPPER_MB")?.unwrap_or(0);
+    let bin_on = lower_mb + upper_mb > 0;
+
+    match (lru_mb > 0, bin_on) {
+        (false, false) => Ok(None),
+        (true, true) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            format!("OBM_SEGMENT_CACHE_MB={mb_str:?}: {e}"),
-        )
-    })?;
-    if mb == 0 {
-        return Ok(None);
+            "OBM_SEGMENT_CACHE_MB and OBM_BIN_CACHE_*_MB are both set: they are the same \
+             feature (segment cache), set only one",
+        )),
+        (true, false) => {
+            let dir = std::env::var("OBM_SEGMENT_CACHE_DIR")
+                .unwrap_or_else(|_| "/tmp/obm_cache/segment".to_string());
+            let cache = LruCache::new(&dir, lru_mb << 20)
+                .map_err(|e| io::Error::new(e.kind(), format!("segment cache dir {dir}: {e}")))?;
+            Ok(Some(SegmentCache::Lru { cache, mb: lru_mb }))
+        }
+        (false, true) => {
+            let threshold_s = env_parse::<f64>("OBM_BIN_CACHE_THRESHOLD_S")?.unwrap_or(6.0);
+            let dir = std::env::var("OBM_BIN_CACHE_DIR")
+                .unwrap_or_else(|_| "/tmp/obm_cache/bin".to_string());
+            let dir = Path::new(&dir);
+            let cache = BinCache::new(
+                dir.join("lower"),
+                dir.join("upper"),
+                lower_mb << 20,
+                upper_mb << 20,
+                threshold_s,
+            )
+            .map_err(|e| io::Error::new(e.kind(), format!("bin cache {}: {e}", dir.display())))?;
+            Ok(Some(SegmentCache::Bin {
+                cache,
+                lower_mb,
+                upper_mb,
+                threshold_s,
+            }))
+        }
     }
-    let dir = std::env::var("OBM_SEGMENT_CACHE_DIR")
-        .unwrap_or_else(|_| "/tmp/obm_cache/segment".to_string());
-    let cache = LruCache::new(&dir, mb << 20)
-        .map_err(|e| io::Error::new(e.kind(), format!("segment cache dir {dir}: {e}")))?;
-    Ok(Some(Arc::new(cache)))
+}
+
+// ---- Load balancer builders: one per policy that needs more than `new`. Each returns one
+// concrete type (MCT / ACO hold a closure, so the type can't be written: `impl` hides it), so
+// the policy `match` stays in main_server and every arm calls `serve` with its own type.
+
+/// Work time (s) for the _const policies: mean over the v3 replays (stat/old_nonfifo/run_a*_c1,
+/// run_a*_c2_p75, 4027 ok requests), weighted by how often each request really arrives
+pub const CONST_WORK_S: f64 = 5.59;
+
+/// [Dishonest I/O] OBM_MCT_FALLBACK=1 turns on the ESCE fallback (mct / aco); default off = the
+/// pure policy for the experiments
+fn mct_fallback() -> bool {
+    std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1")
+}
+
+fn on_off(b: bool) -> &'static str {
+    if b { "on" } else { "off" }
+}
+
+/// [Dishonest I/O] mct: MCT with the cost model (load_cost_model)
+pub fn mct_balancer(sites: Vec<OffloadSite>) -> io::Result<LoadBalancer<impl LoadBalancerPolicy>> {
+    let predictor = load_cost_model()?;
+    let fallback = mct_fallback();
+    println!(
+        "MCT: {} paths, fallback {}",
+        predictor.len(),
+        on_off(fallback)
+    );
+    let predict = move |path: &str, site: &OffloadSite| predictor.predict(path, site);
+    let mct = MCT::with_predict(&sites, predict, fallback);
+    Ok(MctLB::with_policy(sites, mct))
+}
+
+/// [Dishonest I/O] mct_lookup: MCT with measured work per (site config, path) from the replay
+/// runs (load_cost_lookup); a pair never measured falls back to the cost model (logged as
+/// "mct_lookup miss")
+pub fn mct_lookup_balancer(
+    sites: Vec<OffloadSite>,
+) -> io::Result<LoadBalancer<impl LoadBalancerPolicy>> {
+    let lookup = load_cost_lookup()?;
+    let predictor = load_cost_model()?;
+    println!(
+        "MCT: lookup {} (config, path) rows, cost model {} paths for the rest",
+        lookup.len(),
+        predictor.len()
+    );
+    let predict = move |path: &str, site: &OffloadSite| {
+        lookup.predict(path, site).or_else(|| {
+            println!("mct_lookup miss site={} path={path}", site.name);
+            predictor.predict(path, site)
+        })
+    };
+    let mct = MCT::with_predict(&sites, predict, false);
+    Ok(MctLB::with_policy(sites, mct))
+}
+
+/// mct_const: same work for every path and site, MCT without the cost model (ablation)
+pub fn mct_const_balancer(sites: Vec<OffloadSite>) -> LoadBalancer<impl LoadBalancerPolicy> {
+    let const_predict = |_: &str, _: &OffloadSite| Some(CONST_WORK_S);
+    println!("MCT: constant work {CONST_WORK_S} s");
+    let mct = MCT::with_predict(&sites, const_predict, false);
+    MctLB::with_policy(sites, mct)
+}
+
+/// mct_const_flat: mct_const without the om / rs priors (every site starts at factor 1.0,
+/// network 1.0 s)
+pub fn mct_const_flat_balancer(sites: Vec<OffloadSite>) -> LoadBalancer<impl LoadBalancerPolicy> {
+    let const_predict = |_: &str, _: &OffloadSite| Some(CONST_WORK_S);
+    println!("MCT: constant work {CONST_WORK_S} s, flat prior (factor 1.0, network 1.0 s)");
+    let mct = MCT::with_prior(&sites, const_predict, false, Some((1.0, 1.0)));
+    MctLB::with_policy(sites, mct)
+}
+
+/// [Dishonest I/O] aco: ACO with the cost model, same fallback switch as mct, seed from
+/// OBM_ACO_SEED
+pub fn aco_balancer(sites: Vec<OffloadSite>) -> io::Result<LoadBalancer<impl LoadBalancerPolicy>> {
+    let predictor = load_cost_model()?;
+    let fallback = mct_fallback();
+    let seed = aco_seed();
+    println!(
+        "ACO: {} paths, fallback {}, seed {seed}",
+        predictor.len(),
+        on_off(fallback)
+    );
+    let predict = move |path: &str, site: &OffloadSite| predictor.predict(path, site);
+    let aco = ACO::with_predict(&sites, predict, fallback, seed);
+    Ok(AcoLB::with_policy(sites, aco))
+}
+
+/// [Dishonest I/O] aco_const: same work for every path and site, the pheromone has to learn
+/// the sizes
+pub fn aco_const_balancer(sites: Vec<OffloadSite>) -> LoadBalancer<impl LoadBalancerPolicy> {
+    let const_predict = |_: &str, _: &OffloadSite| Some(CONST_WORK_S);
+    let seed = aco_seed();
+    println!("ACO: constant work {CONST_WORK_S} s, seed {seed}");
+    let aco = ACO::with_predict(&sites, const_predict, false, seed);
+    AcoLB::with_policy(sites, aco)
 }
 
 /// [Honest / Pure Domain Logic] True if the response head's status code is 200

@@ -7,17 +7,17 @@ use smol::{
     prelude::*,
 };
 
-use rust_obm::mod_feature::LruCache;
+use rust_obm::mod_feature::BinCache;
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 use rust_server::lib_http as http;
 use rust_server::lib_server_main as sm;
+use rust_server::lib_server_main::ServerState;
 use rust_server::lib_util as util;
 
-async fn handle_client<P: blb::LoadBalancerPolicy>(
+async fn handle_client<P: blb::LoadBalancerPolicy + 'static>(
     mut client_stream: TcpStream,
-    balancer: Arc<blb::LoadBalancer<P>>,
-    segment_cache: Option<Arc<LruCache>>,
+    state: Arc<ServerState<P>>,
 ) -> io::Result<()> {
     let mut buffer = vec![0u8; 4096];
 
@@ -37,7 +37,7 @@ async fn handle_client<P: blb::LoadBalancerPolicy>(
         if path.starts_with("/times") {
             path = path.strip_prefix("/times").expect("Must start with /times");
         }
-        serve_offload(client_stream, balancer, segment_cache, path).await
+        serve_offload(client_stream, &state, path).await
     } else {
         serve_web_page(client_stream, path).await
     }
@@ -66,18 +66,31 @@ async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io
 
 /// Offload request: answered from the segment cache on a hit (the load balancer never sees it),
 /// else rendered by a site chosen by the load balancer.
-async fn serve_offload<P: blb::LoadBalancerPolicy>(
+async fn serve_offload<P: blb::LoadBalancerPolicy + 'static>(
     client_stream: TcpStream,
-    balancer: Arc<blb::LoadBalancer<P>>,
-    segment_cache: Option<Arc<LruCache>>,
+    state: &Arc<ServerState<P>>,
     path: &str,
 ) -> io::Result<()> {
-    if let Some(cache) = &segment_cache
+    if let Some(cache) = &state.segment_cache
         && let Some((file, _size)) = cache.get(path)
     {
         return serve_offload_cache(client_stream, path, file).await;
     }
-    serve_offload_request(client_stream, balancer, segment_cache, path).await
+    if let Some(segment) = serve_offload_request(client_stream, state, path).await? {
+        offload_cache_add(state, path, segment);
+    }
+    Ok(())
+}
+
+/// A segment a site rendered and the client received, with what the cache needs to store it.
+struct RenderedSegment {
+    /// the video bytes (the response body)
+    data: Vec<u8>,
+    /// status 200: only those are cached, an error body must never be replayed
+    status_ok: bool,
+    /// the site's timings and render config, for the bin cache's cost
+    times: lb::TimesFeedback,
+    config: lb::config::Config,
 }
 
 /// Sends a cached segment. The timing headers are present with zero values (so the benchmark
@@ -113,12 +126,14 @@ async fn serve_offload_cache(
     Ok(())
 }
 
-async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
+/// Renders the request on a site chosen by the load balancer and forwards the answer to the
+/// client. Returns the segment once the client has it; None after a gateway error (the client
+/// got a 502 / 504 instead).
+async fn serve_offload_request<P: blb::LoadBalancerPolicy + 'static>(
     mut client_stream: TcpStream,
-    balancer: Arc<blb::LoadBalancer<P>>,
-    segment_cache: Option<Arc<LruCache>>,
+    state: &Arc<ServerState<P>>,
     path: &str,
-) -> io::Result<()> {
+) -> io::Result<Option<RenderedSegment>> {
     use http::{request_get, send_raw};
     use std::time::{Duration, Instant};
     use util::{copy_with_idle_timeout, with_timeout};
@@ -133,7 +148,7 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
     // A policy may hold the request until a site is free (throttled): that wait is reported
     // on its own (X-OBM-Wait), and the network time starts after it
     let t_wait_start = Instant::now();
-    let target_offload = balancer.select_wait(Some(path)).await;
+    let target_offload = state.balancer.select_wait(Some(path)).await;
     let t_wait = t_wait_start.elapsed().as_millis() as i64;
     let t_start = Instant::now();
 
@@ -142,7 +157,8 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
     let mut offload_steam = match connect {
         Ok(stream) => stream,
         Err(e) => {
-            return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
+            sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await?;
+            return Ok(None);
         }
     };
 
@@ -155,7 +171,8 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
     let (head, mut body) = match split {
         Ok(parts) => parts,
         Err(e) => {
-            return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
+            sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await?;
+            return Ok(None);
         }
     };
     let (new_head, times) = sm::time_append_header(&head, t_start, t_wait, target_offload.endpoint);
@@ -176,12 +193,14 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
         _ => Ok(()),
     });
     if let Err(e) = checked {
-        return sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await;
+        sm::reply_gateway_error(&mut client_stream, target_offload.name, path, e).await?;
+        return Ok(None);
     }
 
     // The site's part is over: report it (with timings) before talking to the client
     let total_ms = t_wait + times.t_net + times.t_queue + times.t_asset + times.t_work;
     let site_name = target_offload.name;
+    let config = target_offload.config;
     target_offload.finish(Some(&times));
 
     // 3. Forward head + body to the client
@@ -192,34 +211,70 @@ async fn serve_offload_request<P: blb::LoadBalancerPolicy>(
     let message = format!("[OFFLOAD] -> {} | {}ms | {}", site_name, total_ms, path);
     util::log_message(&message);
 
-    // 4. Store the rendered segment, after the client has it; the file write runs on a
-    //    blocking thread so it never stalls the async executor. Every outcome is logged.
-    if let Some(cache) = segment_cache {
-        if !sm::is_status_ok(&head) {
-            util::log_message(&format!("[CACHE] skip: status not 200 | {path}"));
-        } else {
-            let key = path.to_string();
-            smol::unblock(move || {
-                let size = data.len();
-                let outcome = match cache.add(&key, &data) {
-                    Ok(()) => format!("added {size} B (used {} B)", cache.used()),
-                    Err(e) => {
-                        let reason = match e.kind() {
-                            // a concurrent miss on the same path rendered and stored it first
-                            io::ErrorKind::AlreadyExists => "already cached".to_string(),
-                            io::ErrorKind::InvalidInput => "bigger than the cache".to_string(),
-                            _ => e.to_string(),
-                        };
-                        format!("add failed ({size} B): {reason}")
-                    }
-                };
-                util::log_message(&format!("[CACHE] {outcome} | {key}"));
-            })
-            .detach();
-        }
-    }
+    Ok(Some(RenderedSegment {
+        data,
+        status_ok: sm::is_status_ok(&head),
+        times,
+        config,
+    }))
+}
 
-    Ok(())
+/// Stores a rendered segment in the segment cache (plain LRU or bins), if one is on. The file
+/// write runs on a blocking thread so it never stalls the async executor; every outcome is
+/// logged ('[CACHE] added | add failed | skip').
+fn offload_cache_add<P: blb::LoadBalancerPolicy + 'static>(
+    state: &Arc<ServerState<P>>,
+    path: &str,
+    segment: RenderedSegment,
+) {
+    if state.segment_cache.is_none() {
+        return;
+    }
+    if !segment.status_ok {
+        util::log_message(&format!("[CACHE] skip: status not 200 | {path}"));
+        return;
+    }
+    let key = path.to_string();
+    // the blocking thread needs its own handle on the state ('static)
+    let state = Arc::clone(state);
+    smol::unblock(move || {
+        let cache = state.segment_cache.as_ref().expect("checked is_some above");
+        let RenderedSegment {
+            data,
+            times,
+            config,
+            ..
+        } = segment;
+        let size = data.len();
+        // bins: which side of the threshold this segment fell
+        let cost = match cache {
+            sm::SegmentCache::Bin { .. } => {
+                format!(" cost {:.2} s", BinCache::cost_s(&times, &config))
+            }
+            sm::SegmentCache::Lru { .. } => String::new(),
+        };
+        let outcome = match cache.add(&key, &data, &times, &config) {
+            Ok(bin) => {
+                let to_bin = bin.map(|b| format!(" to {b}")).unwrap_or_default();
+                format!("added {size} B{to_bin} (used {} B){cost}", cache.used())
+            }
+            Err(e) => {
+                let reason = match e.kind() {
+                    // a concurrent miss on the same path stored it first; the bins say where
+                    // ("in upper bin" / "in other bin, upper"), the plain LRU has no message
+                    io::ErrorKind::AlreadyExists => match e.get_ref() {
+                        Some(where_) => format!("already cached ({where_})"),
+                        None => "already cached".to_string(),
+                    },
+                    io::ErrorKind::InvalidInput => "bigger than the cache".to_string(),
+                    _ => e.to_string(),
+                };
+                format!("add failed ({size} B){cost}: {reason}")
+            }
+        };
+        util::log_message(&format!("[CACHE] {outcome} | {key}"));
+    })
+    .detach();
 }
 
 async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<()> {
@@ -251,15 +306,11 @@ async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<
     send_raw(&mut client_stream, &response).await
 }
 
-// Work time (s) for mct_const: mean over the v3 replays (stat/old_nonfifo/run_a*_c1, run_a*_c2_p75,
-// 4027 ok requests), weighted by how often each request really arrives
-const CONST_WORK_S: f64 = 5.59;
-
 fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
     // policy (default rr): rr | iwrr | esce | mct | mct_lookup | mct_const | mct_const_flat | aco | aco_const |
     // throttled | throttled2
-    // (mct / aco read the cost model, see load_cost_model; the _const ones use CONST_WORK_S)
+    // (mct / aco read the cost model, see load_cost_model; the _const ones use sm::CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
         eprintln!(
@@ -282,90 +333,12 @@ fn main() -> io::Result<()> {
         "throttled" => serve(lb::ThrottledLB::new(offload_url)),
         // at most 2 requests per site: the next job is already at the site when one ends (no idle gap)
         "throttled2" => serve(lb::Throttled2LB::new(offload_url)),
-        "mct" => {
-            let predictor = sm::load_cost_model().unwrap_or_else(|e| {
-                eprintln!("{e}");
-                std::process::exit(2);
-            });
-            // OBM_MCT_FALLBACK=1 turns on the ESCE fallback; default off = pure MCT for the experiments
-            let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
-            println!(
-                "MCT: {} paths, fallback {}",
-                predictor.len(),
-                if fallback { "on" } else { "off" }
-            );
-            let predict = move |path: &str, site: &lb::OffloadSite| predictor.predict(path, site);
-            let mct = lb::policy_mct::MCT::with_predict(&offload_url, predict, fallback);
-            serve(lb::MctLB::with_policy(offload_url, mct))
-        }
-        "mct_lookup" => {
-            // MCT with measured work per (site config, path) from the replay runs (load_cost_lookup);
-            // a pair never measured falls back to the cost model (logged as "mct_lookup miss")
-            let (lookup, predictor) = match (sm::load_cost_lookup(), sm::load_cost_model()) {
-                (Ok(l), Ok(p)) => (l, p),
-                (Err(e), _) | (_, Err(e)) => {
-                    eprintln!("{e}");
-                    std::process::exit(2);
-                }
-            };
-            println!(
-                "MCT: lookup {} (config, path) rows, cost model {} paths for the rest",
-                lookup.len(),
-                predictor.len()
-            );
-            let predict = move |path: &str, site: &lb::OffloadSite| {
-                lookup.predict(path, site).or_else(|| {
-                    println!("mct_lookup miss site={} path={path}", site.name);
-                    predictor.predict(path, site)
-                })
-            };
-            let mct = lb::policy_mct::MCT::with_predict(&offload_url, predict, false);
-            serve(lb::MctLB::with_policy(offload_url, mct))
-        }
-        "mct_const" => {
-            // same work for every path and site: MCT without the cost model (ablation)
-            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
-            println!("MCT: constant work {CONST_WORK_S} s");
-            let mct = lb::policy_mct::MCT::with_predict(&offload_url, const_predict, false);
-            serve(lb::MctLB::with_policy(offload_url, mct))
-        }
-        "mct_const_flat" => {
-            // mct_const without the om / rs priors: every site starts at factor 1.0, network 1.0 s
-            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
-            println!("MCT: constant work {CONST_WORK_S} s, flat prior (factor 1.0, network 1.0 s)");
-            let mct = lb::policy_mct::MCT::with_prior(
-                &offload_url,
-                const_predict,
-                false,
-                Some((1.0, 1.0)),
-            );
-            serve(lb::MctLB::with_policy(offload_url, mct))
-        }
-        "aco" => {
-            let predictor = sm::load_cost_model().unwrap_or_else(|e| {
-                eprintln!("{e}");
-                std::process::exit(2);
-            });
-            // same fallback switch as mct
-            let fallback = std::env::var("OBM_MCT_FALLBACK").is_ok_and(|v| v == "1");
-            let seed = sm::aco_seed();
-            println!(
-                "ACO: {} paths, fallback {}, seed {seed}",
-                predictor.len(),
-                if fallback { "on" } else { "off" }
-            );
-            let predict = move |path: &str, site: &lb::OffloadSite| predictor.predict(path, site);
-            let aco = lb::policy_aco::ACO::with_predict(&offload_url, predict, fallback, seed);
-            serve(lb::AcoLB::with_policy(offload_url, aco))
-        }
-        "aco_const" => {
-            // same work for every path and site: the pheromone has to learn the sizes
-            let const_predict = |_: &str, _: &lb::OffloadSite| Some(CONST_WORK_S);
-            let seed = sm::aco_seed();
-            println!("ACO: constant work {CONST_WORK_S} s, seed {seed}");
-            let aco = lb::policy_aco::ACO::with_predict(&offload_url, const_predict, false, seed);
-            serve(lb::AcoLB::with_policy(offload_url, aco))
-        }
+        "mct" => serve(or_exit(sm::mct_balancer(offload_url))),
+        "mct_lookup" => serve(or_exit(sm::mct_lookup_balancer(offload_url))),
+        "mct_const" => serve(sm::mct_const_balancer(offload_url)),
+        "mct_const_flat" => serve(sm::mct_const_flat_balancer(offload_url)),
+        "aco" => serve(or_exit(sm::aco_balancer(offload_url))),
+        "aco_const" => serve(sm::aco_const_balancer(offload_url)),
         other => {
             eprintln!(
                 "Unknown policy '{other}' (expected {})",
@@ -376,23 +349,18 @@ fn main() -> io::Result<()> {
     }
 }
 
+/// A policy that can't load its data (cost model, lookup table) is a usage error: say why, exit 2
+fn or_exit<T>(result: io::Result<T>) -> T {
+    result.unwrap_or_else(|e| {
+        eprintln!("{e}");
+        std::process::exit(2);
+    })
+}
+
 fn serve<P: blb::LoadBalancerPolicy + 'static>(
     load_balancer: blb::LoadBalancer<P>,
 ) -> io::Result<()> {
-    println!(
-        "Load balancer type = {}",
-        std::any::type_name_of_val(&load_balancer)
-    );
-
-    let balancer = Arc::new(load_balancer);
-    let segment_cache = sm::segment_cache_loader()?;
-    match &segment_cache {
-        Some(_) => println!(
-            "Segment cache ON: {} MB",
-            std::env::var("OBM_SEGMENT_CACHE_MB").unwrap_or_default()
-        ),
-        None => println!("Segment cache OFF"),
-    }
+    let state = Arc::new(ServerState::new(load_balancer)?);
 
     smol::block_on(async {
         // Bind the server to a local port
@@ -404,11 +372,10 @@ fn serve<P: blb::LoadBalancerPolicy + 'static>(
         let mut incoming = listener.incoming();
         while let Some(stream) = incoming.next().await {
             let stream = stream?;
-            let lb_clone = Arc::clone(&balancer);
-            let cache_clone = segment_cache.clone();
+            let state = Arc::clone(&state);
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, lb_clone, cache_clone).await {
+                if let Err(e) = handle_client(stream, state).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })
