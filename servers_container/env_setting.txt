@@ -21,6 +21,15 @@ OBM_BIN_CACHE_THRESHOLD_S=6
 # time share one render (followers: worker 'coalesce'). Independent of the segment cache.
 OBM_COALESCE=0
 
+# ---- Merged prefetch (main server): 1 = on, 0 = off. Rule "2 continue": segment k-1 and k of the
+# same show + combination arrive within WINDOW s (any users) -> render k+1 early. The prefetch leads
+# in the in-flight table (real requests for it follow, worker 'prefetch'; works with OBM_COALESCE=0
+# too), stays readable HOLD s after it finishes, then goes into the segment cache only if a request
+# read it. Independent of the segment cache and coalescing.
+OBM_PREFETCH=0
+OBM_PREFETCH_WINDOW_S=30
+OBM_PREFETCH_HOLD_S=30
+
 # ---- Asset cache (on every offload site, per site): cap in MiB, 0 = off; policy lru | lfu
 # 50 MB ~ half a site's assets per run; LFU ~3 pts more file hits than LRU there (temp/asset_cache_sim.py)
 OBM_ASSET_CACHE_MB=0

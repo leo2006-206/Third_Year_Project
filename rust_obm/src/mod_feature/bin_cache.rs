@@ -130,6 +130,11 @@ impl BinCache {
             .or_else(|| self.upper_cache.get(key))
     }
 
+    /// True if either bin holds `key`. A peek: not a use, no file opened.
+    pub fn contains_key(&self, key: &str) -> bool {
+        self.lower_cache.contains_key(key) || self.upper_cache.contains_key(key)
+    }
+
     /// Bytes held by both bins.
     pub fn used(&self) -> usize {
         self.lower_cache.used() + self.upper_cache.used()

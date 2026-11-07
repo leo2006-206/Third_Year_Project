@@ -7,12 +7,17 @@ use smol::{
     prelude::*,
 };
 
-use rust_obm::mod_feature::{BinCache, Follower, Leader, Role, SegmentCache};
+use rust_obm::mod_feature::{Follower, Leader};
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 use rust_server::lib_http as http;
+use rust_server::lib_main_state as main_state;
+use rust_server::lib_main_state::ServerState;
+use rust_server::lib_segment::{
+    LookupMode, OffloadError, SegmentLookup, fetch_offload, offload_cache_add, prefetch_task,
+    segment_lookup,
+};
 use rust_server::lib_server_main as sm;
-use rust_server::lib_server_main::ServerState;
 use rust_server::lib_util as util;
 
 async fn handle_client<P: blb::LoadBalancerPolicy + 'static>(
@@ -65,29 +70,57 @@ async fn serve_resource(mut client_stream: TcpStream, resource_path: &str) -> io
 }
 
 /// Offload request, in order:
+/// 0. prefetch on: the request feeds the "2 continue" rule, which may start a prefetch of the
+///    next segment (detached, see prefetch_task);
 /// 1. segment cache hit: sent from the cache (the load balancer never sees it);
-/// 2. coalescing on and the same path is already rendering: wait for that render (follower);
+/// 2. the same path is in the in-flight table (a real leader with coalescing on, or a prefetch):
+///    wait for that render (follower);
 /// 3. else render on a site chosen by the load balancer (the leader, when coalescing is on):
 ///    the followers and the cache get the segment first, then this client.
+///
+/// A follower whose leader was a prefetch that failed goes back to 1. (the lookup again): with
+/// coalescing on, the followers of a failed prefetch then share one new render (the first one
+/// back leads, the others follow it) instead of rendering one each. Ends: a new failed prefetch
+/// of the same path needs a new trigger + render, so this loops at most once per such prefetch.
 async fn serve_offload<P: blb::LoadBalancerPolicy + 'static>(
     mut client_stream: TcpStream,
     state: &Arc<ServerState<P>>,
     path: &str,
 ) -> io::Result<()> {
-    if let Some(cache) = &state.segment_cache
-        && let Some((file, _size)) = cache.get(path)
+    if let Some(prefetch) = &state.prefetch
+        && let Some(target) = prefetch.observe(path, prefetch.now_s())
     {
-        return serve_offload_cache(client_stream, path, file).await;
+        smol::spawn(prefetch_task(Arc::clone(state), path.to_string(), target)).detach();
     }
-    // coalescing off -> no leader, the render below is exactly the old path
-    let leader = match state.coalescer.as_ref().map(|c| c.join(path)) {
-        Some(Role::Follower(follower)) => {
-            return serve_offload_coalesce(client_stream, path, follower).await;
-        }
-        Some(Role::Leader(leader)) => Some(leader),
-        None => None,
-    };
+    loop {
+        return match segment_lookup(state, path, LookupMode::Real) {
+            SegmentLookup::Hit(file) => serve_offload_cache(client_stream, path, file).await,
+            SegmentLookup::Follow(follower) => {
+                match serve_offload_coalesce(client_stream, path, follower).await? {
+                    Followed::Served => Ok(()),
+                    Followed::PrefetchFailed(stream) => {
+                        client_stream = stream;
+                        continue;
+                    }
+                }
+            }
+            SegmentLookup::Lead(leader) => {
+                render_and_send(client_stream, state, path, leader).await
+            }
+            // never for a real request; rendering is the safe answer
+            SegmentLookup::Skip(_) => render_and_send(client_stream, state, path, None).await,
+        };
+    }
+}
 
+/// Renders `path` on a site and sends it to the client; with a leader, the followers and the
+/// cache get the segment before this client's transfer.
+async fn render_and_send<P: blb::LoadBalancerPolicy + 'static>(
+    mut client_stream: TcpStream,
+    state: &Arc<ServerState<P>>,
+    path: &str,
+    leader: Option<Leader<'_, Arc<Vec<u8>>>>,
+) -> io::Result<()> {
     let segment = match fetch_offload(state, path).await? {
         Ok(segment) => segment,
         Err(OffloadError { site, err }) => {
@@ -109,30 +142,6 @@ async fn serve_offload<P: blb::LoadBalancerPolicy + 'static>(
     );
     util::log_message(&message);
     Ok(())
-}
-
-/// A segment a site rendered, ready to send to the client and to share with the followers and
-/// the cache.
-struct RenderedSegment<'a> {
-    /// the site's response head with the main server's timing headers appended
-    head: Vec<u8>,
-    /// the video bytes (the response body), shared by the client write, the followers and the
-    /// cache add without copying
-    data: Arc<Vec<u8>>,
-    /// status 200: only those are cached / handed to followers, an error body must never be replayed
-    status_ok: bool,
-    /// the site's timings and render config, for the bin cache's cost
-    times: lb::TimesFeedback,
-    config: lb::config::Config,
-    /// site name and wait + net + queue + asset + work (ms), for the [OFFLOAD] log line
-    site: &'a str,
-    total_ms: i64,
-}
-
-/// A site failed before the body was complete: what `sm::reply_gateway_error` needs.
-struct OffloadError<'a> {
-    site: &'a str,
-    err: io::Error,
 }
 
 /// Sends a cached segment. The timing headers are present with zero values (so the benchmark
@@ -168,193 +177,61 @@ async fn serve_offload_cache(
     Ok(())
 }
 
+/// What became of a follower
+enum Followed {
+    /// answered: the leader's segment, or a 502 after a failed real leader
+    Served,
+    /// the leader was a prefetch and failed: nothing sent yet, the client goes back to the lookup
+    PrefetchFailed(TcpStream),
+}
+
 /// Follower: waits for the leader rendering the same path, then sends its segment (zero timing
-/// headers like a cache hit, worker "coalesce", X-OBM-Coalesce = ms waited). A leader that
-/// ended without a 200 segment (gateway error, other status, panic) makes this a 502: no
-/// fallback render. Logs '[COALESCE] hit' or '[COALESCE] leader failed'.
+/// headers like a cache hit, X-OBM-Coalesce = ms waited; worker "coalesce" for a real leader,
+/// "prefetch" for a prefetch). A real leader that ended without a 200 segment (gateway error,
+/// other status, panic) makes this a 502: no fallback render. A failed prefetch is nobody's
+/// request: the client is handed back (PrefetchFailed) for a fresh lookup in serve_offload.
+/// Logs '[COALESCE] hit' / '[COALESCE] leader failed' (real leader) or '[PREFETCH] hit |
+/// in flight / held' / '[PREFETCH] leader failed, lookup again' (prefetch).
 async fn serve_offload_coalesce(
     mut client_stream: TcpStream,
     path: &str,
     follower: Follower<Arc<Vec<u8>>>,
-) -> io::Result<()> {
+) -> io::Result<Followed> {
     let t_start = std::time::Instant::now();
+    let speculative = follower.speculative();
+    let stage = if follower.ready() {
+        "held"
+    } else {
+        "in flight"
+    };
     let Some(data) = follower.wait().await else {
         let ms = t_start.elapsed().as_millis();
+        if speculative {
+            util::log_message(&format!(
+                "[PREFETCH] leader failed, lookup again | {ms}ms | {path}"
+            ));
+            return Ok(Followed::PrefetchFailed(client_stream));
+        }
         util::log_message(&format!("[COALESCE] leader failed | {ms}ms | {path}"));
         let resp = http::response_gateway_error(false);
-        return http::send_raw(&mut client_stream, &resp).await;
+        http::send_raw(&mut client_stream, &resp).await?;
+        return Ok(Followed::Served);
     };
     let wait_ms = t_start.elapsed().as_millis();
 
-    let head = sm::coalesce_response_head(data.len() as u64, wait_ms);
+    let head = sm::coalesce_response_head(data.len() as u64, wait_ms, speculative);
     client_stream.write_all(&head).await?;
     client_stream.write_all(&data).await?;
     client_stream.flush().await?;
 
     let ms = t_start.elapsed().as_millis();
-    util::log_message(&format!(
-        "[COALESCE] hit | {wait_ms}ms wait | {ms}ms | {path}"
-    ));
-    Ok(())
-}
-
-/// Renders the request on a site chosen by the load balancer and returns the whole segment;
-/// never talks to the client. Inner Err = the site failed before the body was complete (the
-/// caller answers 502 / 504); outer Err = sending the request to the site failed.
-async fn fetch_offload<'a, P: blb::LoadBalancerPolicy + 'static>(
-    state: &'a Arc<ServerState<P>>,
-    path: &str,
-) -> io::Result<Result<RenderedSegment<'a>, OffloadError<'a>>> {
-    use http::{request_get, send_raw};
-    use std::time::{Duration, Instant};
-    use util::{copy_with_idle_timeout, with_timeout};
-    const MAIN_SERVER_AGENT: &str = "OBM Load balancer/1.0";
-    // A live site accepts within ~30-60 ms; longer means it is down or the packets are dropped
-    const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
-    // Until the response headers: includes the site's queue + asset + render time
-    const HEADER_TIMEOUT: Duration = Duration::from_secs(600);
-    // Body streaming: limit on a gap with no data, not on the whole transfer
-    const BODY_IDLE_TIMEOUT: Duration = Duration::from_secs(30);
-
-    // A policy may hold the request until a site is free (throttled): that wait is reported
-    // on its own (X-OBM-Wait), and the network time starts after it
-    let t_wait_start = Instant::now();
-    let target_offload = state.balancer.select_wait(Some(path)).await;
-    let t_wait = t_wait_start.elapsed().as_millis() as i64;
-    let t_start = Instant::now();
-    let site = target_offload.name;
-
-    // On an early return the selection guard is dropped, which reports the site as done
-    let connect = with_timeout(CONNECT_TIMEOUT, TcpStream::connect(target_offload.endpoint)).await;
-    let mut offload_steam = match connect {
-        Ok(stream) => stream,
-        Err(err) => return Ok(Err(OffloadError { site, err })),
+    let message = if speculative {
+        format!("[PREFETCH] hit | {wait_ms}ms wait | {stage} | {ms}ms | {path}")
+    } else {
+        format!("[COALESCE] hit | {wait_ms}ms wait | {ms}ms | {path}")
     };
-
-    let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
-    send_raw(&mut offload_steam, &message).await?;
-
-    // 1. Response head (queue + asset + render happen before it); the body keeps arriving
-    //    in the socket meanwhile. A missing / oversized head is a gateway error like a timeout
-    let split = with_timeout(HEADER_TIMEOUT, http::split_header_body(&mut offload_steam)).await;
-    let (head, mut body) = match split {
-        Ok(parts) => parts,
-        Err(err) => return Ok(Err(OffloadError { site, err })),
-    };
-    let (new_head, times) = sm::time_append_header(&head, t_start, t_wait, target_offload.endpoint);
-
-    // 2. Whole body into a buffer (the cache / followers take it from here) and check its
-    //    length against Content-Length; nothing has been sent to the client yet, so a short or
-    //    stalled body is still a clean gateway error
-    let expected_len = http::parse_content_length(&head);
-    // capacity capped so a bogus Content-Length can't make a huge allocation up front
-    let capacity = expected_len.unwrap_or(0).min(64 << 20) as usize;
-    let mut data = Vec::with_capacity(capacity);
-    let received = copy_with_idle_timeout(&mut body, &mut data, BODY_IDLE_TIMEOUT).await;
-    let checked = received.and_then(|n| match expected_len {
-        Some(len) if len != n => Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            format!("body {n} B, Content-Length {len} B"),
-        )),
-        _ => Ok(()),
-    });
-    if let Err(err) = checked {
-        return Ok(Err(OffloadError { site, err }));
-    }
-
-    // The site's part is over: report it (with timings) before anyone talks to the client
-    let total_ms = t_wait + times.t_net + times.t_queue + times.t_asset + times.t_work;
-    let config = target_offload.config;
-    target_offload.finish(Some(&times));
-
-    Ok(Ok(RenderedSegment {
-        head: new_head,
-        data: Arc::new(data),
-        status_ok: http::is_status_ok(&head),
-        times,
-        config,
-        site,
-        total_ms,
-    }))
-}
-
-/// Shares a rendered segment: stores it in the segment cache (plain or bins), if one is on, and
-/// hands it to the coalescing leader's followers, if this request leads. Only status 200 is
-/// shared; otherwise the leader is dropped and its followers answer 502.
-/// The cache file write runs on a blocking thread so it never stalls the async executor.
-/// Logs: '[CACHE] added | add failed | skip' (cache on), '[COALESCE] add | skip' (leader).
-async fn offload_cache_add<P: blb::LoadBalancerPolicy + 'static>(
-    state: &Arc<ServerState<P>>,
-    path: &str,
-    leader: Option<Leader<'_, Arc<Vec<u8>>>>,
-    segment: &RenderedSegment<'_>,
-) {
-    if !segment.status_ok {
-        if state.segment_cache.is_some() {
-            util::log_message(&format!("[CACHE] skip: status not 200 | {path}"));
-        }
-        if let Some(leader) = leader {
-            let n = leader.followers();
-            util::log_message(&format!(
-                "[COALESCE] skip: status not 200 | {n} followers | {path}"
-            ));
-        }
-        return;
-    }
-    if state.segment_cache.is_some() {
-        cache_add_detached(state, path, segment);
-    }
-    if let Some(leader) = leader {
-        let n = leader.followers();
-        leader.finish(Arc::clone(&segment.data)).await;
-        util::log_message(&format!("[COALESCE] add | {n} followers | {path}"));
-    }
-}
-
-/// Starts the segment cache write on a blocking thread and logs its outcome
-/// ('[CACHE] added | add failed').
-fn cache_add_detached<P: blb::LoadBalancerPolicy + 'static>(
-    state: &Arc<ServerState<P>>,
-    path: &str,
-    segment: &RenderedSegment<'_>,
-) {
-    let key = path.to_string();
-    // the blocking thread needs its own handles ('static): the state and the shared body
-    let state = Arc::clone(state);
-    let data = Arc::clone(&segment.data);
-    let (times, config) = (segment.times, segment.config);
-    smol::unblock(move || {
-        let cache = state.segment_cache.as_ref().expect("caller checked is_some");
-        let size = data.len();
-        // bins: which side of the threshold this segment fell
-        let cost = match cache {
-            SegmentCache::Bin { .. } => {
-                format!(" cost {:.2} s", BinCache::cost_s(&times, &config))
-            }
-            SegmentCache::Single { .. } => String::new(),
-        };
-        let outcome = match cache.add(&key, &data, &times, &config) {
-            Ok(bin) => {
-                let to_bin = bin.map(|b| format!(" to {b}")).unwrap_or_default();
-                format!("added {size} B{to_bin} (used {} B){cost}", cache.used())
-            }
-            Err(e) => {
-                let reason = match e.kind() {
-                    // a concurrent miss on the same path stored it first; the bins say where
-                    // ("in upper bin" / "in other bin, upper"), the plain LRU has no message
-                    io::ErrorKind::AlreadyExists => match e.get_ref() {
-                        Some(where_) => format!("already cached ({where_})"),
-                        None => "already cached".to_string(),
-                    },
-                    io::ErrorKind::InvalidInput => "bigger than the cache".to_string(),
-                    _ => e.to_string(),
-                };
-                format!("add failed ({size} B){cost}: {reason}")
-            }
-        };
-        util::log_message(&format!("[CACHE] {outcome} | {key}"));
-    })
-    .detach();
+    util::log_message(&message);
+    Ok(Followed::Served)
 }
 
 async fn serve_web_page(mut client_stream: TcpStream, path: &str) -> io::Result<()> {
@@ -390,7 +267,7 @@ fn main() -> io::Result<()> {
     // Usage: main_server <cluster_csv> [policy], e.g. servers_container/cluster_endpoint_c1.csv iwrr
     // policy (default rr): rr | iwrr | esce | mct | mct_lookup | mct_const | mct_const_flat | aco | aco_const |
     // throttled | throttled2
-    // (mct / aco read the cost model, see load_cost_model; the _const ones use sm::CONST_WORK_S)
+    // (mct / aco read the cost model, see load_cost_model; the _const ones use main_state::CONST_WORK_S)
     let mut args = std::env::args().skip(1);
     let Some(csv_path) = args.next() else {
         eprintln!(
@@ -401,7 +278,7 @@ fn main() -> io::Result<()> {
     };
     let policy = args.next().unwrap_or_else(|| "rr".to_string());
 
-    let offload_url = sm::load_cluster_csv(&csv_path)?;
+    let offload_url = main_state::load_cluster_csv(&csv_path)?;
     for site in &offload_url {
         println!("Offload site: {} ({})", site.endpoint, site.name);
     }
@@ -413,12 +290,12 @@ fn main() -> io::Result<()> {
         "throttled" => serve(lb::ThrottledLB::new(offload_url)),
         // at most 2 requests per site: the next job is already at the site when one ends (no idle gap)
         "throttled2" => serve(lb::Throttled2LB::new(offload_url)),
-        "mct" => serve(or_exit(sm::mct_balancer(offload_url))),
-        "mct_lookup" => serve(or_exit(sm::mct_lookup_balancer(offload_url))),
-        "mct_const" => serve(sm::mct_const_balancer(offload_url)),
-        "mct_const_flat" => serve(sm::mct_const_flat_balancer(offload_url)),
-        "aco" => serve(or_exit(sm::aco_balancer(offload_url))),
-        "aco_const" => serve(sm::aco_const_balancer(offload_url)),
+        "mct" => serve(or_exit(main_state::mct_balancer(offload_url))),
+        "mct_lookup" => serve(or_exit(main_state::mct_lookup_balancer(offload_url))),
+        "mct_const" => serve(main_state::mct_const_balancer(offload_url)),
+        "mct_const_flat" => serve(main_state::mct_const_flat_balancer(offload_url)),
+        "aco" => serve(or_exit(main_state::aco_balancer(offload_url))),
+        "aco_const" => serve(main_state::aco_const_balancer(offload_url)),
         other => {
             eprintln!(
                 "Unknown policy '{other}' (expected {})",

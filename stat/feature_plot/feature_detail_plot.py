@@ -37,6 +37,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # stat/ for lat
 from latency_plot import FEATURE_FILE, FEATURE_STYLE, OTHER, style
 
 SITES = ["om1", "om2", "om3", "rs1", "rs2", "rs3"]
+# answered by the main server without a render of its own: segment cache hit, follower of a real
+# render (coalescing), follower of a prefetch (merged prefetch)
+NON_SITE = ["cache", "coalesce", "prefetch"]
 PARTS = [  # same as stat/latency_detail_plot.py
     ("site_queue", "site queue", "#2a78d6", None),
     ("wait", "central wait", "#86b6ef", "//"),
@@ -50,9 +53,10 @@ FS_TITLE, FS_LABEL, FS_TICK, FS_VALUE = 20, 14, 12, 10
 
 
 def site_of(worker: str) -> str:
-    """[Honest] 'obm-offload-om2:7020' -> om2, '10.10.0.2:7030' -> rs3, 'cache' -> cache."""
-    if worker == "cache":
-        return "cache"
+    """[Honest] 'obm-offload-om2:7020' -> om2, '10.10.0.2:7030' -> rs3, 'cache' / 'coalesce' /
+    'prefetch' -> unchanged."""
+    if worker in NON_SITE:
+        return worker
     m = re.search(r"(om\d)", worker)
     if m:
         return m[1]
@@ -103,7 +107,7 @@ def run_metrics(csv: Path) -> dict:
     df["site_queue"], df["wait"] = (df["queue_ms"] - wait) / 1000, wait / 1000
     df["work"], df["asset_net"] = df["work_ms"] / 1000, (df["asset_ms"] + df["net_ms"]) / 1000
     hit = df["site"] == "cache"
-    sent = df[~hit]
+    sent = df[~df["site"].isin(NON_SITE)]
     r = {f"all_{c}": df[c].mean() for c, *_ in PARTS}
     r |= {f"sent_{c}": sent[c].mean() for c, *_ in PARTS}
     r["n"], r["n_hit"] = len(df), int(hit.sum())
@@ -121,11 +125,11 @@ def run_metrics(csv: Path) -> dict:
     r["asset_byte"] = tot["hit_b"] / (tot["hit_b"] + tot["miss_b"]) if has_asset else np.nan
     r["asset_fetches"] = r["asset_miss"] = tot["miss"]
     r["asset_hit"] = tot["hit"]
-    for s in SITES + ["cache"]:
+    for s in SITES + NON_SITE:
         on = df[df["site"] == s]
         r[f"share_{s}"] = len(on) / len(df)
-        r[f"queue_{s}"] = on["site_queue"].mean() + on["wait"].mean() if s != "cache" else np.nan
-        r[f"asset_{s}"] = on["asset_net"].mean() if s != "cache" else np.nan
+        r[f"queue_{s}"] = on["site_queue"].mean() + on["wait"].mean() if s in SITES else np.nan
+        r[f"asset_{s}"] = on["asset_net"].mean() if s in SITES else np.nan
     main_log = Path(f"{base}_main.log")
     if not (main_log.exists() and "Segment cache ON" in main_log.read_text(errors="replace")):
         r["seg_req"] = r["seg_byte"] = np.nan  # off: no bar, not 0 %
@@ -165,7 +169,7 @@ def print_tables(s: pd.DataFrame, title: str):
           + h.round(3).to_string())
     for k, what in [("share", "share of requests"), ("queue", "mean queue (s)"),
                     ("asset", "mean asset + net (s)"), ("asset_file", "asset file hit ratio")]:
-        cs = [f"{k}_{x}" for x in SITES + (["cache"] if k == "share" else [])]
+        cs = [f"{k}_{x}" for x in SITES + (NON_SITE if k == "share" else [])]
         print(f"per site: {what}\n" + s[cs].rename(columns=lambda c: c.split("_")[-1]).round(3).to_string())
 
 

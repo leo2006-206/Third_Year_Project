@@ -30,6 +30,14 @@ impl SegmentCache {
         }
     }
 
+    /// True if `key` is cached. A peek: not a use (LRU / LFU state unchanged), no file opened.
+    pub fn contains_key(&self, key: &str) -> bool {
+        match self {
+            Self::Single { cache, .. } => cache.contains_key(key),
+            Self::Bin { cache, .. } => cache.contains_key(key),
+        }
+    }
+
     /// Caches a rendered segment. `times` and `config` are the site's timings and render config
     /// for it: the bins need them for the cost, the single cache ignores them.
     /// Returns the bin it went to (None for the single cache). Errors as `PolicyCache::add` /
