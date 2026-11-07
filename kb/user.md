@@ -1,0 +1,13 @@
+How the user wants me to work. updated 2026-10-31
+- Commit only when asked; user pushes/pulls themselves ("just commit, i want push and pull"). Don't sync rs unless asked.
+- Never stage/expose servers_container/main_server/local_host.txt (Cloudflare token); stage explicit paths.
+- Ask before changing anything on rs; reading logs is fine.
+- Lab machines: no apps that register with the system.
+- "just teach me, not coding" when they ask how to do something in Rust — explain, don't edit.
+- Third-year project; supervisor wants policies placed between worst and best (oracle) case. Deadline: next-week meeting (from ~2026-10-28).
+- Baseline philosophy (10-29): Dana = OBM core, used unmodified; Rust app layer stays at "normal default" level (like nginx defaults: no keep-alive, buffering, no cache, rr). Features (segment/asset cache, LB policies, maybe keep-alive) are what's measured. Don't over-optimise the baseline.
+- 2026-10-30: GPU-native renderer idea is NOT the project direction (keep in KB only). Focus = cost prediction, LB policies, caching on the unmodified OBM core.
+- 2026-11-03: + UserPromptSubmit hook -> .claude/kb_reminder.sh: KB reminder every message; if transcript .jsonl > 3 MB (THRESHOLD in script) adds "session long: new deliverable -> suggest new session + offer handoff". Only suggest on a real topic change, not follow-ups.
+- 2026-10-31: SessionStart hook in .claude/settings.json (gitignored via .gitignore `.claude/*`), matcher startup|resume|compact: prints kb/INDEX.md + newest handoff into context. So keep handoff.md's top entry current (it is what I see first after compaction).
+- [11-04] Cache features: each one independently switchable (env flag), later find best combination by ablation.
+- HONEST vs DISHONEST (user's terms, 11-06): honest = depends only on inputs + own state (like pure); dishonest = also on OS / IO / network / clock. Honest code = easy to test; keep the dishonest edge thin (e.g. http lib returns Vec<u8> instead of taking the client stream). Tag doc comments '/// [Honest] ...' / '/// [Dishonest I/O] ...' (as in cost_predict.rs, cost_lookup.rs, file_cache.rs, coalescing.rs).

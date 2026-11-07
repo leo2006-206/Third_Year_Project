@@ -1,0 +1,17 @@
+Two-laptop cluster setup and operation. updated 2026-10-29
+- om = main laptop, eno1 10.10.0.1, main server :7000 + near sites, netem 30±3 ms. i9-13900HX 16GB.
+- rs = 2nd laptop (~1.3x faster render), enp6s0 10.10.0.2, far sites, netem 60±6 ms. i9-13900HX 32GB.
+- Link: NetworkManager profile `obm-link` (static, autoconnect-priority 10); just plug in.
+- ufw on om allows 172.18.0.0/16 and 10.10.0.0/24 -> 7000.
+- Containers can't reach own host IP on site ports -> om sites addressed by container name obm-offload-omN in cluster CSV.
+- Sites fetch assets from MAIN_SERVER_ADDR (default 10.10.0.1:7000) -> main server must be up BEFORE any offload request (else Dana hangs). om-only (cable down, user away): export MAIN_SERVER_ADDR=obm-main-server:7000 before run_all_offload, else warm-up hangs (11-06 coalesce smoke lost 11 min).
+- netem must include `rate 1gbit` (jitter alone reorders packets -> TCP ~10x slower). In entrypoint.sh.
+- Case 1: gpu/llvm/cpu site per machine (ports 7010/7020/7030). Case 2: 2 gpu per machine (7010/7020).
+- Config: servers_container/cluster_endpoint_c{1,2}.csv (main server), offload_{om,rs}_c{1,2}.csv (per machine sites).
+- Start sites: `./servers_container/run_all_offload.py servers_container/offload_om_c1.csv -d` (rs: same with offload_rs_*, via `ssh rs`, repo at ~/SCC/Third_Year_Project).
+- Main server non-interactive (run_sh.sh needs TTY): docker run -d --rm --init --network obm-net -p 7000:7000 -v obm/assets,obm/shows ro -v cluster csv --name obm-main-server obm-main-server /app/cluster_endpoint.csv <rr|iwrr>
+- SSH: `ssh rs` (key ~/.ssh/id_ed25519, details temp/ssh_rs_setup.txt). Open issue: rs ssh.socket ignores ListenAddress.
+- Never use `pkill -f`/`pgrep -f` with patterns in own command line (kills my shell); use pkill -x or PIDs.
+- Remote monitor loops (ssh rs 'while :; do docker stats ...') survive killing the local ssh when they never write output -> rs ran hot (87 °C, dockerd busy) for ~40 min after the 10-30 cpu-vs-gpu test. temp/cpu_vs_gpu/monitor.sh stop now pkills them by name. After any monitoring, check: ssh rs 'ps -eo args | grep "[d]ocker stats"'.
+- Watchdog: temp/watchdog.sh (see experiments.md). Process checks must match exact argv fields (awk on ps columns); a grep on args matches the checking shell's own command line. User sometimes keeps an interactive `docker stats` open in a terminal on om/rs: leave it.
+- rs THERMALS (2026-10-30 05:25, during batch; rs switched to balanced at 05:24:56, om to performance): x86_pkg 73-93 C swinging even at load ~1 with rs sites ~0-9% CPU; acpitz 85-89 C (critical trip 100 C = forced shutdown; active fan trips 50/55/100); package_throttle_count 26248 in 46 min uptime (om: 240 in 14 h). No fan sensor exposed. Profile performance, turbo on. -> rs cooling is marginal: rs work times may be throttle-affected (confound for machine factor). Watchdog now flags acpitz >= 95.
