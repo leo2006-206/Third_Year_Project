@@ -46,11 +46,15 @@ PARTS = [  # same as stat/latency_detail_plot.py
     ("wait", "central wait", "#86b6ef", "//"),
     ("work", "work", "#eb6834", None),
     ("asset_net", "asset + net", "#1baf7a", None),
+    # coalescing / prefetch follower: no render of its own, it waits for an in-flight render
+    # (its whole latency); 0 for every other request. Without it C / P bars hide that wait.
+    ("follow", "follower wait (C / P)", "#a8a6a0", ".."),
 ]
 HITS = [("seg_req", "segment\nrequests"), ("seg_byte", "segment\nbytes"),
         ("asset_file", "asset\nfiles"), ("asset_byte", "asset\nbytes")]
 INK, MUTED, GRID, SURF = "#3b3a37", "#52514e", "#e4e3df", "#fcfcfb"
 FS_TITLE, FS_LABEL, FS_TICK, FS_VALUE = 20, 14, 12, 10
+TOP = 5  # lowest totals that get a rank badge (as stat/latency_detail_plot.py)
 
 
 def site_of(worker: str) -> str:
@@ -107,6 +111,7 @@ def run_metrics(csv: Path) -> dict:
     wait = df["wait_ms"].fillna(0)
     df["site_queue"], df["wait"] = (df["queue_ms"] - wait) / 1000, wait / 1000
     df["work"], df["asset_net"] = df["work_ms"] / 1000, (df["asset_ms"] + df["net_ms"]) / 1000
+    df["follow"] = np.where(df["site"].isin(["coalesce", "prefetch"]), df["latency_ms"] / 1000, 0.0)
     hit = df["site"] == "cache"
     sent = df[~df["site"].isin(NON_SITE)]
     r = {f"all_{c}": df[c].mean() for c, *_ in PARTS}
@@ -131,7 +136,21 @@ def run_metrics(csv: Path) -> dict:
         r[f"share_{s}"] = len(on) / len(df)
         r[f"queue_{s}"] = on["site_queue"].mean() + on["wait"].mean() if s in SITES else np.nan
         r[f"asset_{s}"] = on["asset_net"].mean() if s in SITES else np.nan
+    # coalescing / prefetch: followers (no render of their own), prefetch renders issued / read
+    r["n_coal"] = int((df["site"] == "coalesce").sum())
+    r["n_pref"] = int((df["site"] == "prefetch").sum())
     main_log = Path(f"{base}_main.log")
+    log = main_log.read_text(errors="replace") if main_log.exists() else ""
+    r["pf_issue"] = log.count("[PREFETCH] issue")
+    r["pf_read"] = len(re.findall(r"\[PREFETCH\] expire \| [1-9]\d* readers", log))
+    r["renders"] = len(sent) + r["pf_issue"]  # renders the sites did (real + prefetch)
+    # prefetch renders have no csv row: their work / asset from '[PREFETCH] done | site | Tms |
+    # work W asset A' (queue + net only known combined -> left out); per client request, as all_*
+    done = re.findall(r"\[PREFETCH\] done \| \S+ \| \d+ms \| work (\d+) asset (\d+)", log)
+    r["pf_done"] = len(done)
+    r["pf_work_s"] = sum(int(w) for w, _ in done) / 1000
+    r["pf_asset_s"] = sum(int(a) for _, a in done) / 1000
+    r["pf_work"], r["pf_asset"] = r["pf_work_s"] / len(df), r["pf_asset_s"] / len(df)
     if not (main_log.exists() and "Segment cache ON" in main_log.read_text(errors="replace")):
         r["seg_req"] = r["seg_byte"] = np.nan  # off: no bar, not 0 %
     return r
@@ -149,8 +168,10 @@ def load(run_dir: Path, policy: str) -> pd.DataFrame:
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
+    df["all_total"] = df[[f"all_{c}" for c, *_ in PARTS]].sum(axis=1)
     out = df.groupby("bar").mean(numeric_only=True)
     out.insert(0, "runs", df.groupby("bar").size())
+    out["sd"] = df.groupby("bar")["all_total"].std()  # NaN with 1 run -> no error bar
     order = [policy] + [f"{policy}+{f}" for f in FEATURE_STYLE]
     order = [b for b in order if b in out.index] + sorted(set(out.index) - set(order))
     return out.loc[order]
@@ -161,9 +182,14 @@ def print_tables(s: pd.DataFrame, title: str):
     print(f"== {title}")
     cols = [f"{w}_{c}" for w in ("all", "sent") for c, *_ in PARTS]
     t = s[["runs", "n", "n_hit"] + cols].copy()
-    t["all_total"] = s[cols[:4]].sum(axis=1)
-    t["sent_total"] = s[cols[4:]].sum(axis=1)
-    print("mean time per request (s): all = every request (hit = 0), sent = sent to a site\n"
+    k = len(PARTS)
+    t["all_total"] = s[cols[:k]].sum(axis=1)
+    t["sent_total"] = s[cols[k:]].sum(axis=1)
+    t["all_sd"] = s["sd"]  # std over runs of all_total (error bar), NaN = 1 run
+    # rank of all_total, 1 = lowest (badges 1..TOP on the plot)
+    t["rank"] = t["all_total"].rank(method="first").astype(int)
+    print("mean time per request (s): all = every request (segment hit = 0, C/P follower = its "
+          "wait), sent = sent to a site\n"
           + t.round(2).to_string())
     h = s[[c for c, _ in HITS] + [c for c in s.columns if c.startswith("bin_")] + ["asset_fetches"]]
     print("hit ratio (segment requests / bytes, asset files / bytes), B hits per bin, asset fetches\n"
@@ -174,21 +200,27 @@ def print_tables(s: pd.DataFrame, title: str):
         print(f"per site: {what}\n" + s[cs].rename(columns=lambda c: c.split("_")[-1]).round(3).to_string())
 
 
-def stacked(ax, s, prefix, ymax):
-    """[Honest] Panels (a) / (b): one stacked bar per row of s, segment values + bold total."""
+def stacked(ax, s, prefix, ymax, sd=None):
+    """[Honest] Panels (a) / (b): one stacked bar per row of s, segment values + bold total;
+    sd (per bar, NaN = 1 run) -> error bar = std over runs, total written above it."""
     x = np.arange(len(s))
     bottom = np.zeros(len(s))
     for col, label, colour, hatch in PARTS:
         h = s[f"{prefix}_{col}"].fillna(0).to_numpy()
+        if not h.any():  # part absent in every bar (e.g. follower wait without C / P): no legend
+            continue
         ax.bar(x, h, 0.72, bottom=bottom, color=colour, hatch=hatch, edgecolor=SURF,
                linewidth=1.2, label=label, zorder=2)
         for i, v in enumerate(h):
             if v > ymax * 0.05:
                 ax.text(x[i], bottom[i] + v / 2, f"{v:.1f}", ha="center", va="center",
-                        fontsize=FS_VALUE, color="#1b1b1a" if col == "wait" else SURF, zorder=3)
+                        fontsize=FS_VALUE, color="#1b1b1a" if col in ("wait", "follow") else SURF, zorder=3)
         bottom += h
+    err = np.zeros(len(s)) if sd is None else np.nan_to_num(np.asarray(sd, dtype=float))
     for i, v in enumerate(bottom):
-        ax.text(x[i], v + ymax * 0.01, f"{v:.1f}", ha="center", va="bottom",
+        if err[i] > 0:
+            ax.errorbar(x[i], v, yerr=err[i], color=INK, capsize=4, elinewidth=1.2, zorder=3)
+        ax.text(x[i], v + err[i] + ymax * 0.01, f"{v:.1f}", ha="center", va="bottom",
                 fontsize=FS_VALUE + 1, fontweight="bold", color="#1b1b1a")
     ax.set_ylim(0, ymax)
 
@@ -211,22 +243,42 @@ def bar_colour(bar):
     return ("#104281", False) if "+" not in bar else style(bar)
 
 
+def short(bar: str) -> str:
+    """[Honest] Tick / legend label: the policy is in the title -> 'mct' -> 'none', 'mct+B8' -> 'B8'."""
+    return "none" if "+" not in bar else bar.split("+", 1)[1]
+
+
+def rank_badges(ax, s, ymax):
+    """[Honest] Rank badges 1..TOP above the lowest stacked totals (+ error bar), same badge as
+    stat/latency_detail_plot.py (white number in a dark circle)."""
+    total = s[[f"all_{c}" for c, *_ in PARTS]].fillna(0).sum(axis=1).to_numpy()
+    err = np.nan_to_num(s["sd"].to_numpy(dtype=float))
+    for rank, i in enumerate(np.argsort(total, kind="stable")[:TOP], start=1):
+        ax.text(i, total[i] + err[i] + ymax * 0.065, str(rank), ha="center", va="bottom",
+                fontsize=FS_VALUE, fontweight="bold", color=SURF, zorder=4,
+                bbox={"boxstyle": "circle,pad=0.25", "fc": "#1b1b1a", "ec": "none"})
+
+
 def plot(s: pd.DataFrame, title: str, out: Path):
     """[Honest] One stacked bar per run type: mean time per request over all requests (hit = 0)."""
     fig, ax = plt.subplots(figsize=(12, 7.5), facecolor=SURF)
-    ymax = s[[f"all_{c}" for c, *_ in PARTS]].sum(axis=1).max() * 1.1
-    stacked(ax, s, "all", ymax)
-    ax.set_xticks(np.arange(len(s)), list(s.index), fontsize=FS_TICK)
-    finish(ax, "mean time per request, all requests (segment cache hit = 0 s)", "s per request")
+    ymax = s[[f"all_{c}" for c, *_ in PARTS]].sum(axis=1).max() * 1.22  # headroom: legend row
+    stacked(ax, s, "all", ymax, s["sd"])
+    ticks = [short(b) for b in s.index]
+    ax.set_xticks(np.arange(len(s)), ticks, fontsize=FS_TICK)
+    rank_badges(ax, s, ymax)
+    finish(ax, "mean time per request, all requests (segment cache hit = 0 s, C / P follower = "
+           "its wait)", "s per request")
     h, l = ax.get_legend_handles_labels()
-    ax.legend(h[::-1], l[::-1], fontsize=FS_TICK - 1, frameon=False, loc="upper right")
+    ax.legend(h, l, fontsize=FS_TICK - 1, frameon=False, loc="upper center", ncol=len(h))
     fig.suptitle(f"{s.index[0]} with no feature vs + one feature: {title}", fontsize=FS_TITLE - 2,
                  color=INK)
-    fig.text(0.99, 0.01, "mean over runs ("
-             + ", ".join(f"{b} {int(n)}" for b, n in s["runs"].items())
-             + "); status 200, body left out; Slru/B6 = segment cache, Alru/Alfu = asset cache",
-             ha="right", fontsize=FS_TICK - 3, color=MUTED)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.09)
+    fig.text(0.01, 0.01, "mean over runs ("
+             + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
+             + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6/B8 = segment cache, Alru/Alfu = asset "
+             "cache, C = coalescing, P = prefetch",
+             ha="left", fontsize=FS_TICK - 3, color=MUTED)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.11)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
     print(f"plot -> {out}")
