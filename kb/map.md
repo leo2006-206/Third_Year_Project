@@ -38,7 +38,7 @@ Trust order: code > KB / files changed this week (2026-10-28..31) > older docs. 
 ## Data (stat/)
 - timings/{om,rs}_7010_gpu/7020_llvm/7030_cpu_timing.csv — calibration (no delay); timings/syn_timings.csv (moved to stat/timings/ in 564e989).
 - run_a{0.5,1.2}_c{1,2}/ — set 2 runs: esce_none_1 (96b275a) + full batch 8 policies, esce_none_2 (445b6c5) + _main.log + _site_<id>.log (logs gitignored).
-- feature runs (568700f, 11-06): stat/[seed2042/]run_a*_c*/mct_{S,B,Alru,Alfu}_1.csv; plots stat/feature_plot/ (153ae53, see plot.md). rr c1 seeds 2043-45 in stat/seed204{3,4,5}/run_a*_c1/.
+- feature runs (568700f, 11-06): stat/[seed2042/]run_a*_c*/mct_{Slru,B6,Alru,Alfu}_1.csv (S/B renamed 11-07); plot programs stat/feature_plot/ (153ae53, see plot.md; PNGs deleted 11-07, user regenerates for slides). rr c1 seeds 2043-45 in stat/seed204{3,4,5}/run_a*_c1/.
 - set1_unload/run_a*_c*/ — set 1: FIFO era, 8 policies (c2 no iwrr), old seqs (cfe3319, moved b0109ed).
 - old_nonfifo/ — old semaphore-gate era: run_a*_c1, run_a*_c2, _p95 (first seqs, real ~0.95), _p57/_p60 (c1 iwrr), _p75 (c2 at rho 0.8).
 

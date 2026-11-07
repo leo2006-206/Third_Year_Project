@@ -21,11 +21,11 @@ All planned feature vars are in code: OBM_ASSET_CACHE_* (site, b3750a1), OBM_BIN
 ## Replay driver (temp/run_driver.sh, temp/cluster_lib.sh; gitignored)
 | var | default | effect |
 |---|---|---|
-| FEATURES | none | seq_bench feature label -> <policy>_<FEATURES>_N.csv. Driver REFUSES OBM_SEGMENT_CACHE_MB (non-0) with FEATURES=none (mislabel guard). Naming idea: S = segment cache (seq_bench help: SA = segment + asset). |
+| FEATURES | none | seq_bench feature label -> <policy>_<FEATURES>_N.csv. Driver REFUSES OBM_SEGMENT_CACHE_MB (non-0) with FEATURES=none (mislabel guard). Labels: lb_features.md 0.3 (Slru/Slfu, B6/B8, Alru/Alfu, C, P). |
 | SEQ_DIR | servers_benchmark/sequences | sequence set (seed dirs servers_benchmark/sequences/seedS) |
 | RUN_ROOT | stat | output root (e.g. stat/seed2042) |
 | START_RETRY_S | 600 | start_case_retry: keep retrying site start every 60 s for this long |
-Example feature run: `OBM_SEGMENT_CACHE_MB=45 FEATURES=S temp/run_driver.sh 2 0.5 mct`
+Example feature run: `OBM_SEGMENT_CACHE_MB=100 FEATURES=Slru temp/run_driver.sh 2 0.5 mct`
 
 ## Offload sites (servers_container/offload_server/run_sh.sh -> container env)
 | var | default | effect |

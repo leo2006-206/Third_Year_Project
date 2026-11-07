@@ -305,6 +305,7 @@ c2 a0.5 set 2, rr, --limit 50, OBM_ASSET_CACHE_MB=20 (small to force evictions),
 VERDICT: asset cache correct. Full lru/lfu timing runs (temp/batch_asset2.sh) waiting for user go-ahead.
 
 ## Features batch 1 (11-06) - temp/batch_features1.sh, run_table.md part 1 rest + part 2 (2 seeds)
+(Labels S / B below = files now mct_Slru_1 / mct_B6_1, renamed 11-07.)
 Started 03:10 (b3750a1, main image 02:41, om performance / rs balanced), ETA ~11:25. 38 runs: 6 rr c1 (seeds 2043-45) then mct + one feature
 (S 100 MiB lru, B 50+50 MiB th 6 s, Alru / Alfu 50 MB per site) on set 2 + seed 2042, sequence outer / feature inner.
 Watchdog cron 34768d21 at :13/:43 (session-only): watchdog.sh + temp/cache_log_check.py on each finished run + run_table cell update.

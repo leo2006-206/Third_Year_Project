@@ -19,7 +19,7 @@ LB never sees cache hits or followers. Requests that reach the LB = requests - h
 ## 0.3 Feature framework (user RULE 11-04: every feature independently switchable)
 - Code: rust_obm/src/mod_feature/ (base_cache.rs PolicyCache Lru|Lfu, segment_cache.rs, bin_cache.rs, asset_cache.rs, coalescing.rs, merged_prefetch.rs) + rust_obm/src/obm_parse.rs (path parse for P) + rust_server/src/lib/lib_segment.rs (lookup / render / cache add / prefetch_task) + lib_main_state.rs (ServerState, *_loader per feature = env parsing).
 - Switches = env vars (all in env.md, defaults in servers_container/env_setting.txt = all OFF). Driver label FEATURES=<label> -> file <policy>_<label>_<N>.csv; run_driver REFUSES a feature var with FEATURES=none (mislabel guard).
-- Label letters: S segment cache single, B bin cache, Alru/Alfu asset cache, C coalescing, P prefetch; combos concatenate (CS, SP, SCP, SCPAlfu). temp/cache_log_check.py reads the label to know what must be ON.
+- Labels (11-07): Slru / Slfu = segment cache single + its policy, B6 / B8 = bin cache + threshold s, Alru / Alfu = asset cache, C coalescing, P prefetch; combos concatenate (e.g. CSlru, SlruP, SlruCPAlfu; older test dirs use bare S / B / SP / SCP). Old Part 2 files mct_S_1 / mct_B_1 were renamed to mct_Slru_1 / mct_B6_1 on 11-07 (contents unchanged). temp/cache_log_check.py reads the label to know what must be ON.
 - Example: `OBM_COALESCE=1 FEATURES=C SEQ_DIR=servers_benchmark/sequences/seed2042 RUN_ROOT=stat/seed2042 temp/run_driver.sh 1 0.5 mct`. Batch template with feature_env(): temp/batch_features1.sh.
 - Main image must contain the code: rebuild = `cargo build --release --bin main_server && docker build -f servers_container/main_server/dockerfile -t obm-main-server .`. Site features (A) need the offload image (run_all_offload.py rebuilds) and rs needs git pull of the commit.
 - Results: run_table.md Part 2 (mct + one feature, 1 run per cell); findings.md 'FEATURES BATCH 1', 'FEATURE DETAIL', 'WHY NO CLEAR STRONGEST FEATURE'.
@@ -100,24 +100,24 @@ Colours / order in plots: plot.md 'Style rules'. Part 1 key policies (all 5 seed
 
 # 2. Computational features (Part 2 = mct + ONE feature; Part 3 later = combos)
 
-## S — segment cache, single (main server)
-- Status: committed fe7ddfd (LRU) + b3750a1 (PolicyCache, lfu option). Part 2 runs: S (100 MiB lru) on 2037 + 2042 all 4 seqs. Planned: Slfu (todo), seeds 2043-45.
+## Slru / Slfu — segment cache, single (main server)
+- Status: committed fe7ddfd (LRU) + b3750a1 (PolicyCache, lfu option). Part 2 runs: Slru (100 MiB lru) on 2037 + 2042 all 4 seqs. Planned: Slfu (todo), seeds 2043-45.
 - How: cache of rendered segments on the main server, key = path; HIT checked before the LB (LB never sees hits), served by sendfile (worker 'cache', X-OBM-Cache hit). Miss: add after render if 200 (awaited when a C/P leader exists, else detached). Eviction by PolicyCache rank: Lru (last_use) | Lfu (uses while cached, last_use).
-- Control: OBM_SEGMENT_CACHE_MB (unset/0 = off; Part 2 = 100), OBM_SEGMENT_CACHE_POLICY (lru|lfu), OBM_SEGMENT_CACHE_DIR. Label S (Slfu planned).
+- Control: OBM_SEGMENT_CACHE_MB (unset/0 = off; Part 2 = 100), OBM_SEGMENT_CACHE_POLICY (lru|lfu), OBM_SEGMENT_CACHE_DIR. Label Slru / Slfu (cache_log_check checks the policy in the label against the startup line).
 - Code: rust_obm/src/mod_feature/base_cache.rs (PolicyCache), segment_cache.rs (SegmentCache::Single), rust_obm/src/file_cache.rs (CacheTable key->file); lib_main_state.rs segment_cache_loader; lib_segment.rs segment_lookup / offload_cache_add; main_server.rs serve_offload_cache. Design: code.md '[11-05]' entries.
-- Data: stat/[seed2042/]run_a*_c*/mct_S_1.*; smoke temp/cache_smoke/.
+- Data: stat/[seed2042/]run_a*_c*/mct_Slru_1.*; smoke temp/cache_smoke/ (label S, old).
 - Findings: 'FEATURES BATCH 1' (-55% mean / -53% p99 vs none); 'FEATURE DETAIL' (hit 20% req / 17% bytes, queue -72%); 'CACHE SIZE CHOICE' (why 100 MiB); 'WHY SEGMENT CACHE HITS LESS AT a1.2' (eviction, long f1_full reuse); 'SEGMENT CACHE LRU vs LFU SIM' (lfu +4.3 pts, 8/8); 'SITE CONFIG VIDEO CHECK' (renders from different configs interchangeable).
-- Checks / tools: temp/cache_log_check.py (label vs startup line, [CACHE] outcome counts, LB select count); stat/feature_plot/segment_plot.py (S vs B), feature_detail_plot.py, stat/latency_plot.py --features; sims temp/cache_size_sim.py, temp/seg_alpha_why/{rep,why}.py, temp/seg_lfu_sim/sim.py.
+- Checks / tools: temp/cache_log_check.py (label vs startup line, [CACHE] outcome counts, LB select count); stat/feature_plot/segment_plot.py (Slru / Slfu / B6 / B8), feature_detail_plot.py, stat/latency_plot.py --features; sims temp/cache_size_sim.py, temp/seg_alpha_why/{rep,why}.py, temp/seg_lfu_sim/sim.py.
 - Limits: capacity must stay << ~430 MB distinct per run or every policy ties; cold at each run start.
 
-## B — bin (cost-partitioned) segment cache (paper A)
-- Status: committed 4a07eb3. Part 2: B (50 + 50 MiB, threshold 6 s) on 2037 + 2042. Planned: B8 (threshold 8 s) sim-first (todo).
+## B6 / B8 — bin (cost-partitioned) segment cache (paper A)
+- Status: committed 4a07eb3. Part 2: B6 (50 + 50 MiB, threshold 6 s) on 2037 + 2042. Planned: B8 (threshold 8 s; sim +11% saved cost, todo).
 - How: 2 LRU PolicyCaches (lower: cost < threshold, upper: >=), bin chosen once at insert; cost = (asset_ms + work_ms / render factor gpu 1, llvmpipe 1.33, cpu 4.6) / 1000 from X-Dana-Timings (independent of LB policy). Same feature as S (env sets both -> server exits).
-- Control: OBM_BIN_CACHE_LOWER_MB, OBM_BIN_CACHE_UPPER_MB, OBM_BIN_CACHE_THRESHOLD_S (6), OBM_BIN_CACHE_DIR. Label B.
+- Control: OBM_BIN_CACHE_LOWER_MB, OBM_BIN_CACHE_UPPER_MB, OBM_BIN_CACHE_THRESHOLD_S (6), OBM_BIN_CACHE_DIR. Label B<threshold> (B6, B8; cache_log_check checks it against the startup line).
 - Code: mod_feature/bin_cache.rs (BinCache, cost_s), segment_cache.rs (SegmentCache::Bin), lib_main_state.rs segment_cache_loader. Design: code.md 'BIN COST SIMPLE', 'BIN COST DATA', '[11-06] bin_cache.rs'.
-- Data: stat/[seed2042/]run_a*_c*/mct_B_1.*; tests temp/bin_smoke/, temp/bin_xbin/.
+- Data: stat/[seed2042/]run_a*_c*/mct_B6_1.*; tests temp/bin_smoke/, temp/bin_xbin/ (label B, old).
 - Findings: 'WHY BIN CACHE (B) ONLY TIES LRU (S)' (threshold splits traffic ~half, small cost skew, a1.2 reuse > 50 MB; sweep thr8 50/50 +11% saved cost, fragile); 'FEATURES BATCH 1' (S beats B 6/8).
-- Tools: segment_plot.py (bin hits [lower, upper]), cache_log_check (B label, ' cost N.NN s'), temp/bin_why/{sim,sweep}.py.
+- Tools: segment_plot.py (bin hits [lower, upper]), cache_log_check (B<thr> label, ' cost N.NN s'), temp/bin_why/{sim,sweep}.py.
 
 ## Alru / Alfu — asset cache (per offload site)
 - Status: committed b3750a1. Part 2: Alru + Alfu (50 MB per site) on 2037 + 2042.
@@ -154,13 +154,13 @@ Colours / order in plots: plot.md 'Style rules'. Part 1 key policies (all 5 seed
 - Ignored (user 11-04: needs a new Dana API). todo 'COMPUTATIONAL FEATURES' item 5.
 
 # 3. Analysis tools index (what each reads / shows; CLI = prints the plotted numbers as text)
-Plot style + outputs: plot.md. CLI rule (user 11-07): every plot tool must also print its numbers (plot.md); 'no' below = next task.
+Plot style + outputs: plot.md. Feature PNGs deleted 11-07 (user regenerates for slides). CLI rule (user 11-07): every plot tool must also print its numbers (plot.md); 'no' below = next task.
 | tool | for | shows / checks | CLI numbers |
 |---|---|---|---|
 | stat/latency_plot.py `<run dir> [--features ..]` | policies, features | mean/p50/p90/p99 per policy (or policy+feature) | yes (table ± std) |
 | stat/latency_detail_plot.py `<run dir>` | policies | stacked queue / wait / work / asset+net | yes (table) |
 | stat/feature_plot/feature_detail_plot.py `<run dir>` | all features | stacked s/request per run type, hit ratios, per-site share | yes (tables) |
-| stat/feature_plot/segment_plot.py / asset_plot.py `<run dir>` (feature_breakdown.py) | S,B / Alru,Alfu | % of no feature per part + hit line | yes (via feature_breakdown) |
+| stat/feature_plot/segment_plot.py / asset_plot.py `<run dir>` (feature_breakdown.py) | Slru,Slfu,B6,B8 / Alru,Alfu | % of no feature per part + hit line | yes (via feature_breakdown) |
 | temp/seed_rank.py | policies | 5-seed rank table, Kendall W, mct-best counts | yes (text only, no plot) |
 | temp/case_wins_plot.py `--case c1/c2` | policies | best / worst counts per statistic | yes (tables) |
 | temp/seed_compare_plot.py | policies | seed 2037 vs 2042 mean/p99 | NO (prints only the path) |

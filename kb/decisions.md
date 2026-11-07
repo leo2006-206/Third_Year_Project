@@ -60,6 +60,7 @@ Columns: id | date | decision | why | source (detail). Only decisions with a sou
 | D54 | 11-05 | New env var -> env.md row in the same step | reproducibility | env.md |
 | D55 | 11-03 / 11-07 | Sessions per deliverable; long session -> suggest new session + handoff, KB audit first | context limits | user.md, INDEX.md |
 | D56 | 11-07 | KB moved to repo root kb/ (temp/kb = symlink); lb_features.md cards + decisions.md added | findable, grouped facts | history 11-07 |
+| D57 | 11-07 | Feature labels carry their setting: S -> Slru (/ Slfu), B -> B6 (/ B8); existing Part 2 files renamed (contents unchanged); all feature PNGs deleted, user regenerates during slide analysis | one label per config, no ambiguity once Slfu / B8 exist | lb_features 0.3, history 11-07 |
 
 ## Reporting + plots
 | id | date | decision | why | source |

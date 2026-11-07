@@ -28,19 +28,19 @@ Key policies = rr esce throttled2 mct mct_const_flat. Data committed up to 1d687
 | 2045 | rr | 1 | 1 | 1 | 1 | stat/seed2045/run_a*_c*/rr_none_1 (c1 from batch_features1 11-06) |
 
 ## Part 2 - mct + ONE feature (what each feature gives on its own)
-Baseline = mct_none of the same sequence (Part 1). Labels: S = segment cache 100 MiB lru; B = bin cache 50+50 MiB, threshold 6 s;
+Baseline = mct_none of the same sequence (Part 1). Labels (renamed 11-07: S -> Slru, B -> B6): Slru = segment cache 100 MiB lru (Slfu = lfu, planned); B6 = bin cache 50+50 MiB, threshold 6 s (B8 = 8 s, planned);
 Alru / Alfu = asset cache 50 MB per site, lru / lfu; C = request coalescing (OBM_COALESCE=1); P = merged prefetch (OBM_PREFETCH=1, window 30 s, hold 30 s, segment cache OFF -> prefetched result only readable during the 30 s hold; C off -> real renders are not in the in-flight table, so a prefetch can duplicate one = known design limit). Files mct_<label>_<N>.csv. 1 run per cell.
 Seeds: 2037 + 2042 DONE (batch_features1 11-06 03:10-10:31, all 32 cells = 1). Summary temp/analysis_v4/features_batch1.csv, findings FEATURES BATCH 1.
 (decide after batch_features1; full 3 seeds x 4 features = 48 runs ~8.8 h).
 
 | seed | feature | a0.5 c1 | a0.5 c2 | a1.2 c1 | a1.2 c2 | data |
 |---|---|---|---|---|---|---|
-| 2037 | S | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_S_* |
-| 2037 | B | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_B_* |
+| 2037 | Slru | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_Slru_* |
+| 2037 | B6 | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_B6_* |
 | 2037 | Alru | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_Alru_* |
 | 2037 | Alfu | 1 | 1 | 1 | 1 | stat/run_a*_c*/mct_Alfu_* |
-| 2042 | S | 1 | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_S_* |
-| 2042 | B | 1 | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_B_* |
+| 2042 | Slru | 1 | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_Slru_* |
+| 2042 | B6 | 1 | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_B6_* |
 | 2042 | Alru | 1 | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_Alru_* |
 | 2042 | Alfu | 1 (1 fail: Dana restart > 5 s, not cache) | 1 | 1 | 1 | stat/seed2042/run_a*_c*/mct_Alfu_* |
 | 2037 | C | 0 | 0 | 0 | 0 | planned 11-07: stat/run_a*_c*/mct_C_* |
