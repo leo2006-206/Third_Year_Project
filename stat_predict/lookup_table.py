@@ -10,7 +10,7 @@ config, in om-equivalent seconds: rs samples are divided by the rs/om work ratio
 machine factor of the load balancer turns it back into per-site time, as for the cost model.
 config is <decoding>_<composition>_<encoding> as in the cluster CSVs (e.g. gpu_llvmpipe_cpu).
 
-Data: every replay run of set 2 (stat/run_a*_c*/) and set 1 (stat/set1_unload/run_a*_c*/), work_ms
+Data: every replay run of set 2 (stat/seed2037/run_a*_c*/) and set 1 (stat/set1_unload/run_a*_c*/), work_ms
 of the requests that succeeded; the worker column is mapped to its site through
 servers_container/cluster_endpoint_c<case>.csv. Set 1 and set 2 agree on the same keys (median
 set1/set2 0.985, p10-p90 0.90-1.08), work_ms is not affected by the Dana asset timer change.
@@ -25,7 +25,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ROOT = HERE.parent
-RUN_GLOBS = ["stat/run_a*_c*/*_none_*.csv", "stat/set1_unload/run_a*_c*/*_none_*.csv"]
+RUN_GLOBS = ["stat/seed2037/run_a*_c*/*_none_*.csv", "stat/set1_unload/run_a*_c*/*_none_*.csv"]
 
 
 def load_sites(case: str) -> dict[str, tuple[str, str]]:

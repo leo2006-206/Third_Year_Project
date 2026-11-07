@@ -10,7 +10,7 @@ Splits (requests of one kind or one show never appear in both train and test):
   D  leave one syn show out, train on BBC + the other syn shows
   E  train on BBC only, test on all syn shows (fully unseen content classes)
   F  train on syn only, test on all BBC shows
-In-situ replay data (stat/run_*/*.csv: requests measured in the busy cluster, every segment):
+In-situ replay data (stat/seed2037/run_*/*.csv: requests measured in the busy cluster, every segment):
   G  train on calibration (BBC + syn), test on every replay request (never seen in training)
   H  leave one BBC show out with replay data of the other shows added to training
   I  train on BBC calibration + replay data, test on all syn shows
@@ -52,7 +52,7 @@ def row(kind: str, show: str, source: str, machine: str, tier: str, dec: float, 
 
 def load_dataset() -> pd.DataFrame:
     """[Dishonest I/O] BBC calibration (stat/timings/<machine>_<port>_<tier>_timing.csv), syn cluster timings and
-    replay requests (stat/run_*/*.csv; in case 2 both ports are gpu sites)."""
+    replay requests (stat/seed2037/run_*/*.csv; in case 2 both ports are gpu sites)."""
     rows = []
     for f in sorted((ROOT / "stat/timings").glob("*_70?0_*_timing.csv")):
         machine, _, tier = f.stem.removesuffix("_timing").split("_")
@@ -64,7 +64,7 @@ def load_dataset() -> pd.DataFrame:
         machine = "rs" if r.worker.startswith("10.10") else "om"
         rows.append(row(r.path, r.path.split("/")[3], "syn", machine, PORT_TIER[r.worker[-4:]],
                         r.decode_ms / 1e3, r.render_ms / 1e3, r.encode_ms / 1e3))
-    for f in sorted((ROOT / "stat").glob("run_*/*.csv")):
+    for f in sorted((ROOT / "stat" / "seed2037").glob("run_*/*.csv")):
         case2 = "_c2" in f.parent.name
         d = pd.read_csv(f)
         for _, r in d[d.status == 200].iterrows():

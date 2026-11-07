@@ -4,7 +4,7 @@ Where the latency of each policy goes, for one sequence directory of replay runs
 
 Usage:
   stat/latency_detail_plot.py <run dir> [--out PNG] [--exclude POLICY ...]
-  e.g. stat/latency_detail_plot.py stat/run_a0.5_c1
+  e.g. stat/latency_detail_plot.py stat/seed2037/run_a0.5_c1
 
 Per request (status 200): latency = queue + asset + work + net + body, exactly. queue_ms already
 holds the central wait (wait_ms: held at the main server until a site has a free slot; only the
@@ -249,7 +249,7 @@ def main():
     if runs.empty:
         sys.exit(f"no <policy>_none_<N>.csv files in {args.run_dir}")
     summary = summarise(runs)
-    # stat/run_a0.5_c1 -> run_a0.5_c1; another set, stat/seed2042/run_a0.5_c1 -> seed2042_run_a0.5_c1
+    # stat/seed2042/run_a0.5_c1 -> seed2042_run_a0.5_c1 (every seed in its own folder, 2037 too)
     d = args.run_dir.resolve()
     title = d.name if d.parent.name == "stat" else f"{d.parent.name}_{d.name}"
     print_table(summary, title)

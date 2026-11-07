@@ -11,8 +11,8 @@ Usage: ./seq_bench.py SEQ_CSV POLICY FEATURES [--base-url URL] [--timeout S] [--
   POLICY:   load balancer label, e.g. rr, iwrr, maxm, minm
   FEATURES: feature set label, e.g. SA (segment cache + asset cache)
   (labels only: the main server must be started with the matching setup by hand)
-Output: stat/run_a<alpha>_c<case>/<POLICY>_<FEATURES>_<idx>.csv (--run-root replaces stat/)
-  e.g. seq_a0.5_case1.csv, rr, SA -> stat/run_a0.5_c1/rr_SA_1.csv (idx = 1 + highest existing)
+Output: stat/seed2037/run_a<alpha>_c<case>/<POLICY>_<FEATURES>_<idx>.csv (--run-root replaces stat/seed2037)
+  e.g. seq_a0.5_case1.csv, rr, SA -> stat/seed2037/run_a0.5_c1/rr_SA_1.csv (idx = 1 + highest existing)
 """
 
 import argparse
@@ -237,7 +237,7 @@ def main():
         "--run-root",
         type=Path,
         default=None,
-        help="folder that holds the run_a<alpha>_c<case>/ folders (default stat/), e.g. stat/seed2042",
+        help="folder that holds the run_a<alpha>_c<case>/ folders (default stat/seed2037 = sequences/ set 2), e.g. stat/seed2042",
     )
     parser.add_argument(
         "--limit",
@@ -252,7 +252,7 @@ def main():
         if not label or "/" in label:
             parser.error(f"invalid label {label!r} (must be non-empty, no '/')")
     try:
-        run_root = args.run_root or script_dir.parent / "stat"
+        run_root = args.run_root or script_dir.parent / "stat" / "seed2037"
         run_dir = run_root / run_dir_name(args.seq)
     except ValueError as e:
         parser.error(str(e))

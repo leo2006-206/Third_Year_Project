@@ -5,8 +5,8 @@ End-to-end latency per policy for one sequence directory of replay runs.
 Usage:
   stat/latency_plot.py <run dir> [--out PNG] [--exclude POLICY ...]
   stat/latency_plot.py <run dir> --features [LABEL ...] [--policy mct] [--out PNG]
-  e.g. stat/latency_plot.py stat/run_a0.5_c1 --exclude rr
-       stat/latency_plot.py stat/run_a0.5_c1 --features --policy mct   (mct alone vs mct + each feature)
+  e.g. stat/latency_plot.py stat/seed2037/run_a0.5_c1 --exclude rr
+       stat/latency_plot.py stat/seed2037/run_a0.5_c1 --features --policy mct   (mct alone vs mct + each feature)
 
 Reads every <policy>_none_<N>.csv in the directory (one replay run each; files marked _e are
 skipped), takes the latency of the requests that succeeded (status 200) and computes per run the
@@ -265,7 +265,7 @@ def main():
     if runs.empty:
         sys.exit(f"no matching run csv files in {args.run_dir}")
     summary = summarise(runs)
-    # stat/run_a0.5_c1 -> run_a0.5_c1; another set, stat/seed2042/run_a0.5_c1 -> seed2042_run_a0.5_c1
+    # stat/seed2042/run_a0.5_c1 -> seed2042_run_a0.5_c1 (every seed in its own folder, 2037 too)
     d = args.run_dir.resolve()
     title = d.name if d.parent.name == "stat" else f"{d.parent.name}_{d.name}"
     print_table(summary, title)

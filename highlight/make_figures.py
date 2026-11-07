@@ -10,7 +10,7 @@ Usage: highlight/make_figures.py
   cost_model.png       predicted vs measured work per request inside the running MCT
   offline_bracket.png  online MCT against the clairvoyant and offline bounds (trace simulator; not shown in README)
 
-Data: the set 2 replay runs in stat/run_a<alpha>_c<case>/, the cost model in stat_predict/, and
+Data: the set 2 replay runs in stat/seed2037/run_a<alpha>_c<case>/, the cost model in stat_predict/, and
 highlight/data/offline_opt.csv (output of the offline search, temp/offline_opt.py).
 """
 
@@ -59,7 +59,7 @@ def style(ax):
 def headline():
     """Grouped bars: mean and p99 per sequence for the key policies; a bar above the axis is cut
     and its value written at the top."""
-    summ = {d: lp.summarise(lp.load(ROOT / "stat" / d)) for d, _ in SEQS}
+    summ = {d: lp.summarise(lp.load(ROOT / "stat" / "seed2037" / d)) for d, _ in SEQS}
     fig, axes = plt.subplots(1, 2, figsize=(16, 6.5))
     width = 0.8 / len(KEY)
     x = np.arange(len(SEQS))
@@ -116,7 +116,7 @@ def headline():
 
 
 def sequence_figures():
-    d = ROOT / "stat" / "run_a0.5_c1"
+    d = ROOT / "stat" / "seed2037" / "run_a0.5_c1"
     lp.plot(
         lp.summarise(lp.load(d)),
         "mixed cluster, α 0.5 (set 2)",
@@ -166,7 +166,7 @@ def cost_model():
         return full * float(x["seg_frac"])
 
     pts = []  # (predicted, actual, render)
-    for f in sorted((ROOT / "stat").glob("run_a*_c*/mct_none_*.csv")):
+    for f in sorted((ROOT / "stat" / "seed2037").glob("run_a*_c*/mct_none_*.csv")):
         case = f.parent.name.rsplit("_c", 1)[1]
         with open(ROOT / f"servers_container/cluster_endpoint_c{case}.csv") as fh:
             rows = csv.DictReader(line for line in fh if not line.startswith("#"))
