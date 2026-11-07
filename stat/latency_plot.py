@@ -20,8 +20,8 @@ bar (e.g. rr in c1, p99 ~385 s) is cut and its value written inside. Policies ar
 family (static, count-based, ACO, MCT) and shaded within it; hatched bars use no cost model
 (constant work). --exclude leaves policies out of the plot; the table always lists all of them.
 
---features also reads the feature runs <policy>_<features>_<N>.csv (e.g. mct_S_1, mct_Alfu_1;
-labels have no '_'); a bar is then '<policy>' (no feature) or '<policy>+<features>' (e.g. mct+S).
+--features also reads the feature runs <policy>_<features>_<N>.csv (e.g. mct_Slru_1, mct_Alfu_1;
+labels have no '_'); a bar is then '<policy>' (no feature) or '<policy>+<features>' (e.g. mct+Slru).
 With no LABEL every feature run is taken, otherwise only those labels. --policy keeps one policy.
 Default output for --features: stat/feature_plot/latency_features_<run dir name>.png; bars are
 never cut there (the no-feature bar is the baseline).
@@ -61,13 +61,19 @@ STYLE = {
     "mct_const_flat": ("#9ec5f4", True),
 }
 OTHER = ("#c3c2b7", False)  # a policy not listed above
-# feature bars '<policy>+<label>': segment caches purple (S darker, B lighter), asset caches amber
-# (lru lighter, lfu darker); order = bar order after the plain policy bars
+# feature bars '<policy>+<label>': segment caches purple (single darker, bins lighter), asset
+# caches amber (lru lighter, lfu darker), in-flight features rose (coalescing C darker, prefetch P
+# lighter); order = bar order after the plain policy bars. Labels: S<policy> = single segment cache,
+# B<threshold s> = bin cache, A<policy> = asset cache.
 FEATURE_STYLE = {
-    "S": ("#6b3fa0", False),
-    "B": ("#b28ad9", False),
+    "Slru": ("#6b3fa0", False),
+    "Slfu": ("#4a2675", False),
+    "B6": ("#b28ad9", False),
+    "B8": ("#d2b8ec", False),
     "Alru": ("#e8b74a", False),
     "Alfu": ("#b9770e", False),
+    "C": ("#b0306a", False),
+    "P": ("#e27fa9", False),
 }
 
 

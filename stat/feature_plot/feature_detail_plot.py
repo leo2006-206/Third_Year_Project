@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
 What each feature (cache) changes, for one sequence directory: mct with no feature vs mct + one
-feature (runs <policy>_<label>_<N>.csv, labels S / B = segment cache single / 2 bins at the main
-server, Alru / Alfu = asset cache at every site).
+feature (runs <policy>_<label>_<N>.csv; labels Slru / Slfu = single segment cache lru / lfu,
+B6 / B8 = 2 cost bins with threshold 6 / 8 s at the main server, Alru / Alfu = asset cache at
+every site, C = coalescing, P = prefetch).
 
 Usage:
   stat/feature_plot/feature_detail_plot.py <run dir> [--policy mct] [--out PNG]
@@ -15,7 +16,7 @@ queue / work / asset / net = 0), <base>_main.log ('[CACHE] added ... to lower|up
 main server). Status 200 requests only. Every number is the mean over the runs of that bar.
 
 Figure (default stat/feature_plot/feature_detail_<run dir name>.png): the common comparison, one
-stacked bar per run type (mct, mct+S, mct+B, mct+Alru, mct+Alfu) = mean time per request over all
+stacked bar per run type (mct, mct+Slru, mct+B6, mct+Alru, mct+Alfu, ...) = mean time per request over all
 requests (a hit counts 0): site queue / central wait / work / asset + net. Per-feature detail
 (% of no feature, hit / miss) -> segment_plot.py, asset_plot.py.
 Prints tables: time per request (all / sent to a site), hit ratios, per-site share / queue / asset.
@@ -137,7 +138,7 @@ def run_metrics(csv: Path) -> dict:
 
 
 def load(run_dir: Path, policy: str) -> pd.DataFrame:
-    """[Dishonest I/O] Per bar ('mct', 'mct+S', ...): mean over its runs of every metric."""
+    """[Dishonest I/O] Per bar ('mct', 'mct+Slru', ...): mean over its runs of every metric."""
     rows = []
     for csv in sorted(run_dir.glob(f"{policy}_*.csv")):
         m = FEATURE_FILE.match(csv.name)
@@ -223,7 +224,7 @@ def plot(s: pd.DataFrame, title: str, out: Path):
                  color=INK)
     fig.text(0.99, 0.01, "mean over runs ("
              + ", ".join(f"{b} {int(n)}" for b, n in s["runs"].items())
-             + "); status 200, body left out; S/B = segment cache, Alru/Alfu = asset cache",
+             + "); status 200, body left out; Slru/B6 = segment cache, Alru/Alfu = asset cache",
              ha="right", fontsize=FS_TICK - 3, color=MUTED)
     fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.09)
     out.parent.mkdir(parents=True, exist_ok=True)
