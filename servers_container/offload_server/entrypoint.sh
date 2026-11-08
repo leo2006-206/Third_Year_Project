@@ -205,14 +205,15 @@ cd /app/obm
 
 run_dana_loop() {
     while [ "$SHUTTING_DOWN" != "1" ]; do
+        # '|| EXIT_CODE=$?': a crash / OOM kill (non-zero exit) must not end this loop under 'set -e', else the site stays dead
+        EXIT_CODE=0
         if [ "$COMPOSITION" = "gpu" ]; then
             echo "[Dana Supervisor] Launching Dana with VirtualGL on $GPU_CARD..."
-            vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new
+            vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new || EXIT_CODE=$?
         else
             echo "[Dana Supervisor] Launching Dana..."
-            dana "${DANA_ARGS[@]}" OffloadSite_new
+            dana "${DANA_ARGS[@]}" OffloadSite_new || EXIT_CODE=$?
         fi
-        EXIT_CODE=$?
         if [ "$SHUTTING_DOWN" = "1" ]; then
             break
         fi

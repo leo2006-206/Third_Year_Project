@@ -1,4 +1,6 @@
 use std::env;
+use std::sync::Arc;
+use std::time::Duration;
 
 use smol::{
     channel::{Receiver, Sender},
@@ -18,29 +20,57 @@ async fn handle_client(
     jobs: Sender<offl::DanaJob>,
     main_addr: &str,
     asset_cache: Option<&'static AssetCache>,
+    current: &'static offl::CurrentJob,
 ) -> io::Result<()> {
     use http::{response_404, send_raw};
 
     let mut buffer = vec![0u8; 4096];
 
-    let Ok(req_str) = util::read_as_str(&mut client_stream, &mut buffer).await else {
-        eprintln!("Failed to read HTTP request with err");
-        return Ok(());
+    // one read, like util::read_as_str, but the byte count is kept: a PSC rebuild's body (its
+    // sub segment) starts in this buffer
+    let n = match client_stream.read(&mut buffer).await {
+        Ok(0) | Err(_) => {
+            eprintln!("Failed to read HTTP request with err");
+            return Ok(());
+        }
+        Ok(n) => n,
     };
+    let req_str = String::from_utf8_lossy(&buffer[..n]);
 
-    let Some((_method, path)) = util::parse_method_path(&req_str, Some("?")) else {
+    let Some((method, path)) = util::parse_method_path(&req_str, Some("?")) else {
         eprintln!("Failed to parse HTTP request");
         return Ok(());
     };
 
-    // dbg!(&method, &path);
-
-    if path.starts_with("/offload") || path.starts_with("/times/offload") {
+    if path.starts_with("/psc/") {
+        // Dana's own sub fetch during a rebuild: never queued (Dana is busy with that job)
+        serve_psc_sub(client_stream, path, current).await
+    } else if path.starts_with("/offload") || path.starts_with("/times/offload") {
+        // a PSC rebuild ('<k>+<n>') comes as POST with its sub; anything else must not have a body
+        let sub = match (offl::rebuild_target(path).is_some(), method) {
+            (true, "POST") => match read_body(&mut client_stream, &buffer[..n]).await {
+                Ok(sub) => Some(Arc::new(sub)),
+                Err(e) => {
+                    eprintln!("[PSC] rebuild body: {e} | {path}");
+                    return send_raw(&mut client_stream, &offl::bad_request(&e.to_string())).await;
+                }
+            },
+            (true, _) => {
+                let reply = offl::bad_request("PSC rebuild needs POST with its sub segment");
+                return send_raw(&mut client_stream, &reply).await;
+            }
+            (false, "POST") => {
+                let reply = offl::bad_request("POST is only for PSC rebuilds ('<k>+<n>')");
+                return send_raw(&mut client_stream, &reply).await;
+            }
+            (false, _) => None,
+        };
         // queued for the Dana worker, which answers the client itself
         let job = offl::DanaJob {
             client: client_stream,
             path: path.to_string(),
             enqueued: std::time::Instant::now(),
+            sub,
         };
         jobs.send(job)
             .await
@@ -55,32 +85,171 @@ async fn handle_client(
     }
 }
 
+/// [Dishonest I/O] The rest of a request body after the first read (`first` = the bytes read so
+/// far, head included): Content-Length required, at most offl::MAX_SUB_BYTES.
+async fn read_body(stream: &mut TcpStream, first: &[u8]) -> io::Result<Vec<u8>> {
+    let invalid = |m: &str| io::Error::new(io::ErrorKind::InvalidData, m.to_string());
+    let (start, len) =
+        offl::request_body_start(first).ok_or_else(|| invalid("request head too long"))?;
+    let len = len.ok_or_else(|| invalid("no Content-Length"))? as usize;
+    if len > offl::MAX_SUB_BYTES {
+        return Err(invalid("sub segment too big"));
+    }
+    let mut body = first[start..].to_vec();
+    if body.len() > len {
+        return Err(invalid("body longer than Content-Length"));
+    }
+    let have = body.len();
+    body.resize(len, 0);
+    stream.read_exact(&mut body[have..]).await?;
+    Ok(body)
+}
+
+/// [Dishonest I/O] GET /psc/show/<show>/<t0>/...: the current rebuild job's sub if show and t0 match
+/// (marked served after the write), else 404 (the offload track's read-ahead of t0+10, or no
+/// rebuild running). Logs '[PSC] sub served N B | path' / '[PSC] sub 404 | path'.
+async fn serve_psc_sub(
+    mut stream: TcpStream,
+    path: &str,
+    current: &'static offl::CurrentJob,
+) -> io::Result<()> {
+    let target = offl::sub_target(path);
+    let sub = match (&*offl::lock(current), &target) {
+        (Some(cur), Some((show, t0))) if cur.show == *show && cur.t0 == *t0 => {
+            Some(Arc::clone(&cur.sub))
+        }
+        _ => None,
+    };
+    let Some(sub) = sub else {
+        util::log_message(&format!("[PSC] sub 404 | {path}"));
+        return http::send_raw(&mut stream, &http::response_404()).await;
+    };
+    let head =
+        http::format_response_header("200 OK", "application/octet-stream", sub.len() as u64, &[]);
+    stream.write_all(&head).await?;
+    stream.write_all(&sub).await?;
+    stream.flush().await?;
+    // still the same job (Dana cannot start the next one while it waits for this sub)
+    if let Some(cur) = offl::lock(current).as_mut()
+        && Arc::ptr_eq(&cur.sub, &sub)
+    {
+        cur.served = true;
+    }
+    util::log_message(&format!("[PSC] sub served {} B | {path}", sub.len()));
+    Ok(())
+}
+
 // The only task that talks to Dana: one request at a time, in arrival order (the reply goes back
-// to the main server in its own task, see serve_dana). A failed job is logged and skipped; the
-// loop must not end (or panic), or every later request waits forever
-async fn dana_worker(jobs: Receiver<offl::DanaJob>, dana_addr: &str) {
+// to the main server in its own task, see serve_dana). A failed job is answered with an error and
+// skipped; the loop must not end (or panic), or every later request waits forever.
+// A PSC rebuild job is published in `current` while Dana renders it (its sub fetch reads it).
+async fn dana_worker(
+    jobs: Receiver<offl::DanaJob>,
+    dana_addr: &str,
+    timeout: Duration,
+    current: &'static offl::CurrentJob,
+) {
     while let Ok(job) = jobs.recv().await {
         let t_queue = job.enqueued.elapsed().as_millis();
-        if let Err(e) = serve_dana(job.client, &job.path, t_queue, dana_addr).await {
-            eprintln!("[offload_server] {} failed: {e}", job.path);
-        }
+        let rebuild = job.sub.and_then(|sub| {
+            offl::rebuild_target(&job.path).map(|(show, t0)| offl::CurrentSub {
+                show,
+                t0,
+                sub,
+                served: false,
+            })
+        });
+        let psc = rebuild.is_some().then_some(current);
+        *offl::lock(current) = rebuild;
+        serve_dana(job.client, &job.path, t_queue, dana_addr, timeout, psc).await;
     }
 }
 
+/// [Dishonest I/O] one job: Dana's reply, or an error reply, goes back to the main server.
+/// A Dana that does not answer within `timeout` is stuck (it used to hang the whole site: every later
+/// job waited behind it): it is killed (the container's entrypoint restarts it) and the job gets 504.
 async fn serve_dana(
     main_server: TcpStream,
     offload_path: &str,
     t_queue: u128,
     dana_addr: &str,
-) -> io::Result<()> {
-    let response = fetch_from_dana(offload_path, &t_queue.to_string(), dana_addr).await?;
+    timeout: Duration,
+    psc: Option<&offl::CurrentJob>,
+) {
+    let response = match fetch_from_dana(offload_path, &t_queue.to_string(), dana_addr, timeout)
+        .await
+    {
+        Ok(response) => response,
+        Err(e) if e.kind() == io::ErrorKind::TimedOut => {
+            eprintln!(
+                "[offload_server] Dana gave no reply in {} s, killing it (entrypoint restarts it): {offload_path}",
+                timeout.as_secs()
+            );
+            kill_dana();
+            http::response_gateway_error(true)
+        }
+        Err(e) => {
+            eprintln!("[offload_server] {offload_path} failed: {e}");
+            http::response_gateway_error(false)
+        }
+    };
+    // PSC rebuild: Dana must have fetched its sub, else its picture has no bottom layers
+    let response = match psc.and_then(|current| offl::lock(current).take()) {
+        Some(job) => {
+            if !job.served {
+                eprintln!(
+                    "[PSC] rebuild without its sub (Dana never fetched it) -> 502: {offload_path}"
+                );
+            }
+            offl::rebuild_reply(response, job.served)
+        }
+        None => response,
+    };
     smol::spawn(async move {
         if let Err(e) = dana_sendback(main_server, response).await {
             eprintln!("[offload_server] send back to main server failed: {e}");
         }
     })
     .detach();
-    Ok(())
+}
+
+/// [Dishonest I/O] kill the Dana worker of this container (only Dana runs as 'dana' here) = `pkill -9 -x dana`,
+/// done with /proc/<pid>/comm + kill(2). NOT std::process::Command: spawning links Rust std's pidfd_spawnp /
+/// pidfd_getpid (GLIBC_2.39) into the host build, and the ubuntu 22.04 image (glibc 2.35) then refuses to
+/// start the binary at all (container test 11-08).
+fn kill_dana() {
+    let Ok(dir) = std::fs::read_dir("/proc") else {
+        eprintln!("[offload_server] kill dana failed: cannot read /proc");
+        return;
+    };
+    let mut killed = Vec::new();
+    for entry in dir.flatten() {
+        let Some(pid) = entry
+            .file_name()
+            .to_str()
+            .and_then(|s| s.parse::<i32>().ok())
+        else {
+            continue;
+        };
+        let is_dana = std::fs::read_to_string(format!("/proc/{pid}/comm"))
+            .is_ok_and(|comm| comm.trim_end() == "dana");
+        if is_dana {
+            // SAFETY: kill(2) takes a pid and a signal number; no memory is shared with the callee.
+            let rc = unsafe { libc::kill(pid, libc::SIGKILL) };
+            killed.push((pid, rc));
+        }
+    }
+    eprintln!("[offload_server] kill -9 dana (pid, rc): {killed:?}");
+}
+
+/// [Honest] Dana reply timeout: OBM_DANA_TIMEOUT_S (seconds) or 300 s. A render is at most ~2 x the
+/// 60 s Dana resource timeout + ~30 s cpu render, and the front sends Dana one job at a time.
+fn dana_timeout(env_value: Option<String>) -> Duration {
+    const DEFAULT_S: u64 = 300;
+    let s = env_value
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|&s| s > 0);
+    Duration::from_secs(s.unwrap_or(DEFAULT_S))
 }
 
 // One job to Dana and its whole response (headers + H.264) into memory: Dana is free as soon as it
@@ -89,6 +258,25 @@ async fn serve_dana(
 // instant gets a reset / closed socket before any response byte. Dana cannot have rendered it, so
 // it is resent to the restarted Dana (a reply that broke after its first byte is an error)
 async fn fetch_from_dana(
+    offload_path: &str,
+    t_queue: &str,
+    dana_addr: &str,
+    timeout: Duration,
+) -> io::Result<Vec<u8>> {
+    smol::future::or(
+        fetch_from_dana_inner(offload_path, t_queue, dana_addr),
+        async {
+            smol::Timer::after(timeout).await;
+            Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                "Dana reply timeout",
+            ))
+        },
+    )
+    .await
+}
+
+async fn fetch_from_dana_inner(
     offload_path: &str,
     t_queue: &str,
     dana_addr: &str,
@@ -279,7 +467,11 @@ fn main() -> io::Result<()> {
 
         // FIFO queue in front of Dana (Dana renders one request at a time)
         let (jobs, queue) = smol::channel::unbounded();
-        smol::spawn(dana_worker(queue, DANA_ADDR)).detach();
+        let timeout = dana_timeout(env::var("OBM_DANA_TIMEOUT_S").ok());
+        println!("Dana reply timeout {} s", timeout.as_secs());
+        // the PSC rebuild Dana is rendering (its sub), shared with the /psc route
+        let current: &'static offl::CurrentJob = Box::leak(Box::new(offl::CurrentJob::new(None)));
+        smol::spawn(dana_worker(queue, DANA_ADDR, timeout, current)).detach();
 
         // Accept incoming connections loop
         let mut incoming = listener.incoming();
@@ -288,7 +480,7 @@ fn main() -> io::Result<()> {
             let jobs = jobs.clone();
             // Spawn an asynchronous task for each client connection
             smol::spawn(async move {
-                if let Err(e) = handle_client(stream, jobs, main_addr, asset_cache).await {
+                if let Err(e) = handle_client(stream, jobs, main_addr, asset_cache, current).await {
                     eprintln!("Error handling client: {}", e);
                 }
             })
@@ -317,6 +509,45 @@ fn arg_port() -> String {
 mod tests {
     use super::*;
 
+    const LONG: Duration = Duration::from_secs(30);
+
+    // A fake Dana that reads the job and never answers (stuck render loop), holding the socket open
+    async fn silent_dana() -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        smol::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf).await;
+            smol::Timer::after(Duration::from_secs(30)).await;
+            drop(s);
+        })
+        .detach();
+        addr
+    }
+
+    #[test]
+    fn test_fetch_times_out_on_a_silent_dana() {
+        smol::block_on(async {
+            let addr = silent_dana().await;
+            let t = std::time::Instant::now();
+            let err = fetch_from_dana("/p", "0", &addr, Duration::from_millis(300))
+                .await
+                .unwrap_err();
+            assert_eq!(err.kind(), io::ErrorKind::TimedOut);
+            assert!(t.elapsed() < Duration::from_secs(5));
+        });
+    }
+
+    #[test]
+    fn test_dana_timeout_env() {
+        assert_eq!(dana_timeout(None), Duration::from_secs(300));
+        assert_eq!(dana_timeout(Some("120".into())), Duration::from_secs(120));
+        assert_eq!(dana_timeout(Some(" 7 ".into())), Duration::from_secs(7));
+        assert_eq!(dana_timeout(Some("0".into())), Duration::from_secs(300));
+        assert_eq!(dana_timeout(Some("x".into())), Duration::from_secs(300));
+    }
+
     // A fake Dana: drops the first `drops` connections without answering (the recycle race),
     // then answers every request with `reply`
     async fn fake_dana(drops: usize, reply: &'static [u8]) -> (String, smol::Task<usize>) {
@@ -344,7 +575,7 @@ mod tests {
     fn test_fetch_resends_after_dana_closed_without_response() {
         smol::block_on(async {
             let (addr, dana) = fake_dana(2, b"HTTP/1.1 200 OK\r\n\r\nvideo").await;
-            let resp = fetch_from_dana("/offload/show/x.json/0/10", "0", &addr)
+            let resp = fetch_from_dana("/offload/show/x.json/0/10", "0", &addr, LONG)
                 .await
                 .unwrap();
             assert_eq!(resp, b"HTTP/1.1 200 OK\r\n\r\nvideo");
@@ -356,8 +587,170 @@ mod tests {
     fn test_fetch_first_try() {
         smol::block_on(async {
             let (addr, dana) = fake_dana(0, b"HTTP/1.1 200 OK\r\n\r\n").await;
-            assert!(fetch_from_dana("/p", "0", &addr).await.is_ok());
+            assert!(fetch_from_dana("/p", "0", &addr, LONG).await.is_ok());
             assert_eq!(dana.await, 1);
+        });
+    }
+
+    // ---- PSC rebuild through the front (in process): main server -> front -> fake Dana -> /psc
+
+    const REBUILD: &str =
+        "/offload/show/f1.json/20/30/1280/720/race/landscape/1+2/race|race/drivers|Sam";
+    const SUB_URL: &str = "/psc/show/f1.json/20/30/1280/720/race/landscape/1/race|race";
+    const AHEAD_URL: &str = "/psc/show/f1.json/30/40/1280/720/race/landscape/1/race|race";
+
+    /// A front on 127.0.0.1:0 talking to `dana_addr`; returns its address.
+    async fn front(dana_addr: String) -> String {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let current: &'static offl::CurrentJob = Box::leak(Box::new(offl::CurrentJob::new(None)));
+        let dana: &'static str = dana_addr.leak();
+        let (jobs, queue) = smol::channel::unbounded();
+        smol::spawn(dana_worker(queue, dana, LONG, current)).detach();
+        smol::spawn(async move {
+            loop {
+                let (s, _) = listener.accept().await.unwrap();
+                let jobs = jobs.clone();
+                smol::spawn(async move {
+                    let _ = handle_client(s, jobs, "127.0.0.1:1", None, current).await;
+                })
+                .detach();
+            }
+        })
+        .detach();
+        addr
+    }
+
+    /// GET `url` from `host`, the whole response
+    async fn get(host: &str, url: &str) -> Vec<u8> {
+        let mut s = TcpStream::connect(host).await.unwrap();
+        s.write_all(&http::request_get(url, host, "test", &[]))
+            .await
+            .unwrap();
+        let mut r = Vec::new();
+        s.read_to_end(&mut r).await.unwrap();
+        r
+    }
+
+    /// A fake Dana for one job: reads it, then (if `fetch`) GETs its sub and the read-ahead from
+    /// the front like Track:offload, answers 200 "REBUILT"; the task gives (sub reply, ahead reply).
+    async fn psc_dana(
+        front_addr: smol::channel::Receiver<String>,
+        fetch: bool,
+    ) -> (String, smol::Task<(Vec<u8>, Vec<u8>)>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let task = smol::spawn(async move {
+            let front = front_addr.recv().await.unwrap();
+            let (mut s, _) = listener.accept().await.unwrap();
+            let mut buf = [0u8; 4096];
+            let _ = s.read(&mut buf).await.unwrap();
+            let (sub, ahead) = if fetch {
+                (get(&front, SUB_URL).await, get(&front, AHEAD_URL).await)
+            } else {
+                (Vec::new(), Vec::new())
+            };
+            s.write_all(b"HTTP/1.0 200 OK\r\nContent-length: 7\r\n\r\nREBUILT")
+                .await
+                .unwrap();
+            (sub, ahead)
+        });
+        (addr, task)
+    }
+
+    /// The main server's side: POST the rebuild with `sub` (or GET it without), whole reply
+    async fn send_rebuild(front: &str, sub: Option<&[u8]>) -> Vec<u8> {
+        let mut s = TcpStream::connect(front).await.unwrap();
+        match sub {
+            Some(sub) => {
+                s.write_all(&http::request_with_body(
+                    "POST",
+                    REBUILD,
+                    front,
+                    "main",
+                    sub.len(),
+                ))
+                .await
+                .unwrap();
+                s.write_all(sub).await.unwrap();
+            }
+            None => s
+                .write_all(&http::request_get(REBUILD, front, "main", &[]))
+                .await
+                .unwrap(),
+        }
+        let mut r = Vec::new();
+        s.read_to_end(&mut r).await.unwrap();
+        r
+    }
+
+    #[test]
+    fn test_psc_rebuild_dana_gets_its_pushed_sub() {
+        smol::block_on(async {
+            // a sub bigger than the first 4 KB read: the body spans many reads
+            let sub: Vec<u8> = (0..200_000u32).map(|i| (i % 251) as u8).collect();
+            let (tx, rx) = smol::channel::bounded(1);
+            let (dana, task) = psc_dana(rx, true).await;
+            let front = front(dana).await;
+            tx.send(front.clone()).await.unwrap();
+            let reply = send_rebuild(&front, Some(&sub)).await;
+            assert!(
+                reply.starts_with(b"HTTP/1.0 200 OK"),
+                "{}",
+                String::from_utf8_lossy(&reply[..40.min(reply.len())])
+            );
+            assert!(reply.ends_with(b"REBUILT"));
+            let (got, ahead) = task.await;
+            let (head, body) = http::split_response(&got).unwrap();
+            assert!(http::is_status_ok(head));
+            assert_eq!(body, &sub[..]);
+            assert!(
+                ahead.starts_with(b"HTTP/1.1 404") || ahead.starts_with(b"HTTP/1.0 404"),
+                "{}",
+                String::from_utf8_lossy(&ahead)
+            );
+        });
+    }
+
+    #[test]
+    fn test_psc_rebuild_without_sub_fetch_is_502() {
+        smol::block_on(async {
+            let (tx, rx) = smol::channel::bounded(1);
+            let (dana, task) = psc_dana(rx, false).await;
+            let front = front(dana).await;
+            tx.send(front.clone()).await.unwrap();
+            let reply = send_rebuild(&front, Some(b"SUB")).await;
+            assert!(reply.starts_with(b"HTTP/1.0 502"));
+            assert_eq!(
+                http::header_value(&reply, "X-PSC-Rebuild").as_deref(),
+                Some("failed")
+            );
+            task.await;
+            // nothing is running now: a stray sub fetch is a 404
+            assert!(get(&front, SUB_URL).await.windows(3).any(|w| w == b"404"));
+        });
+    }
+
+    #[test]
+    fn test_psc_bad_methods_are_400() {
+        smol::block_on(async {
+            // no Dana needed: refused before the queue
+            let front = front("127.0.0.1:1".to_string()).await;
+            let reply = send_rebuild(&front, None).await; // GET with '+'
+            assert!(
+                reply.starts_with(b"HTTP/1.0 400"),
+                "{}",
+                String::from_utf8_lossy(&reply)
+            );
+            let mut s = TcpStream::connect(&front).await.unwrap();
+            let plain = REBUILD.replace("1+2", "2");
+            s.write_all(&http::request_with_body("POST", &plain, &front, "main", 1))
+                .await
+                .unwrap();
+            s.write_all(b"x").await.unwrap();
+            let mut r = Vec::new();
+            s.read_to_end(&mut r).await.unwrap();
+            assert!(r.starts_with(b"HTTP/1.0 400"));
         });
     }
 }

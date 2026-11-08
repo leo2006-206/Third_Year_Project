@@ -85,7 +85,7 @@ def main():
         w.writeheader()
         w.writerows(rows)
     subs = {r["sub_id"] for r in rows}
-    no_cut = len(kinds) - len({r["rest"] for r in rows})
+    no_cut = len(kinds) - len({(r["show"], r["rest"]) for r in rows})  # rests repeat across shows (f1 / f1_full)
     print(f"{out.relative_to(ROOT)}: {len(rows)} rows (kind x cut), {len(kinds)} kinds ({no_cut} with no cut), "
           f"{len(subs)} distinct sub ids, not 1:1 rows {sum(1 for r in rows if not r['one_to_one'])}, "
           f"{out.stat().st_size / 1024:.0f} KiB")

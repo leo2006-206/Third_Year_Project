@@ -35,6 +35,10 @@ data RenderConfig {
 	char styleName[]
 	int renderLayerCount
 	RenderLayer layers[]
+	// PSC PoC: first offloadLayerCount roots come from a cached sub segment (Track:offload via ASSET_HOST), 0 = render all
+	int offloadLayerCount
+	// PSC pair: "<k>*<n>" = render n roots once, ALSO output roots 0..k-1 as a sub segment; 0 = off
+	int pairLayerCount
 }
 
 data RenderTask {
@@ -67,6 +71,18 @@ data RenderTask {
 	int t_decode
 	int t_render
 	int t_encode
+
+	// PSC pair: encoder B makes the sub segment
+	Encoder encoderSub
+	List framesSub
+	ChunkList subChunks
+	int t_render_sub
+	int t_encode_sub
+}
+
+data ChunkList {
+	List list
+	int length
 }
 
 data Chunk {
@@ -92,6 +108,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 	byte opMode = M_LISTEN
 	bool quit
 	ImageTransform imgTransform
+	char directOut[]
 
 	bool processEvents(FlowEvent events[])
 		{
@@ -216,8 +233,15 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 			String parts[] = req.explode("/")
 
 			File fd = new File(output, File.CREATE)
+			directOut = output
 
-			queueRequest(parts, null, fd, br)
+			char err[] = queueRequest(parts, null, fd, br)
+			if (err != null)
+				{
+				out.println("bad request: $(err)")
+				fd.close()
+				return 1
+				}
 			}
 
 		FlowRender window = new FlowRender(25)
@@ -226,6 +250,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 
 		EncodedFrame framesEnc[] = null
 		int reqHandled = 0
+		int lastStaleCheck = cal.getMS()
 
 		while (!quit)
 			{
@@ -252,7 +277,10 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					imgTransform = new ImageTransform(new WH(rt.screenWidth, rt.screenHeight))
 
 					rt.variants = rt.exp.getVariants()
-					rt.exp.loadVariant(rt.config.variantName, rt.config.styleName, renderLayers = rt.config.renderLayerCount)
+					if (rt.config.offloadLayerCount > 0)
+						rt.exp.loadVariant(rt.config.variantName, rt.config.styleName, offloadLayers = rt.config.offloadLayerCount, renderLayers = rt.config.renderLayerCount)
+						else
+						rt.exp.loadVariant(rt.config.variantName, rt.config.styleName, renderLayers = rt.config.renderLayerCount)
 
 					//at the moment we need to keep calling resource() until it's true, to get the variant loaded
 					// - this means we're going to be pulling in source resources that we'll throw away if we change layer options...
@@ -281,9 +309,11 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					int frameIndex = frameStart
 
 					int initTimeTaken = 0
+					// an exception inside Experience (layer count > roots, empty layout download, ...) makes resource() return null; the old
+					// '!rinfo.ready' then threw in main = render loop dead, process alive, site hung (kb/partial_segment.md 16, P1)
 					ResourceInfo rinfo = rt.exp.resource(window, frameIndex)
 					//out.println("[ready-check: $(rinfo.ready)]")
-					while (!rinfo.ready)
+					while (rinfo != null && !rinfo.ready)
 						{
 						timer.sleep(INACTIVE_WAIT_MS)
 						initTimeTaken += INACTIVE_WAIT_MS
@@ -293,6 +323,17 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							break
 							}
 						rinfo = rt.exp.resource(window, frameIndex)
+						}
+					if (rinfo == null || !rinfo.ready)
+						{
+						if (rinfo == null)
+							failTask(rt, 500, "Internal Server Error", "render setup failed (layer count larger than the variant's roots, or a show / asset download failed)")
+							else
+							failTask(rt, 504, "Gateway Timeout", "timeout waiting for initial resources")
+						quit = true
+						if (restListener != null) restListener.unbind()
+						if (opMode == M_DIRECT) return 1
+						return 0
 						}
 					// asset time ends here, not at variantReady: the requested layer options' resources
 					// are only fetched after it (setLayerOptions + showVariant), in the loop above
@@ -307,6 +348,13 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					//rt.encoder = new Encoder:h264(new WH(rt.screenWidth, rt.screenHeight), FPS, new KeyValue("bitrate", "2048"))
 					rt.encoder = new Encoder:h264(new WH(rt.screenWidth, rt.screenHeight), FPS)
 					rt.frames = new List()
+
+					int pairK = rt.config.pairLayerCount
+					if (pairK > 0)
+						{
+						rt.encoderSub = new Encoder:h264(new WH(rt.screenWidth, rt.screenHeight), FPS)
+						rt.framesSub = new List()
+						}
 
 					bool keyFrame = true
 
@@ -329,7 +377,7 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 						int timeTaken = 0
 						rinfo = rt.exp.resource(window, 0)
 						//out.println("[ready-check: $(rinfo.ready)]")
-						while (!rinfo.ready)
+						while (rinfo != null && !rinfo.ready)
 							{
 							timer.sleep(INACTIVE_WAIT_MS)
 							timeTaken += INACTIVE_WAIT_MS
@@ -339,7 +387,10 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 								timeout = true
 								break
 								}
+							// ask again (the loop never re-asked: one not-ready frame always ran into the 60 s timeout)
+							rinfo = rt.exp.resource(window, 0)
 							}
+						if (rinfo == null) timeout = true
 						
 						if (!timeout)
 							{
@@ -350,10 +401,38 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 								rt.exp.prepare(window, frameIndex)
 								rt.t_decode += cal.getMS() - t_dec
 
-								int t_rnd = cal.getMS()
-								canvas.rect(new Rect2D(0, 0, rt.screenWidth, rt.screenHeight, new Color(0, 0, 0, 255)))
-								rt.exp.render(canvas)
-								rt.t_render += cal.getMS() - t_rnd
+								if (pairK > 0)
+									{
+									// PSC pair, step 1: bottom roots 0..k-1 only
+									int t_rs = cal.getMS()
+									canvas.rect(new Rect2D(0, 0, rt.screenWidth, rt.screenHeight, new Color(0, 0, 0, 255)))
+									rt.exp.renderRange(canvas, 0, pairK)
+									rt.t_render_sub += cal.getMS() - t_rs
+									rt.t_render += cal.getMS() - t_rs
+
+									// step 2: read back the bottom picture -> encoder B
+									int t_es = cal.getMS()
+									PixelMap pixelsSub = window.getPixels(pixelFormat)
+									PixelMapYUV yuvSub = imgTransform.rgbaToYUV(pixelsSub, pixelFormat)
+									EncodedFrame encSub[] = rt.encoderSub.encode(yuvSub, keyFrame)
+									for (int i = 0; i < encSub.arrayLength; i++)
+										{
+										rt.framesSub.add(encSub[i])
+										}
+									rt.t_encode_sub += cal.getMS() - t_es
+
+									// step 3: roots k..n-1 straight onto the window, on top, no clear (encoder A below = the full)
+									int t_rt = cal.getMS()
+									rt.exp.renderRange(canvas, pairK, rt.config.renderLayerCount, true)
+									rt.t_render += cal.getMS() - t_rt
+									}
+									else
+									{
+									int t_rnd = cal.getMS()
+									canvas.rect(new Rect2D(0, 0, rt.screenWidth, rt.screenHeight, new Color(0, 0, 0, 255)))
+									rt.exp.render(canvas)
+									rt.t_render += cal.getMS() - t_rnd
+									}
 								}
 								else
 								{
@@ -427,6 +506,18 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							rt.frames.add(framesEnc[i])
 							}
 						rt.t_encode += cal.getMS() - t_enc_fin
+
+						if (pairK > 0)
+							{
+							int t_es_fin = cal.getMS()
+							framesEnc = rt.encoderSub.finish()
+							for (int i = 0; i < framesEnc.arrayLength; i++)
+								{
+								rt.framesSub.add(framesEnc[i])
+								}
+							rt.subChunks = wrapFrames(rt.framesSub)
+							rt.t_encode_sub += cal.getMS() - t_es_fin
+							}
 						
 						//out.println(" -- wrapping $(rt.frames.getLength()) encoded frames ($(frames.arrayLength) from finish)")
 
@@ -462,6 +553,8 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 						rt.t_work = end_ms - start_ms
 						
 						out.println("\n -- render/encode took $(rt.t_work)ms (queue: $(rt.t_queue)ms, asset: $(rt.t_asset)ms, decode: $(rt.t_decode)ms, render: $(rt.t_render)ms, encode: $(rt.t_encode)ms)")
+						if (pairK > 0)
+							out.println(" -- pair sub ($(pairK) roots): $(rt.subChunks.length) bytes, render_sub: $(rt.t_render_sub)ms, encode_sub: $(rt.t_encode_sub)ms")
 						out.println(" -- sending response")
 
 						if (opMode == M_LISTEN)
@@ -474,9 +567,13 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							else if (opMode == M_DIRECT)
 							{
 							writeDataChunks(rt.file, "h264", totalLength, list)
+							if (pairK > 0)
+								writeDataChunks(new File("$(directOut).sub.h2i", File.CREATE), "h264", rt.subChunks.length, rt.subChunks.list)
 							}
 
 						reqHandled ++
+						// PSC pair: Dana keeps ~0.5 GB more resident after a pair (allocator retention) -> recycle right after it
+						if (pairK > 0) reqHandled = 10
 						if (opMode == M_LISTEN && reqHandled >= 10 && requests.getLength() == 0 && pending.getLength() == 0)
 							{
 							out.println(" -- handled $(reqHandled) requests, queue empty, recycling Dana worker...")
@@ -487,11 +584,13 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 						}
 						else
 						{
-						//TODO: respond with a fail (server-timeout)
-
+						// was: disconnect without a reply (the front resent the job up to 20x; direct mode disconnected a null socket)
 						out.println(" -- timeout in resourcing")
-
-						rt.socket.disconnect()
+						failTask(rt, 504, "Gateway Timeout", "timeout or failure while resourcing frame $(frameIndex)")
+						quit = true
+						if (restListener != null) restListener.unbind()
+						if (opMode == M_DIRECT) return 1
+						return 0
 						}
 					
 					if (opMode == M_DIRECT)
@@ -508,6 +607,27 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					quit = true
 					restListener.unbind()
 					return 0
+					}
+
+				// a show spec that never arrives (unknown show, failed download) emits no event: fail the task after RESOURCE_TIMEOUT_MS
+				// (checked once a second, on a snapshot of the list: the event threads walk 'pending' too)
+				if (cal.getMS() - lastStaleCheck >= 1000)
+					{
+					lastStaleCheck = cal.getMS()
+					Data waiting[] = pending.getContents()
+					for (int i = 0; i < waiting.arrayLength; i++)
+						{
+						RenderTask w = waiting[i]
+						int age = lastStaleCheck - w.t_arrive
+						if (w.mode == RenderTask.M_INIT && age >= RESOURCE_TIMEOUT_MS)
+							{
+							failTask(w, 504, "Gateway Timeout", "show spec not received (unknown show or download failed)")
+							quit = true
+							if (restListener != null) restListener.unbind()
+							if (opMode == M_DIRECT) return 1
+							return 0
+							}
+						}
 					}
 
 				timer.sleep(INACTIVE_WAIT_MS)
@@ -534,12 +654,24 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 	int findex = 0
 	void sendDataChunks(RenderTask rt, char contentType[], int len, List chunks)
 		{
+		int subLen = 0
+		if (rt.subChunks != null) subLen = rt.subChunks.length
 		rt.socket.send("HTTP/1.0 200 OK\r\n")
 		rt.socket.send("Server: Media Offload Server 0.1\r\n")
-		rt.socket.send("Content-length: $len\r\n")
+		rt.socket.send("Content-length: $(len + subLen)\r\n")
+		// PSC pair: body = full (len bytes) then sub (subLen bytes)
+		if (rt.subChunks != null) rt.socket.send("X-PSC-Sub-Length: $(subLen)\r\n")
 		rt.socket.send("Content-type: $contentType\r\n")
-		rt.socket.send("X-Dana-Timings: queue=$(rt.t_queue);asset=$(rt.t_asset);work=$(rt.t_work);decode=$(rt.t_decode);render=$(rt.t_render);encode=$(rt.t_encode)\r\n")
-		rt.socket.send("Server-Timing: queue;dur=$(rt.t_queue), asset;dur=$(rt.t_asset), work;dur=$(rt.t_work), decode;dur=$(rt.t_decode), render;dur=$(rt.t_render), encode;dur=$(rt.t_encode)\r\n")
+		// PSC pair: + render_sub (bottom roots; part of render) and encode_sub (read-back + YUV + encoder B; NOT in encode; work includes it)
+		char subT[] = ""
+		char subST[] = ""
+		if (rt.subChunks != null)
+			{
+			subT = ";render_sub=$(rt.t_render_sub);encode_sub=$(rt.t_encode_sub)"
+			subST = ", render_sub;dur=$(rt.t_render_sub), encode_sub;dur=$(rt.t_encode_sub)"
+			}
+		rt.socket.send("X-Dana-Timings: queue=$(rt.t_queue);asset=$(rt.t_asset);work=$(rt.t_work);decode=$(rt.t_decode);render=$(rt.t_render);encode=$(rt.t_encode)$(subT)\r\n")
+		rt.socket.send("Server-Timing: queue;dur=$(rt.t_queue), asset;dur=$(rt.t_asset), work;dur=$(rt.t_work), decode;dur=$(rt.t_decode), render;dur=$(rt.t_render), encode;dur=$(rt.t_encode)$(subST)\r\n")
 		rt.socket.send("Access-Control-Expose-Headers: X-Dana-Timings, Server-Timing\r\n")
 		rt.socket.send("Connection: close\r\n")
 		rt.socket.send("\r\n")
@@ -550,10 +682,35 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 			rt.socket.send(c.content)
 			//fd.write(c.content)
 			}
+		if (rt.subChunks != null)
+			{
+			for (Chunk c = rt.subChunks.list.getFirst(); c != null; c = rt.subChunks.list.getNext())
+				{
+				rt.socket.send(c.content)
+				}
+			}
 		//fd.close()
 		//findex ++
 		}
 	
+	// PSC pair: encoded sub frames -> chunks, each with an H2i header (the format Track:offload reads)
+	ChunkList wrapFrames(List frames)
+		{
+		ChunkList cl = new ChunkList(new List(), 0)
+		H2iHeader ihdr = new H2iHeader()
+		for (EncodedFrame frame = frames.getFirst(); frame != null; frame = frames.getNext())
+			{
+			ihdr.length = frame.content.arrayLength - 1
+			ihdr.type = getFrameType(frame.content, 0, isStartMarker(frame.content, 0))
+			byte hstream[] = dana.serial(ihdr)
+			cl.list.add(new Chunk(clone hstream))
+			cl.length += hstream.arrayLength
+			cl.list.add(new Chunk(frame.content))
+			cl.length += frame.content.arrayLength
+			}
+		return cl
+		}
+
 	void writeDataChunks(File fd, char contentType[], int len, List chunks)
 		{
 		for (Chunk c = chunks.getFirst(); c != null; c = chunks.getNext())
@@ -597,7 +754,17 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 					int frameCount = 0
 					int frameIndex = frameStart
 
-					VariantInfo vi = rt.variants.findFirst(VariantInfo.[name], new VariantInfo(name = rt.config.variantName))
+					// match name AND style like the M_RENDER loop: by name only, a portrait request got the landscape
+					// VariantInfo and its layer options were silently dropped (kb/partial_segment.md 16, P2)
+					VariantInfo vi = null
+					for (int vx = 0; vx < rt.variants.arrayLength; vx++)
+						{
+						if (rt.variants[vx].name == rt.config.variantName && (rt.config.styleName == null || rt.variants[vx].style == null || rt.variants[vx].style == rt.config.styleName))
+							{
+							vi = rt.variants[vx]
+							break
+							}
+						}
 					for (int i = 0; i < rt.config.layers.arrayLength; i++)
 						{
 						LayerInfo li = vi.layers.findFirst(LayerInfo.[name], new LayerInfo(name = rt.config.layers[i].name))
@@ -639,34 +806,148 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 		return headers
 		}
 	
-	void queueRequest(String subTokens[], TCPSocket socket, File fd, int bitrate, opt int queueTime)
+	// digits only (no sign, no trailing text), 1..maxDigits long
+	bool isNumber(char s[], int maxDigits)
 		{
+		return s.arrayLength > 0 && s.arrayLength <= maxDigits && stringUtil.isNumeric(s)
+		}
+
+	// a layer count token value, 0 if not a number (a valid count is >= 1)
+	int countValue(char s[])
+		{
+		if (!isNumber(s, 3)) return 0
+		return s.intFromString()
+		}
+
+	// plain ifs on purpose: dnc 273 evaluates 'x && (a || b)' as false when a is true (in a bool assignment / if condition)
+	bool isHexDigit(char c)
+		{
+		if (c >= 48 && c <= 57) return true
+		if (c >= 65 && c <= 70) return true
+		if (c >= 97 && c <= 102) return true
+		return false
+		}
+
+	char hexValue(char c)
+		{
+		if (c <= 57) return c - 48
+		if (c <= 70) return c - 55
+		return c - 87
+		}
+
+	// percent-decode %XX: HTTP clients (python requests, browsers) send 'Weather Icons' as 'Weather%20Icons' and '|' as '%7C'.
+	// Decoded here, not in the Rust front: a raw space in the request line would cut the path at Dana's request-line split.
+	char[] urlDecode(char s[])
+		{
+		char result[] = new char[s.arrayLength]
+		int n = 0
+		for (int i = 0; i < s.arrayLength; i++)
+			{
+			if (s[i] == 37 && i + 2 < s.arrayLength && isHexDigit(s[i+1]) && isHexDigit(s[i+2]))
+				{
+				result[n] = (hexValue(s[i+1]) * 16) + hexValue(s[i+2])
+				i += 2
+				}
+				else
+				{
+				result[n] = s[i]
+				}
+			n ++
+			}
+		return stringUtil.subString(result, 0, n)
+		}
+
+	// Parses + checks the request path and queues the task; returns null, or an error text for a 400 reply (was: throw, or an index
+	// exception on a short path -> the client got no reply). Count token: "<n>" | "<k>+<n>" (PSC rebuild) | "<k>*<n>" (PSC pair), 1 <= k < n.
+	char[] queueRequest(String subTokens[], TCPSocket socket, File fd, int bitrate, opt int queueTime)
+		{
+		if (subTokens.arrayLength < 10)
+			return "path too short: /offload/show/<show>/<t0>/<t1>/<width>/<height>/<variant>/<style>/<count>/<layer|option>..."
+		for (int i = 3; i <= 6; i++)
+			{
+			// braces needed: a braceless 'if (..) return "..$(x).."' breaks every later $() in the same function (dnc 273, tested)
+			if (!isNumber(subTokens[i].string, 6))
+				{
+				return "t0, t1, width and height must be numbers, got '$(subTokens[i].string)'"
+				}
+			}
+
 		RenderTask rt = new RenderTask(subTokens[2].string, subTokens[3].string.intFromString(), subTokens[4].string.intFromString(), subTokens[5].string.intFromString(), subTokens[6].string.intFromString(), bitrate, RenderTask.M_INIT, socket, fd)
 
-		RenderConfig rcfg = new RenderConfig(subTokens[7].string, subTokens[8].string, subTokens[9].string.intFromString())
+		// PSC: count token "<n>" as before, "<k>+<n>" = roots 0..k-1 from the cached sub segment, k..n-1 rendered here,
+		// "<k>*<n>" = pair (one render of n roots, also outputs the sub of roots 0..k-1)
+		char count[] = urlDecode(subTokens[9].string)
+		String pairParts[] = count.lsplit("*")
+		String rebuildParts[] = count.lsplit("+")
+		int k = 0
+		int n = 0
+		bool hasK = false
+		if (pairParts.arrayLength == 2)
+			{
+			k = countValue(pairParts[0].string)
+			n = countValue(pairParts[1].string)
+			hasK = true
+			}
+			else if (rebuildParts.arrayLength == 2)
+			{
+			k = countValue(rebuildParts[0].string)
+			n = countValue(rebuildParts[1].string)
+			hasK = true
+			}
+			else
+			{
+			n = countValue(count)
+			}
+		// plain ifs: dnc 273 gets 'n < 1 || (hasK && (k < 1 || k >= n))' wrong ('0*4' passed)
+		bool badCount = n < 1
+		if (hasK)
+			{
+			if (k < 1) badCount = true
+			if (k >= n) badCount = true
+			}
+		if (badCount)
+			{
+			return "bad layer count '$(count)': use <n>, <k>+<n> or <k>*<n> with 1 <= k < n"
+			}
+
+		RenderConfig rcfg = new RenderConfig(subTokens[7].string, subTokens[8].string, n)
+		if (pairParts.arrayLength == 2)
+			rcfg.pairLayerCount = k
+			else if (hasK)
+			rcfg.offloadLayerCount = k
 
 		for (int i = 10; i < subTokens.arrayLength; i++)
 			{
-			//split by name/value, which is separated by |
-			String parts[] = subTokens[i].string.lsplit("|")
-			//some browsers don't send a "|", instead converting it to %7C", so we test for that too
-			if (parts.arrayLength != 2) parts = subTokens[i].string.lsplit("%7C")
-			if (parts.arrayLength != 2) throw new Exception("malformed request: name/value pairs should be separated by | characters, or by %7C")
+			//split by name/value, which is separated by | (a "%7C" from some clients is decoded to | first)
+			char token[] = urlDecode(subTokens[i].string)
+			String parts[] = token.lsplit("|")
+			if (parts.arrayLength != 2)
+				{
+				return "malformed layer token '$(token)': use <layer>|<option>[,<option>...]"
+				}
 			String opts[] = parts[1].string.explode(",")
 			rcfg.layers = new RenderLayer[](rcfg.layers, new RenderLayer(parts[0].string, opts))
 			}
-		
+
 		rt.config = rcfg
 		rt.t_arrive = cal.getMS()
 		if (isset queueTime && queueTime > 0)
 			rt.t_queue = queueTime
 		out.println(" -- request queued (qTime: $(rt.t_queue)ms)")
 		requests.add(rt)
+		return null
 		}
 
 	void handleRequest(TCPSocket socket)
 		{
 		String headers[] = readHeaders(socket)
+
+		// a connect + close without a request (readiness probe) -> nothing to answer
+		if (headers == null || headers.arrayLength == 0)
+			{
+			socket.disconnect()
+			return
+			}
 
 		String tokens[] = stringUtil.explode(headers[0].string, " ")
 
@@ -683,41 +964,64 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 
 					out.println("request '$(rsc)' arrived")
 
-					if (subTokens.arrayLength >= 8)
+					int qTime = 0
+					for (int i = 1; i < headers.arrayLength; i++)
 						{
-						int qTime = 0
-						for (int i = 1; i < headers.arrayLength; i++)
+						if (headers[i].string.startsWith("X-Queue-Time"))
 							{
-							if (headers[i].string.startsWith("X-Queue-Time"))
-								{
-								String qParts[] = headers[i].string.explode(":")
-								if (qParts.arrayLength >= 2)
-									qTime = stringUtil.trim(qParts[1].string).intFromString()
-								}
+							String qParts[] = headers[i].string.explode(":")
+							if (qParts.arrayLength >= 2)
+								qTime = stringUtil.trim(qParts[1].string).intFromString()
 							}
-						queueRequest(subTokens, socket, null, BITRATE_DEFAULT, qTime)
 						}
-						else
+					char err[] = queueRequest(subTokens, socket, null, BITRATE_DEFAULT, qTime)
+					if (err != null)
 						{
-						socket.disconnect()
+						out.println(" -- bad request: $(err)")
+						sendError(socket, 400, "Bad Request", err)
 						}
 					}
 					else
 					{
-					socket.disconnect()
+					sendError(socket, 404, "Not Found", "only /offload/show/... is served")
 					}
 				}
 				else
 				{
-				socket.disconnect()
+				sendError(socket, 400, "Bad Request", "only GET is served")
 				}
 			}
 			else
 			{
-			socket.disconnect()
+			sendError(socket, 400, "Bad Request", "malformed request line")
 			}
 		}
-	
+
+	// error reply (any non-200 answer: the Rust front forwards it; the main server never caches / coalesces a non-200 segment).
+	// Always answering stops the front's resend-on-empty-reply loop for requests that can never succeed.
+	void sendError(TCPSocket socket, int code, char reason[], char msg[])
+		{
+		char body[] = "$(msg)\n"
+		socket.send("HTTP/1.0 $(code) $(reason)\r\n")
+		socket.send("Server: Media Offload Server 0.1\r\n")
+		socket.send("Content-length: $(body.arrayLength)\r\n")
+		socket.send("Content-type: text/plain\r\n")
+		socket.send("Connection: close\r\n")
+		socket.send("\r\n")
+		socket.send(body)
+		socket.disconnect()
+		}
+
+	// a task that can not finish: error reply (listen) or message (direct). The caller then recycles Dana: an exception inside
+	// Experience can leave its state (window, decoders) half built
+	void failTask(RenderTask rt, int code, char reason[], char msg[])
+		{
+		out.println("\n -- request failed: $(code) $(msg)")
+		if (rt.socket != null) sendError(rt.socket, code, reason, msg)
+		if (rt.file != null) rt.file.close()
+		pending.remove(rt)
+		}
+
 	void serverThread(TCPServerSocket server)
 		{
 		while (!quit)

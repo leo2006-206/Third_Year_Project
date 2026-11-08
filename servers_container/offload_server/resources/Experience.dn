@@ -1,0 +1,94 @@
+uses media.WH
+uses ui.FlowCanvas
+uses ui.FlowRender
+uses data.String
+uses Audio
+
+data LayerOption {
+	char name[]
+	PixelMap icon
+	bool default
+}
+
+data LayerInfo {
+	char name[]
+	char controlType[]
+	PixelMap controlIcon
+	LayerOption options[]
+}
+
+data TimelinePoint {
+	int start
+	int end
+}
+
+data TimelineInfo {
+	TimelinePoint points[]
+	PixelMap icon
+	Color colour
+}
+
+data VariantInfo {
+	char name[]
+	char style[]
+	int width
+	int height
+	PixelMap icon
+	LayerInfo layers[]
+	TimelineInfo timelines[]
+	int lengthFrames
+	bool default
+	int offloadLayers
+}
+
+data OpMode {
+	char mode[]
+	char param[]
+}
+
+data ExperienceStats {
+	int frameMisses[]
+}
+
+data VariantID {
+	char name[]
+	char style[]
+}
+
+data ResourceInfo {
+	bool ready
+	AudioData tracks[]
+}
+
+interface Experience {
+
+	event specReady()
+	event variantReady(VariantID name)
+
+	Experience(store WH screenSize, char uriBase[], char name[])
+	void setScreenSize(store WH screenSize)
+	void downloadSpec()
+	WH getExperienceSize()
+
+	VariantInfo[] getVariants()
+	OpMode getMode()
+	ExperienceStats getStats()
+	void loadVariant(char name[], char style[], opt int offloadLayers, char offloadHost[], int offloadPort, int renderLayers)
+	void showVariant()
+	void setLayerOptions(LayerInfo i, String options[], int frameIndex)
+
+	void seek(FlowRender renderer, int frameIndex)
+	ResourceInfo resource(FlowRender renderer, int frameIndex, opt int endIndex)
+	void prepare(FlowRender renderer, int frameIndex)
+	void render(FlowCanvas canvas)
+	// PSC pair: render screen nodes first..last-1 only. onWindow: draw straight onto the canvas target (no surface push/pop) so the
+	// nodes blend onto what is already there, exactly as inside one surface; only when the experience is 1:1 with the screen (else uses the surface)
+	void renderRange(FlowCanvas canvas, int first, int last, opt bool onWindow)
+
+	void batchInit(int length)
+	void batchPrepPre(FlowRender renderer, int length)
+	void batchPrepPost(int indexStart, int indexEnd)
+	void batchRenderFrame(FlowCanvas canvas, int frameIndex)
+
+	bool finished()
+	}

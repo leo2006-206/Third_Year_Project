@@ -274,6 +274,84 @@ pub fn request_bodyless(
 }
 
 /// [Honest / Pure Domain Logic]
+/// Head of a request with a body (e.g. POST): `request_bodyless` + Content-Length; the caller
+/// writes the `body_len` bytes after it.
+pub fn request_with_body(
+    method: &str,
+    method_path: &str,
+    host: &str,
+    user_agent: &str,
+    body_len: usize,
+) -> Vec<u8> {
+    let len = body_len.to_string();
+    let headers = [
+        ("Content-Type", "application/octet-stream"),
+        ("Content-Length", len.as_str()),
+    ];
+    request_bodyless(method, method_path, host, user_agent, &headers)
+}
+
+/// [Honest / Pure Domain Logic]
+/// Value of header `name` (matched case-insensitively, trimmed) in an HTTP head (with or without
+/// the final blank line); None if absent.
+pub fn header_value(head: &[u8], name: &str) -> Option<String> {
+    String::from_utf8_lossy(head)
+        .lines()
+        .skip(1) // status line
+        .take_while(|line| !line.is_empty())
+        .filter_map(|line| line.split_once(':'))
+        .find(|(n, _)| n.trim().eq_ignore_ascii_case(name))
+        .map(|(_, v)| v.trim().to_string())
+}
+
+/// [Honest / Pure Domain Logic]
+/// A copy of an HTTP head (with or without the final blank line) without the headers named in
+/// `drop` or `set` (case-insensitive), then the `set` headers added; always ends with the blank
+/// line. Used to fix Content-Length after splitting a body and to add a header to a full head.
+pub fn head_with(head: &[u8], set: &[(&str, &str)], drop: &[&str]) -> Vec<u8> {
+    use std::io::Write;
+    let text = String::from_utf8_lossy(head);
+    let mut lines = text.split("\r\n");
+    let mut out = Vec::with_capacity(head.len() + 64);
+    if let Some(status) = lines.next() {
+        let _ = write!(&mut out, "{status}\r\n");
+    }
+    let removed = |name: &str| {
+        let name = name.trim();
+        drop.iter().any(|d| d.eq_ignore_ascii_case(name))
+            || set.iter().any(|(s, _)| s.eq_ignore_ascii_case(name))
+    };
+    for line in lines.take_while(|l| !l.is_empty()) {
+        if line.split_once(':').is_some_and(|(n, _)| removed(n)) {
+            continue;
+        }
+        let _ = write!(&mut out, "{line}\r\n");
+    }
+    for (k, v) in set {
+        let _ = write!(&mut out, "{k}: {v}\r\n");
+    }
+    out.extend_from_slice(b"\r\n");
+    out
+}
+
+/// [Honest / Pure Domain Logic]
+/// PSC pair reply (body = full segment then sub segment, header X-PSC-Sub-Length): the length
+/// of the full part and the head the full alone needs (Content-Length = full, no
+/// X-PSC-Sub-Length). None if the header is missing or not a number, or the sub would not fit
+/// in `body_len`.
+pub fn split_pair_head(head: &[u8], body_len: usize) -> Option<(Vec<u8>, usize)> {
+    let sub_len: usize = header_value(head, "X-PSC-Sub-Length")?.parse().ok()?;
+    let full_len = body_len.checked_sub(sub_len)?;
+    let len = full_len.to_string();
+    let new_head = head_with(
+        head,
+        &[("Content-Length", len.as_str())],
+        &["X-PSC-Sub-Length"],
+    );
+    Some((new_head, full_len))
+}
+
+/// [Honest / Pure Domain Logic]
 /// Formats an HTTP GET request buffer.
 pub fn request_get(
     get_path: &str,
@@ -586,5 +664,63 @@ mod tests {
             s,
             "HTTP/1.0 200 OK\r\nServer: Dana\r\nX-OBM-Net: 42\r\nServer-Timing: net;dur=42\r\n\r\n"
         );
+    }
+
+    #[test]
+    fn test_request_with_body() {
+        let req = request_with_body("POST", "/offload/x/3+4/a", "h:1", "ua", 12);
+        let text = String::from_utf8(req).unwrap();
+        assert!(text.starts_with("POST /offload/x/3+4/a HTTP/1.1\r\n"));
+        assert!(text.contains("\r\nContent-Length: 12\r\n"));
+        assert!(text.ends_with("\r\n\r\n"));
+    }
+
+    #[test]
+    fn test_header_value_and_head_with() {
+        let head =
+            b"HTTP/1.0 200 OK\r\nContent-length: 30\r\nX-PSC-Sub-Length: 10\r\nX-A: 1\r\n\r\n";
+        assert_eq!(
+            header_value(head, "x-psc-sub-length").as_deref(),
+            Some("10")
+        );
+        assert_eq!(header_value(head, "Content-Length").as_deref(), Some("30"));
+        assert_eq!(header_value(head, "missing"), None);
+        // without the final blank line too
+        assert_eq!(
+            header_value(&head[..head.len() - 4], "X-A").as_deref(),
+            Some("1")
+        );
+        let new = head_with(
+            head,
+            &[("Content-Length", "20"), ("X-B", "2")],
+            &["x-psc-sub-length"],
+        );
+        assert_eq!(
+            String::from_utf8(new).unwrap(),
+            "HTTP/1.0 200 OK\r\nX-A: 1\r\nContent-Length: 20\r\nX-B: 2\r\n\r\n"
+        );
+        // a head without the blank line gets one
+        let new = head_with(
+            b"HTTP/1.0 502 Bad\r\nX-A: 1",
+            &[("X-OBM-PSC", "rebuild 3")],
+            &[],
+        );
+        assert_eq!(
+            new,
+            b"HTTP/1.0 502 Bad\r\nX-A: 1\r\nX-OBM-PSC: rebuild 3\r\n\r\n"
+        );
+    }
+
+    #[test]
+    fn test_split_pair_head() {
+        let head = b"HTTP/1.0 200 OK\r\nContent-length: 30\r\nX-PSC-Sub-Length: 10\r\n\r\n";
+        let (new, full) = split_pair_head(head, 30).unwrap();
+        assert_eq!(full, 20);
+        assert_eq!(header_value(&new, "content-length").as_deref(), Some("20"));
+        assert_eq!(header_value(&new, "X-PSC-Sub-Length"), None);
+        // sub longer than the body / no header / not a number
+        assert!(split_pair_head(head, 5).is_none());
+        assert!(split_pair_head(b"HTTP/1.0 200 OK\r\nContent-length: 30\r\n\r\n", 30).is_none());
+        assert!(split_pair_head(b"HTTP/1.0 200 OK\r\nX-PSC-Sub-Length: x\r\n\r\n", 30).is_none());
     }
 }

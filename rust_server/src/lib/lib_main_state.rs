@@ -10,7 +10,8 @@ use std::sync::Arc;
 use rust_obm::cost_lookup::CostLookup;
 use rust_obm::cost_predict::CostPredictor;
 use rust_obm::mod_feature::{
-    BinCache, CachePolicy, Coalescer, MergedPrefetch, PolicyCache, SegmentCache,
+    BinCache, CachePolicy, Coalescer, CutPick, CutTable, MergedPrefetch, PolicyCache, PscPolicy,
+    SegmentCache,
 };
 use rust_obm::mod_load_balancer::base_balancer::{LoadBalancer, LoadBalancerPolicy};
 use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
@@ -154,6 +155,44 @@ pub struct ServerState<P: LoadBalancerPolicy> {
     pub coalesce_real: bool,
     /// merged prefetch ("2 continue" rule), None = off
     pub prefetch: Option<MergedPrefetch>,
+    /// partial segment cache, None = off
+    pub psc: Option<Psc>,
+}
+
+/// Partial segment cache (PSC): the policy (which sub to create / rebuild from), the store of
+/// sub segments (own budget, D66) and the cost model it prices cuts with (on `ref_site`, a gpu
+/// reference config: machine-neutral unit cost, D68).
+pub struct Psc {
+    pub policy: PscPolicy,
+    pub store: PolicyCache,
+    pub mb: usize,
+    pub cost: CostPredictor,
+    pub ref_site: OffloadSite,
+}
+
+impl Psc {
+    /// [Honest] Work (s) of `path` on the reference site; None if the model does not know it.
+    pub fn cost_s(&self, path: &str) -> Option<f64> {
+        predict_any(&self.cost, path, &self.ref_site)
+    }
+
+    /// For the startup line, e.g. "50 MB lfu, heavy 1 s, thr 2, window 600 s, pick smallest, ..."
+    pub fn describe(&self) -> String {
+        format!(
+            "{} MB {}, {}",
+            self.mb,
+            self.store.policy(),
+            self.policy.describe()
+        )
+    }
+}
+
+/// [Honest] Cost model prediction for any request path: plain / sub '<k>' / rebuild '<k>+<n>'
+/// (their own features.csv rows), else a one-pass pair '<k>*<n>' (full + one more encode).
+pub fn predict_any(predictor: &CostPredictor, path: &str, site: &OffloadSite) -> Option<f64> {
+    predictor
+        .predict(path, site)
+        .or_else(|| predictor.predict_pair(path, site))
 }
 
 /// What a coalescing leader hands its followers: the segment body (status 200 only), shared
@@ -181,12 +220,18 @@ impl<P: LoadBalancerPolicy> ServerState<P> {
             None => println!("Prefetch OFF"),
         }
         let coalescer = (coalesce_real || prefetch.is_some()).then(Coalescer::new);
+        let psc = psc_loader()?;
+        match &psc {
+            Some(p) => println!("PSC ON: {}", p.describe()),
+            None => println!("PSC OFF"),
+        }
         Ok(Self {
             balancer,
             segment_cache,
             coalescer,
             coalesce_real,
             prefetch,
+            psc,
         })
     }
 }
@@ -277,6 +322,57 @@ pub fn prefetch_loader() -> io::Result<Option<MergedPrefetch>> {
     Ok(Some(MergedPrefetch::new(window_s, hold)))
 }
 
+/// [Dishonest I/O] Partial segment cache from env vars, None = off:
+/// OBM_PSC_MB (store budget MiB; unset / 0 = off), OBM_PSC_HEAVY_S (REQUIRED when on, no default:
+/// create only cuts that save at least this, s per reuse, e.g. 0.5 / 1 / 2), OBM_PSC_THR
+/// (default 2 requests in the window), OBM_PSC_WINDOW_S (default 600), OBM_PSC_PICK
+/// (smallest | save, default smallest), OBM_PSC_POLICY (lru | lfu, default lfu), OBM_PSC_DIR
+/// (default /tmp/obm_cache/psc, emptied at start), OBM_PSC_CUTS (default
+/// /app/stat_predict/psc_cuts.csv), cost model from OBM_COST_COEF / OBM_COST_FEATURES.
+pub fn psc_loader() -> io::Result<Option<Psc>> {
+    let mb = util::env_parse::<usize>("OBM_PSC_MB")?.unwrap_or(0);
+    if mb == 0 {
+        return Ok(None);
+    }
+    let invalid = |msg: String| io::Error::new(io::ErrorKind::InvalidInput, msg);
+    let heavy_s = util::env_parse::<f64>("OBM_PSC_HEAVY_S")?.ok_or_else(|| {
+        invalid("OBM_PSC_MB is set: OBM_PSC_HEAVY_S is required (e.g. 0.5, 1, 2)".into())
+    })?;
+    if !heavy_s.is_finite() || heavy_s < 0.0 {
+        return Err(invalid(format!("OBM_PSC_HEAVY_S={heavy_s}: expected >= 0")));
+    }
+    let thr = util::env_parse::<usize>("OBM_PSC_THR")?.unwrap_or(2);
+    if thr == 0 {
+        return Err(invalid("OBM_PSC_THR=0: expected >= 1".into()));
+    }
+    let window_s = util::env_parse::<f64>("OBM_PSC_WINDOW_S")?.unwrap_or(600.0);
+    if !window_s.is_finite() || window_s <= 0.0 {
+        return Err(invalid(format!(
+            "OBM_PSC_WINDOW_S={window_s}: expected > 0"
+        )));
+    }
+    let pick = util::env_parse::<CutPick>("OBM_PSC_PICK")?.unwrap_or(CutPick::Smallest);
+    let policy = util::env_parse::<CachePolicy>("OBM_PSC_POLICY")?.unwrap_or(CachePolicy::Lfu);
+    let dir = std::env::var("OBM_PSC_DIR").unwrap_or_else(|_| "/tmp/obm_cache/psc".to_string());
+    let cuts = std::env::var("OBM_PSC_CUTS")
+        .unwrap_or_else(|_| "/app/stat_predict/psc_cuts.csv".to_string());
+    let table = CutTable::load(&cuts)
+        .map_err(|e| io::Error::new(e.kind(), format!("PSC cut table {cuts}: {e}")))?;
+    let store = PolicyCache::new(&dir, mb << 20, policy)
+        .map_err(|e| io::Error::new(e.kind(), format!("PSC store dir {dir}: {e}")))?;
+    Ok(Some(Psc {
+        policy: PscPolicy::new(table, heavy_s, thr, window_s, pick),
+        store,
+        mb,
+        cost: load_cost_model()?,
+        ref_site: OffloadSite::new(
+            "psc-ref:0",
+            "psc-ref",
+            Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu),
+        ),
+    }))
+}
+
 /// [Dishonest I/O] A 0/1 switch: 1 = on, unset / 0 = off, anything else is an error.
 fn env_switch(name: &str) -> io::Result<bool> {
     match util::env_parse::<u8>(name)? {
@@ -316,7 +412,8 @@ pub fn mct_balancer(sites: Vec<OffloadSite>) -> io::Result<LoadBalancer<impl Loa
         predictor.len(),
         on_off(fallback)
     );
-    let predict = move |path: &str, site: &OffloadSite| predictor.predict(path, site);
+    // predict_any: PSC pair / rebuild jobs are priced too
+    let predict = move |path: &str, site: &OffloadSite| predict_any(&predictor, path, site);
     let mct = MCT::with_predict(&sites, predict, fallback);
     Ok(MctLB::with_policy(sites, mct))
 }
@@ -337,7 +434,7 @@ pub fn mct_lookup_balancer(
     let predict = move |path: &str, site: &OffloadSite| {
         lookup.predict(path, site).or_else(|| {
             println!("mct_lookup miss site={} path={path}", site.name);
-            predictor.predict(path, site)
+            predict_any(&predictor, path, site)
         })
     };
     let mct = MCT::with_predict(&sites, predict, false);
@@ -372,7 +469,7 @@ pub fn aco_balancer(sites: Vec<OffloadSite>) -> io::Result<LoadBalancer<impl Loa
         predictor.len(),
         on_off(fallback)
     );
-    let predict = move |path: &str, site: &OffloadSite| predictor.predict(path, site);
+    let predict = move |path: &str, site: &OffloadSite| predict_any(&predictor, path, site);
     let aco = ACO::with_predict(&sites, predict, fallback, seed);
     Ok(AcoLB::with_policy(sites, aco))
 }

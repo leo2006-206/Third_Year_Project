@@ -9,7 +9,7 @@ use std::sync::Arc;
 
 use smol::{io, net::TcpStream};
 
-use rust_obm::mod_feature::{BinCache, Follower, Leader, Role, SegmentCache};
+use rust_obm::mod_feature::{BinCache, Creating, Follower, Leader, Plan, Role, SegmentCache};
 use rust_obm::mod_load_balancer as lb;
 use rust_obm::mod_load_balancer::base_balancer as blb;
 
@@ -111,13 +111,16 @@ pub struct OffloadError<'a> {
 }
 
 /// Renders the request on a site chosen by the load balancer and returns the whole segment;
-/// never talks to the client. Inner Err = the site failed before the body was complete (the
-/// caller answers 502 / 504); outer Err = sending the request to the site failed.
+/// never talks to the client. `path` is what the site renders (and what the load balancer
+/// prices): the client's path, or a PSC pair / rebuild path. `body` = None: a GET; Some: a POST
+/// with that body (a PSC rebuild pushes its sub segment). Inner Err = the site failed before the
+/// body was complete (the caller answers 502 / 504); outer Err = sending the request failed.
 pub async fn fetch_offload<'a, P: blb::LoadBalancerPolicy + 'static>(
     state: &'a Arc<ServerState<P>>,
     path: &str,
+    body: Option<&[u8]>,
 ) -> io::Result<Result<RenderedSegment<'a>, OffloadError<'a>>> {
-    use http::{request_get, send_raw};
+    use http::{request_get, request_with_body, send_raw};
     use std::time::{Duration, Instant};
     use util::{copy_with_idle_timeout, with_timeout};
     const MAIN_SERVER_AGENT: &str = "OBM Load balancer/1.0";
@@ -143,8 +146,23 @@ pub async fn fetch_offload<'a, P: blb::LoadBalancerPolicy + 'static>(
         Err(err) => return Ok(Err(OffloadError { site, err })),
     };
 
-    let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
-    send_raw(&mut offload_steam, &message).await?;
+    match body {
+        None => {
+            let message = request_get(path, target_offload.endpoint, MAIN_SERVER_AGENT, &[]);
+            send_raw(&mut offload_steam, &message).await?;
+        }
+        Some(body) => {
+            let head = request_with_body(
+                "POST",
+                path,
+                target_offload.endpoint,
+                MAIN_SERVER_AGENT,
+                body.len(),
+            );
+            send_raw(&mut offload_steam, &head).await?;
+            send_raw(&mut offload_steam, body).await?;
+        }
+    }
 
     // 1. Response head (queue + asset + render happen before it); the body keeps arriving
     //    in the socket meanwhile. A missing / oversized head is a gateway error like a timeout
@@ -188,6 +206,186 @@ pub async fn fetch_offload<'a, P: blb::LoadBalancerPolicy + 'static>(
         site,
         total_ms,
     }))
+}
+
+/// A segment for a client request (see [`fetch_segment`]) and the PSC work left for after the
+/// client write.
+pub struct Fetched<'a> {
+    pub segment: RenderedSegment<'a>,
+    pub psc: PscDone<'a>,
+}
+
+/// PSC work to finish after the client has its segment ([`finish_psc`])
+pub enum PscDone<'a> {
+    Nothing,
+    /// a pair made this sub: store it, then drop the 'pair active' mark
+    Created {
+        key: String,
+        sub: Vec<u8>,
+        guard: Creating<'a>,
+    },
+}
+
+/// The segment for a client request, through the partial segment cache when it is on:
+/// - Plain: the request as it came (also with PSC off). Logged '[PSC] plain | reason' when the
+///   request had a cut (not for 'no cut');
+/// - Create: the pair `<k>*<n>` is rendered; the reply is split into the full (= the segment,
+///   head fixed) and the sub, kept in [`PscDone::Created`] for [`finish_psc`]. A reply without
+///   X-PSC-Sub-Length keeps the whole body as the full and stores nothing;
+/// - Rebuild: the cached sub is read and pushed with a POST of `<k>+<n>`; a site that could not
+///   use it answers 502 (X-PSC-Rebuild: failed), passed on to the client as it is (D83: no
+///   fallback render). Sub evicted / unreadable since the decision -> plain.
+///
+/// PSC requests get `X-OBM-PSC: create <k> | rebuild <k>` in the head. Logs: '[PSC] create k=K |
+/// full F rebuild R save S | site | sub N B | path', '[PSC] rebuild k=K | ... | site | path',
+/// '[PSC] create failed | ...', '[PSC] rebuild failed | site | why | path'.
+pub async fn fetch_segment<'a, P: blb::LoadBalancerPolicy + 'static>(
+    state: &'a Arc<ServerState<P>>,
+    path: &str,
+) -> io::Result<Result<Fetched<'a>, OffloadError<'a>>> {
+    let plain = |segment: RenderedSegment<'a>| Fetched {
+        segment,
+        psc: PscDone::Nothing,
+    };
+    let Some(psc) = &state.psc else {
+        return Ok(fetch_offload(state, path, None).await?.map(plain));
+    };
+    let log = |what: String| util::log_message(&format!("[PSC] {what}"));
+    let plan = psc.policy.decide(
+        path,
+        psc.policy.now_s(),
+        |key| psc.store.contains_key(key),
+        |p| psc.cost_s(p),
+    );
+    match plan {
+        Plan::Plain(why) => {
+            if why != "no cut" {
+                log(format!("plain | {why} | {path}"));
+            }
+            Ok(fetch_offload(state, path, None).await?.map(plain))
+        }
+        Plan::Create { cand, costs, guard } => {
+            let mut segment = match fetch_offload(state, &cand.pair_path, None).await? {
+                Ok(segment) => segment,
+                Err(e) => {
+                    log(format!("create failed | {} | {} | {path}", e.site, e.err));
+                    return Ok(Err(e));
+                }
+            };
+            let tag = format!("create {}", cand.k);
+            if !segment.status_ok {
+                log(format!(
+                    "create failed | {} | status not 200 | {path}",
+                    segment.site
+                ));
+                segment.head = http::head_with(&segment.head, &[("X-OBM-PSC", &tag)], &[]);
+                return Ok(Ok(plain(segment)));
+            }
+            let Some((head, full_len)) = http::split_pair_head(&segment.head, segment.data.len())
+            else {
+                log(format!(
+                    "create: no sub in the reply | {} | {path}",
+                    segment.site
+                ));
+                return Ok(Ok(plain(segment)));
+            };
+            let mut body = Arc::try_unwrap(segment.data).unwrap_or_else(|shared| (*shared).clone());
+            let sub = body.split_off(full_len);
+            segment.data = Arc::new(body);
+            segment.head = http::head_with(&head, &[("X-OBM-PSC", &tag)], &[]);
+            log(format!(
+                "create k={} | {costs} | {} | sub {} B | {path}",
+                cand.k,
+                segment.site,
+                sub.len()
+            ));
+            Ok(Ok(Fetched {
+                segment,
+                psc: PscDone::Created {
+                    key: cand.key,
+                    sub,
+                    guard,
+                },
+            }))
+        }
+        Plan::Rebuild { cand, costs } => {
+            let Some((file, size)) = psc.store.get(&cand.key) else {
+                log(format!("plain | sub evicted | {path}"));
+                return Ok(fetch_offload(state, path, None).await?.map(plain));
+            };
+            let read = smol::unblock(move || {
+                use std::io::Read;
+                let mut sub = Vec::with_capacity(size);
+                let mut file = file;
+                file.read_to_end(&mut sub).map(|_| sub)
+            })
+            .await;
+            let sub = match read {
+                Ok(sub) => sub,
+                Err(e) => {
+                    log(format!("plain | sub read failed: {e} | {path}"));
+                    return Ok(fetch_offload(state, path, None).await?.map(plain));
+                }
+            };
+            let mut segment = match fetch_offload(state, &cand.rebuild_path, Some(&sub)).await? {
+                Ok(segment) => segment,
+                Err(e) => {
+                    log(format!("rebuild failed | {} | {} | {path}", e.site, e.err));
+                    return Ok(Err(e));
+                }
+            };
+            if segment.status_ok {
+                log(format!(
+                    "rebuild k={} | {costs} | {} | {path}",
+                    cand.k, segment.site
+                ));
+            } else {
+                let why = http::header_value(&segment.head, "X-PSC-Rebuild")
+                    .unwrap_or_else(|| "status not 200".to_string());
+                log(format!(
+                    "rebuild failed | {} | {why} | {path}",
+                    segment.site
+                ));
+            }
+            let tag = format!("rebuild {}", cand.k);
+            segment.head = http::head_with(&segment.head, &[("X-OBM-PSC", &tag)], &[]);
+            Ok(Ok(plain(segment)))
+        }
+    }
+}
+
+/// After the client write: a pair's sub goes into the PSC store (blocking thread), then the
+/// 'pair active' mark is dropped (until then other requests for that sub render normally).
+/// Logs '[PSC] stored N B (used M B) | key' or '[PSC] store failed (N B): why | key'.
+pub async fn finish_psc<P: blb::LoadBalancerPolicy + 'static>(
+    state: &Arc<ServerState<P>>,
+    done: PscDone<'_>,
+) {
+    let PscDone::Created { key, sub, guard } = done else {
+        return;
+    };
+    let shared = Arc::clone(state);
+    let k = key.clone();
+    let outcome = smol::unblock(move || {
+        let Some(psc) = shared.psc.as_ref() else {
+            return "store failed: PSC off".to_string();
+        };
+        let size = sub.len();
+        match psc.store.add(&k, &sub) {
+            Ok(()) => format!("stored {size} B (used {} B)", psc.store.used()),
+            Err(e) => {
+                let why = match e.kind() {
+                    io::ErrorKind::AlreadyExists => "already stored".to_string(),
+                    io::ErrorKind::InvalidInput => "bigger than the store".to_string(),
+                    _ => e.to_string(),
+                };
+                format!("store failed ({size} B): {why}")
+            }
+        }
+    })
+    .await;
+    util::log_message(&format!("[PSC] {outcome} | {key}"));
+    drop(guard);
 }
 
 /// Shares a rendered segment: stores it in the segment cache (plain or bins), if one is on, and
@@ -308,7 +506,7 @@ pub async fn prefetch_task<P: blb::LoadBalancerPolicy + 'static>(
     };
     log(format!("issue | {trigger} -> {target}"));
 
-    let segment = match fetch_offload(&state, &target).await {
+    let segment = match fetch_offload(&state, &target, None).await {
         Ok(Ok(segment)) if segment.status_ok => segment,
         Ok(Ok(segment)) => {
             let site = segment.site;
@@ -354,4 +552,215 @@ pub async fn prefetch_task<P: blb::LoadBalancerPolicy + 'static>(
     };
     log(format!("expire | {readers} readers | {outcome} | {target}"));
     // leader drops here: the entry leaves the table
+}
+
+#[cfg(test)]
+mod test {
+    //! fetch_segment end to end against a fake site on 127.0.0.1 (no Dana): pair split + store,
+    //! rebuild POST with the sub as body, rebuild 502 passed on, PSC off = plain GET.
+    use super::*;
+    use crate::lib_main_state::Psc;
+    use rust_obm::cost_predict::CostPredictor;
+    use rust_obm::mod_feature::{CachePolicy, CutPick, CutTable, PolicyCache, PscPolicy};
+    use rust_obm::mod_load_balancer::config::{Config, Decode, Encode, Render};
+    use rust_obm::mod_load_balancer::{OffloadSite, RoundRobinLB};
+    use smol::io::{AsyncReadExt, AsyncWriteExt};
+    use smol::net::TcpListener;
+
+    const SAM: &str = "/offload/show/f1.json/0/10/1280/720/race/landscape/2/race|race/drivers|Sam";
+    const ALEX: &str =
+        "/offload/show/f1.json/0/10/1280/720/race/landscape/2/race|race/drivers|Alex";
+    const CUTS: &str = "rest,k,n,roots,prefix_pos,one_to_one,sub_id,show\n\
+        1280/720/race/landscape/2/race|race/drivers|Sam,1,2,2,0,1,f1.json/1280/720/race/landscape/1/race|race,f1.json\n\
+        1280/720/race/landscape/2/race|race/drivers|Alex,1,2,2,0,1,f1.json/1280/720/race/landscape/1/race|race,f1.json\n";
+    const COEF: &str = "stage,backend,a,n_video\n\
+        decode,gpu,0,1\nrender,gpu,0,0\nencode,gpu+cpu,1,0\n";
+    // full = 2 videos (3 s), rebuild = 1 video (2 s): save 1 s
+    const FEATURES: &str = "n_video,seg_frac,path\n\
+        2,1,/offload/show/f1.json/0/10/1280/720/race/landscape/2/race|race/drivers|Sam\n\
+        1,1,/offload/show/f1.json/0/10/1280/720/race/landscape/1+2/race|race/drivers|Sam\n\
+        2,1,/offload/show/f1.json/0/10/1280/720/race/landscape/2/race|race/drivers|Alex\n\
+        1,1,/offload/show/f1.json/0/10/1280/720/race/landscape/1+2/race|race/drivers|Alex\n";
+
+    /// A fake site answering each connection with the next reply; returns (address, task giving
+    /// every request as (head text, body)).
+    async fn fake_site(replies: Vec<Vec<u8>>) -> (String, smol::Task<Vec<(String, Vec<u8>)>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap().to_string();
+        let task = smol::spawn(async move {
+            let mut seen = Vec::new();
+            for reply in replies {
+                let (mut s, _) = listener.accept().await.unwrap();
+                let (head, mut rest) = http::split_header_body(&mut s).await.unwrap();
+                let len = http::parse_content_length(&head).unwrap_or(0) as usize;
+                let mut body = vec![0u8; len];
+                rest.read_exact(&mut body).await.unwrap();
+                drop(rest);
+                s.write_all(&reply).await.unwrap();
+                s.flush().await.unwrap();
+                seen.push((String::from_utf8_lossy(&head).into_owned(), body));
+            }
+            seen
+        });
+        (addr, task)
+    }
+
+    fn reply(status: &str, extra: &str, body: &[u8]) -> Vec<u8> {
+        let mut r = format!(
+            "HTTP/1.0 {status}\r\nContent-length: {}\r\n{extra}X-Dana-Timings: queue=0;asset=1;work=2;decode=1;render=1;encode=0\r\n\r\n",
+            body.len()
+        )
+        .into_bytes();
+        r.extend_from_slice(body);
+        r
+    }
+
+    fn state(
+        addr: &str,
+        psc_on: bool,
+        dir: &str,
+    ) -> Arc<ServerState<rust_obm::mod_load_balancer::policy_robin::RoundRobin>> {
+        let site = OffloadSite::new(
+            addr,
+            "fake",
+            Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu),
+        );
+        let dir = std::env::temp_dir().join(format!("obm_psc_test_{dir}_{}", std::process::id()));
+        let psc = psc_on.then(|| Psc {
+            policy: PscPolicy::new(
+                CutTable::from_csv(CUTS).unwrap(),
+                0.5,
+                1,
+                600.0,
+                CutPick::Smallest,
+            ),
+            store: PolicyCache::new(&dir, 1 << 20, CachePolicy::Lfu).unwrap(),
+            mb: 1,
+            cost: CostPredictor::from_csv(COEF, FEATURES).unwrap(),
+            ref_site: OffloadSite::new(
+                "ref:0",
+                "ref",
+                Config::new(Decode::Gpu, Render::Gpu, Encode::Cpu),
+            ),
+        });
+        Arc::new(ServerState {
+            balancer: RoundRobinLB::new(vec![site]),
+            segment_cache: None,
+            coalescer: None,
+            coalesce_real: false,
+            prefetch: None,
+            psc,
+        })
+    }
+
+    #[test]
+    fn test_create_then_rebuild_then_failed_rebuild() {
+        smol::block_on(async {
+            let (full, sub) = (b"FULL-SEGMENT".to_vec(), b"SUB".to_vec());
+            let pair_body = [full.clone(), sub.clone()].concat();
+            let (addr, site) = fake_site(vec![
+                reply("200 OK", "X-PSC-Sub-Length: 3\r\n", &pair_body),
+                reply("200 OK", "", b"REBUILT"),
+                reply("502 Bad Gateway", "X-PSC-Rebuild: failed\r\n", b"no sub"),
+            ])
+            .await;
+            let st = state(&addr, true, "flow");
+
+            // 1. Sam, nothing cached, thr 1 -> pair: client gets the full only, sub kept
+            let Ok(f) = fetch_segment(&st, SAM).await.unwrap() else {
+                panic!("site error")
+            };
+            assert_eq!(*f.segment.data, full);
+            assert_eq!(
+                http::header_value(&f.segment.head, "Content-Length").as_deref(),
+                Some("12")
+            );
+            assert_eq!(
+                http::header_value(&f.segment.head, "X-PSC-Sub-Length"),
+                None
+            );
+            assert_eq!(
+                http::header_value(&f.segment.head, "X-OBM-PSC").as_deref(),
+                Some("create 1")
+            );
+            let key = match &f.psc {
+                PscDone::Created { key, sub: s, .. } => {
+                    assert_eq!(s, &sub);
+                    key.clone()
+                }
+                PscDone::Nothing => panic!("no sub"),
+            };
+            let psc = st.psc.as_ref().unwrap();
+            assert_eq!(psc.policy.creating(), 1);
+            finish_psc(&st, f.psc).await;
+            assert!(psc.store.contains_key(&key));
+            assert_eq!(psc.policy.creating(), 0);
+
+            // 2. Alex shares the sub -> rebuild: POST 1+2 with the sub as body
+            let Ok(f) = fetch_segment(&st, ALEX).await.unwrap() else {
+                panic!("site error")
+            };
+            assert!(f.segment.status_ok);
+            assert_eq!(*f.segment.data, b"REBUILT");
+            assert_eq!(
+                http::header_value(&f.segment.head, "X-OBM-PSC").as_deref(),
+                Some("rebuild 1")
+            );
+
+            // 3. the site could not use the sub -> its 502 goes to the client
+            let Ok(f) = fetch_segment(&st, ALEX).await.unwrap() else {
+                panic!("site error")
+            };
+            assert!(!f.segment.status_ok);
+            assert!(f.segment.head.starts_with(b"HTTP/1.0 502"));
+            assert_eq!(
+                http::header_value(&f.segment.head, "X-OBM-PSC").as_deref(),
+                Some("rebuild 1")
+            );
+
+            let seen = site.await;
+            assert!(
+                seen[0]
+                    .0
+                    .starts_with(&format!("GET {}", SAM.replace("/2/race", "/1*2/race")))
+            );
+            assert!(seen[0].1.is_empty());
+            assert!(
+                seen[1]
+                    .0
+                    .starts_with(&format!("POST {}", ALEX.replace("/2/race", "/1+2/race")))
+            );
+            assert_eq!(seen[1].1, sub);
+            assert_eq!(seen[2].1, sub);
+        });
+    }
+
+    #[test]
+    fn test_psc_off_and_pair_reply_without_sub() {
+        smol::block_on(async {
+            let (addr, site) = fake_site(vec![
+                reply("200 OK", "", b"PLAIN"),
+                reply("200 OK", "", b"ONLY-FULL"),
+            ])
+            .await;
+            // PSC off: the path as it came, GET, no X-OBM-PSC
+            let off = state(&addr, false, "off");
+            let Ok(f) = fetch_segment(&off, SAM).await.unwrap() else {
+                panic!("site error")
+            };
+            assert_eq!(*f.segment.data, b"PLAIN");
+            assert_eq!(http::header_value(&f.segment.head, "X-OBM-PSC"), None);
+            // PSC on but the site's pair reply has no sub: keep the body as the full, store nothing
+            let on = state(&addr, true, "nosub");
+            let Ok(f) = fetch_segment(&on, SAM).await.unwrap() else {
+                panic!("site error")
+            };
+            assert_eq!(*f.segment.data, b"ONLY-FULL");
+            assert!(matches!(f.psc, PscDone::Nothing));
+            assert_eq!(on.psc.as_ref().unwrap().policy.creating(), 0);
+            let seen = site.await;
+            assert!(seen[0].0.starts_with(&format!("GET {SAM} ")));
+            assert!(seen[1].0.contains("/1*2/"));
+        });
+    }
 }

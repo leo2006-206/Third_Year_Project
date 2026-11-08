@@ -87,13 +87,19 @@ COPY obm/*.* obm/Makefile /app/obm/
 ARG PORT=7010
 ENV OFFLOAD_PORT=${PORT}
 
-# Copy customized OffloadSite_new.dn with timing instrumentation
+# Copy customized OffloadSite_new.dn with timing instrumentation (+ PSC count tokens '<k>+<n>' rebuild, '<k>*<n>' pair)
 COPY servers_container/offload_server/OffloadSite_new.dn /app/obm/OffloadSite_new.dn
 
-# Update ASSET_HOST in OffloadSite_new.dn to point to the Rust server port and compile OffloadSite_new.o + VA-API hardware decoder
+# PSC: Experience with renderRange (pair) + offload-track seek fix (rebuild), over the supervisor's obm/ copy (obm/ itself unchanged)
+COPY servers_container/offload_server/Experience.dn /app/obm/Experience.dn
+COPY servers_container/offload_server/resources/Experience.dn /app/obm/resources/Experience.dn
+
+# Update ASSET_HOST in OffloadSite_new.dn to point to the Rust server port and compile Experience.o + OffloadSite_new.o + VA-API hardware decoder
+# (dnc exits 0 on compile errors -> grep its output so a broken file fails the build)
 RUN sed -i "s|http://localhost:8080/|http://localhost:${OFFLOAD_PORT}/|g" /app/obm/OffloadSite_new.dn && \
     cd /app/obm && \
-    dnc OffloadSite_new.dn && \
+    (dnc Experience.dn; dnc OffloadSite_new.dn) 2>&1 | tee /tmp/dnc.log && \
+    ! grep -qi "error" /tmp/dnc.log && \
     dnc media/video/Decoder.h264va.dn
 
 # Copy pre-compiled Rust offload_server binary

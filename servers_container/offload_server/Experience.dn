@@ -1,0 +1,1075 @@
+uses ShowNode
+uses data.KeyValue
+
+// -- JSON datatypes
+
+data TrackInfo {
+	const char NONE[] = "none"
+	const char VIDEO[] = "video"
+	const char ANIM_IMG[] = "anim_img"
+	const char AUDIO[] = "audio"
+	const char T_CHROMAKEY[] = "chromakey"
+	const char T_ALPHAMASK[] = "alphamask"
+	const char T_REFRAME[] = "reframe"
+	const char T_HTTP[] = "http"
+	char type[]
+	char name[]
+	char spec[]
+	char host[]
+	char icon[]
+	bool default
+}
+
+data OptionSelect {
+	char type[]
+	char icon[]
+	KeyValue properties[]
+}
+
+data LayerSpec {
+	const char T_SOURCE[] = "source"
+	const char T_SOURCE_MULTI[] = "source-multi"
+	const char T_TRANSFORM[] = "transform"
+	char name[]
+	char type[]
+	char sense[]
+	char on_if[]
+	int children
+	char display[]
+	char display_align[]
+	int display_x
+	int display_y
+	int display_width
+	int display_height
+	TrackInfo options[]
+	OptionSelect optionSelect
+}
+
+data TimelineColor {
+	int r
+	int g
+	int b
+	int a
+}
+
+data TimelineSpec {
+	char spec[]
+	char icon[]
+	TimelineColor colour
+}
+
+data VariantSpec {
+	char name[]
+	char style[]
+	char icon[]
+	int length_frames
+	int width
+	int height
+	bool default
+	LayerSpec layers[]
+	TimelineSpec timelines[]
+	int offloadLayers
+}
+
+data ExperienceSpec {
+	VariantSpec variants[]
+	char mode[]
+	char mode_param[]
+}
+
+// -- internal data types
+
+data Statistics {
+	Point2D fpsPoint
+	int timeLast
+	int frameCount
+	char fpsString[]
+
+	Point2D ftPoint
+	int ft_timing
+	int ft_frameCount
+	int ft_timingHigh
+	int ft_timingLow
+	char ft_string[]
+}
+
+data Layer {
+	char name[]
+	int choice
+	Track options[]
+	String optionNames[]
+}
+
+data ScreenNode {
+	ShowNode node
+	Layer layer
+	ScreenNode sub[]
+}
+
+data AudioNode {
+	Audio track
+}
+
+data Variant {
+	//the below arrays are index-synchronised, so the layer at index N is controlling the track at index N
+	Layer layers[]
+	ShowNode tracks[]
+	//graph of tracks, with nesting relationships
+	ScreenNode graph[]
+	//list of tracks that actually hit the screen (may be a subset of graph due to offloading)
+	ScreenNode screenNodes[]
+	//list of audio nodes
+	AudioNode audioNodes[]
+	//offloaded tracks
+	char offloadSpec[]
+	//stats
+	int misses[]
+	//ready (tracks loaded and able to be queried for resource())
+	bool firstShow
+	bool ready
+}
+
+data RenderSpec {
+	int offload
+	int render
+	char host[]
+	int port
+}
+
+data Timeline {
+	TimelinePoint points[]
+}
+
+//constants which define kinds of content request (request the spec, the GUI icons, the track meta-data)
+const int REQ_SPEC = 1
+const int REQ_ICONS = 2
+const int REQ_TRACKS = 3
+
+const byte OR_LANDSCAPE = 1
+const byte OR_PORTRAIT = 2
+
+component provides Experience requires io.Output out, data.StringUtil stringUtil, data.IntUtil iu, io.File, io.File:mem, data.json.JSONEncoder jcoder, time.Calendar cal, DataGet dget, media.image.ImageEncoder:png, data.query.Search search, Track:animationImage, Track:video, Track:offload, Track:none, Transform:multiTrack, Transform:none, Transform:chromakey, Transform:alphamask, Transform:reframe, Transform:http, Audio:source, ui.FlowSurface {
+
+	bool init
+
+	char uri[]
+	char specName[]
+	WH rectExp
+	WH rectScreen
+	WH rectScreenFit
+	Point surfacePos = new Point(0, 0)
+
+	ExperienceSpec expInfo
+	VariantInfo variants[]
+	int layoutChoice = 0
+	Variant variant
+	bool loaded
+
+	bool loadLayout
+	ResponsePackage responsePackage
+
+	RenderSpec renderSpec
+
+	FlowSurface surface
+
+	ResourceInfo resInfo = new ResourceInfo()
+
+	Experience:Experience(store WH screenSize, char uriBase[], char name[])
+		{
+		uri = uriBase
+		specName = name
+
+		setScreenSize(screenSize)
+
+		sinkevent RecvData(dget)
+		}
+	
+	void Experience:setScreenSize(store WH screenSize)
+		{
+		rectScreen = screenSize
+		rectScreenFit = clone screenSize
+		surfacePos.x = 0
+		surfacePos.y = 0
+
+		scaleExperience()
+		}
+	
+	byte getOrientation(WH r)
+		{
+		if (r.width >= r.height)
+			return OR_LANDSCAPE
+			else
+			return OR_PORTRAIT
+		}
+	
+	void scaleExperience()
+		{
+		//adjust rectScreenFit and surfacePos to sit within screenSize, while maintaining the experience's aspect ratio
+		// - note the selection of alternative aspect-ratio experience variants (including automated switching between those variants) is done in the player, not here; we're just fitting whatever variant you've chosen into the screen space
+
+		if (variant != null && loaded)
+			{
+			byte orScreen = getOrientation(rectScreen)
+			byte orVariant = getOrientation(rectExp)
+
+			if (orScreen != orVariant)
+				{
+				//adjust rectScreenFit and surfacePos to best-suit the two things: rectExp and rectScreen
+				if (orScreen != orVariant)
+					{
+					if (orScreen == OR_PORTRAIT)
+						{
+						rectScreenFit.width = rectScreen.width
+						rectScreenFit.height = getPercentOf(getPercent(rectScreen.width, rectExp.width), rectExp.height)
+
+						//out.println("fitting to $(rectScreenFit.width) :: $(rectScreenFit.height) -- percent was $(getPercent(rectScreen.width, rectExp.width))")
+						}
+					}
+				}
+			
+			//even if the aspect ratios are the same, that doesn't mean they're compatible; here we avoid stretching effects
+			if (orScreen == orVariant)
+				{
+				if (orScreen == OR_LANDSCAPE)
+					{
+					rectScreenFit.width = rectScreen.width
+					rectScreenFit.height = getPercentOf(getPercent(rectScreen.width, rectExp.width), rectExp.height)
+
+					if (rectScreenFit.height > rectScreen.height)
+						{
+						rectScreenFit.height = rectScreen.height
+						rectScreenFit.width = getPercentOf(getPercent(rectScreen.height, rectExp.height), rectExp.width)
+						}
+					}
+				}
+			
+			//centre the viewport in the screen area
+			if (rectScreenFit.height < rectScreen.height)
+				surfacePos.y = rectScreen.height / 2 - (rectScreenFit.height / 2)
+			if (rectScreenFit.width < rectScreen.width)
+				surfacePos.x = rectScreen.width / 2 - (rectScreenFit.width / 2)
+			}
+		}
+	
+	PixelMap loadImagePNG(byte content[])
+		{
+		File tmp = new File:mem("tmp", File.CREATE)
+		tmp.write(content)
+		tmp.setPos(0)
+		ImageEncoder enc = new ImageEncoder:png()
+		enc.loadImage(tmp)
+		tmp.close()
+		return enc.getPixels()
+		}
+	
+	void Experience:downloadSpec()
+		{
+		dget.get(new DataRequest("$(uri)$(specName)", REQ_SPEC))
+		}
+	
+	int getPercent(int value, int total)
+		{
+		return (value * 100) / total
+		}
+	
+	int getPercentOf(int percent, int val)
+		{
+		return (val * percent) / 100
+		}
+	
+	Track loadTrack(FlowRender window, LayerSpec inf, TrackInfo ti, char spec[])
+		{
+		char baseURI[] = ti.host
+		if (baseURI.arrayLength == 0) baseURI = uri
+
+		Rect screenRect = new Rect(0, 0, rectExp.width, rectExp.height)
+		Rect trackRect = new Rect(0, 0, rectExp.width, rectExp.height)
+		if (inf.display == "window_absolute")
+			{
+			if (inf.display_align == "top_left")
+				{
+				trackRect = new Rect(inf.display_x, inf.display_y, inf.display_width, inf.display_height)
+				}
+				else if (inf.display_align == "top_right")
+				{
+				trackRect = new Rect(rectExp.width - inf.display_width - inf.display_x, inf.display_y, inf.display_width, inf.display_height)
+				}
+				else if (inf.display_align == "bottom_right")
+				{
+				trackRect = new Rect(rectExp.width - inf.display_width - inf.display_x, rectExp.height -inf.display_height - inf.display_y, inf.display_width, inf.display_height)
+				}
+				else if (inf.display_align == "bottom_left")
+				{
+				trackRect = new Rect(inf.display_x, rectExp.height - inf.display_height - inf.display_y, inf.display_width, inf.display_height)
+				}
+			}
+			else if (inf.display == "window_relative")
+			{
+			int w = 0
+			int h = 0
+
+			if (inf.display_width == 0 && inf.display_height == 0)
+				{
+				w = rectExp.width
+				w = rectExp.height
+				}
+				else if (inf.display_width == 0)
+				{
+				h = getPercentOf(inf.display_height, screenRect.height)
+				//out.println("H: $(h) from $(inf.display_height) of $(screenRect.height)")
+				w = getPercentOf(getPercent(h, 720), 1280) //TODO: this origin resolution needs to come from the content really...so the layer needs to be given a resolution...
+				//out.println("W: $(w) from $(getPercent(h, screenRect.height)) of $(screenRect.width)")
+				}
+				else if (inf.display_height == 0)
+				{
+				w = getPercentOf(inf.display_width, screenRect.width)
+				h = getPercentOf(getPercent(w, 1280), 720) //TODO: this origin resolution needs to come from the content really...so the layer needs to be given a resolution...
+				}
+				else
+				{
+				w = getPercentOf(inf.display_width, screenRect.height)
+				h = getPercentOf(inf.display_height, screenRect.height)
+				}
+
+			if (inf.display_align == "top_left")
+				{
+				trackRect = new Rect(inf.display_x, inf.display_y, w, h)
+				}
+				else if (inf.display_align == "top_right")
+				{
+				trackRect = new Rect(rectExp.width - w - inf.display_x, inf.display_y, w, h)
+				}
+				else if (inf.display_align == "bottom_right")
+				{
+				trackRect = new Rect(rectExp.width - w - inf.display_x, rectExp.height - h - inf.display_y, w, h)
+				}
+				else if (inf.display_align == "bottom_left")
+				{
+				trackRect = new Rect(inf.display_x, rectExp.height - h - inf.display_y, w, h)
+				}
+			
+			//out.println("track $(ti.name) $(trackRect.width) $(trackRect.height)")
+			}
+
+		if (inf.type == LayerSpec.T_SOURCE || inf.type == LayerSpec.T_SOURCE_MULTI)
+			{
+			if (ti.type == TrackInfo.ANIM_IMG)
+				{
+				return new Track:animationImage(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.VIDEO)
+				{
+				return new Track:video(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.NONE)
+				{
+				return new Track:none(window, screenRect, trackRect, baseURI, spec)
+				}
+			}
+			else if (inf.type == LayerSpec.T_TRANSFORM)
+			{
+			if (ti.type == TrackInfo.T_CHROMAKEY)
+				{
+				return new Transform:chromakey(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.T_ALPHAMASK)
+				{
+				return new Transform:alphamask(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.T_REFRAME)
+				{
+				return new Transform:reframe(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.T_HTTP)
+				{
+				return new Transform:http(window, screenRect, trackRect, baseURI, spec)
+				}
+				else if (ti.type == TrackInfo.NONE)
+				{
+				return new Transform:none(window, screenRect, trackRect, baseURI, spec)
+				}
+			}
+		
+		return null
+		}
+	
+	Audio loadAudioTrack(LayerSpec inf, TrackInfo ti, char spec[])
+		{
+		char baseURI[] = ti.host
+		if (baseURI.arrayLength == 0) baseURI = uri
+		
+		if (inf.type == LayerSpec.T_SOURCE)
+			{
+			if (ti.type == TrackInfo.AUDIO)
+				{
+				out.println("load AUD via $(baseURI) from $(ti.host) / $uri")
+				return new Audio:source(baseURI, spec)
+				}
+			}
+		
+		return null
+		}
+	
+	void requestLayout(VariantSpec vn)
+		{
+		DataRequest requests[] = null
+
+		int controlTotalY = 0
+
+		variant = new Variant(new Layer[vn.layers.arrayLength], new ShowNode[vn.layers.arrayLength])
+		init = false
+		
+		for (int i = 0; i < vn.layers.arrayLength; i++)
+			{
+			variant.layers[i] = new Layer()
+			variant.layers[i].name = vn.layers[i].name
+			variant.layers[i].options = new Track[vn.layers[i].options.arrayLength]
+			variant.layers[i].optionNames = new String[vn.layers[i].options.arrayLength]
+
+			if (vn.layers[i].optionSelect != null && vn.layers[i].optionSelect.icon != null)
+				{
+				//out.println("request $(vn.layers[i].optionSelect.icon)")
+				requests = new DataRequest[](requests, new DataRequest("$(uri)$(vn.layers[i].optionSelect.icon)", REQ_TRACKS))
+				}
+			
+			for (int j = 0; j < vn.layers[i].options.arrayLength; j++)
+				{
+				//out.println("request $(vn.layers[i].options[j].spec)")
+				requests = new DataRequest[](requests, new DataRequest("$(uri)$(vn.layers[i].options[j].spec)", REQ_TRACKS))
+				if (vn.layers[i].options[j].icon != null) requests = new DataRequest[](requests, new DataRequest("$(uri)$(vn.layers[i].options[j].icon)", REQ_TRACKS))
+				}
+			}
+		
+		for (int j = 0; j < vn.timelines.arrayLength; j++)
+			{
+			//out.println("request $(vn.layers[i].options[j].spec)")
+			requests = new DataRequest[](requests, new DataRequest("$(uri)$(vn.timelines[j].spec)", REQ_TRACKS))
+			if (vn.timelines[j].icon.arrayLength != 0)
+				{
+				requests = new DataRequest[](requests, new DataRequest("$(uri)$(vn.timelines[j].icon)", REQ_TRACKS))
+				}
+			}
+		
+		dget.get(requests)
+		}
+	
+	bool layerOn(char name[])
+		{
+		for (int i = 0; i < variant.layers.arrayLength; i++)
+			{
+			if (variant.layers[i].name == name)
+				{
+				return variant.layers[i].choice != 0
+				}
+			}
+		
+		return false
+		}
+	
+	void setLayout(FlowRender window, VariantSpec vn, ResponsePackage rp, int frameIndex)
+		{
+		int ndx = 0
+		rectExp = new WH(vn.width, vn.height)
+
+		int audioCount = 0
+
+		for (int i = 0; i < vn.layers.arrayLength; i++)
+			{
+			if (vn.layers[i].sense == null || vn.layers[i].sense == "visual")
+				{
+				if (vn.layers[i].optionSelect.icon != null)
+					{
+					variants[layoutChoice].layers[i].controlIcon = loadImagePNG(rp.rows[ndx].content)
+					ndx ++
+					}
+				
+				ShowNode newNode = new ShowNode()
+				ScreenNode scrNode = new ScreenNode(newNode, variant.layers[i])
+
+				for (int j = 0; j < vn.layers[i].options.arrayLength; j++)
+					{
+					variant.layers[i].options[j] = loadTrack(window, vn.layers[i], vn.layers[i].options[j], rp.rows[ndx].content)
+					ndx ++
+					variant.layers[i].optionNames[j] = new String(vn.layers[i].options[j].name)
+
+					if (vn.layers[i].options[j].icon != null)
+						{
+						variants[layoutChoice].layers[i].options[j].icon = loadImagePNG(rp.rows[ndx].content)
+						ndx ++
+						}
+
+					//here is where we need to add all of the sub-nodes, to each track option
+					if (vn.layers[i].type == LayerSpec.T_TRANSFORM)
+						{
+						Transform tn = variant.layers[i].options[j]
+
+						if (vn.layers[i].children == 1)
+							{
+							tn.addNode(variant.graph[variant.graph.arrayLength-1].node)
+							}
+							else if (vn.layers[i].children == 0)
+							{
+							for (int k = 0; k < variant.graph.arrayLength; k++)
+								{
+								tn.addNode(variant.graph[k].node)
+								}
+							}
+						}
+					}
+				
+				if (vn.layers[i].type == LayerSpec.T_SOURCE_MULTI)
+					newNode.track = new Transform:multiTrack(window, new Rect(0, 0, rectExp.width, rectExp.height), new Rect(0, 0, rectExp.width, rectExp.height), null, null)
+					else
+					newNode.track = variant.layers[i].options[0]
+				variant.tracks[i] = newNode
+				variant.tracks[i].track.seek(window, frameIndex)
+
+				if (vn.layers[i].type == LayerSpec.T_SOURCE || vn.layers[i].type == LayerSpec.T_SOURCE_MULTI)
+					{
+					variant.graph = new ScreenNode[](variant.graph, scrNode)
+					}
+					else if (vn.layers[i].type == LayerSpec.T_TRANSFORM)
+					{
+					if (vn.layers[i].children == 1)
+						{
+						//move this one screen node
+						scrNode.sub = new ScreenNode[](variant.graph[variant.graph.arrayLength-1])
+						variant.graph[variant.graph.arrayLength-1] = scrNode
+						}
+						else if (vn.layers[i].children == 0)
+						{
+						//move all
+						scrNode.sub = variant.graph
+						variant.graph = new ScreenNode[](scrNode)
+						}
+					}
+				}
+				else if (vn.layers[i].sense == "audio")
+				{
+				AudioNode newNode = new AudioNode(loadAudioTrack(vn.layers[i], vn.layers[i].options[0], rp.rows[ndx].content)) //TODO: enumerate options, not just [0]
+				variant.audioNodes = new AudioNode[](variant.audioNodes, newNode)
+
+				audioCount ++
+				}
+			}
+		
+		//conditioning for on_if layers
+		for (int i = 0; i < vn.layers.arrayLength; i++)
+			{
+			if (vn.layers[i].on_if.arrayLength != 0 && !layerOn(vn.layers[i].on_if))
+				{
+				Rect screenRect = new Rect(0, 0, rectExp.width, rectExp.height)
+				Rect trackRect = new Rect(0, 0, rectExp.width, rectExp.height)
+				char baseURI[] = uri
+
+				variant.tracks[i].track = new Track:none(window, screenRect, trackRect, baseURI, null)
+				}
+			}
+		
+		variants[layoutChoice].timelines = new TimelineInfo[vn.timelines.arrayLength]
+		for (int i = 0; i < vn.timelines.arrayLength; i++)
+			{
+			Timeline t = jcoder.jsonToData(rp.rows[ndx].content, typeof(Timeline))
+			variants[layoutChoice].timelines[i] = new TimelineInfo(t.points)
+			ndx ++
+			if (vn.timelines[i].icon.arrayLength != 0)
+				{
+				variants[layoutChoice].timelines[i].icon = loadImagePNG(rp.rows[ndx].content)
+				ndx ++
+				}
+
+			if (vn.timelines[i].colour != null)
+				{
+				variants[layoutChoice].timelines[i].colour = new Color(vn.timelines[i].colour.r, vn.timelines[i].colour.g, vn.timelines[i].colour.b, vn.timelines[i].colour.a)
+				}
+				else
+				{
+				variants[layoutChoice].timelines[i].colour = new Color(100, 50, 50, 255)
+				}
+			}
+		
+		resInfo.tracks = new AudioData[audioCount]
+		
+		loaded = true
+		}
+	
+	eventsink RecvData(EventData ed)
+		{
+		ResponsePackage rp = ed.details
+
+		if (rp.rows[0].code == DataResponse.CODE_OK)
+			{
+			if (rp.rows[0].ux1 == REQ_SPEC)
+				{
+				ExperienceSpec spec = jcoder.jsonToData(rp.rows[0].content, typeof(ExperienceSpec))
+
+				if (spec.variants.arrayLength == 0)
+					{
+					throw new Exception("Invalid experience specification format")
+					}
+				
+				expInfo = spec
+
+				//construct the external-facing variant info
+				variants = new VariantInfo[expInfo.variants.arrayLength]
+				for (int i = 0; i < variants.arrayLength; i++)
+					{
+					variants[i] = new VariantInfo()
+					variants[i].name = expInfo.variants[i].name
+					variants[i].style = expInfo.variants[i].style
+					variants[i].lengthFrames = expInfo.variants[i].length_frames
+					variants[i].layers = new LayerInfo[expInfo.variants[i].layers.arrayLength]
+					variants[i].default = expInfo.variants[i].default
+					variants[i].offloadLayers = expInfo.variants[i].offloadLayers
+
+					for (int j = 0; j < variants[i].layers.arrayLength; j++)
+						{
+						variants[i].layers[j] = new LayerInfo(expInfo.variants[i].layers[j].name)
+
+						if (expInfo.variants[i].layers[j].optionSelect != null)
+							{
+							variants[i].layers[j].controlType = expInfo.variants[i].layers[j].optionSelect.type
+							}
+						
+						variants[i].layers[j].options = new LayerOption[expInfo.variants[i].layers[j].options.arrayLength]
+
+						for (int k = 0; k < variants[i].layers[j].options.arrayLength; k++)
+							{
+							variants[i].layers[j].options[k] = new LayerOption(expInfo.variants[i].layers[j].options[k].name)
+							variants[i].layers[j].options[k].default = expInfo.variants[i].layers[j].options[k].default
+							}
+						}
+					}
+
+				//download variant icons, if any
+				if (expInfo.variants.arrayLength > 1)
+					{
+					File tmp = new File("std_ui/layout_select.png", File.READ)
+					ImageEncoder enc = new ImageEncoder:png()
+					enc.loadImage(tmp)
+					tmp.close()
+					DataRequest requests[] = null
+					for (int i = 0; i < expInfo.variants.arrayLength; i++)
+						{
+						if (expInfo.variants[i].icon != null)
+							{
+							requests = new DataRequest[](requests, new DataRequest("$(uri)$(expInfo.variants[i].icon)", REQ_ICONS))
+							}
+						}
+					
+					if (requests.arrayLength != 0)
+						{
+						dget.get(requests)
+						}
+						else
+						{
+						emitevent specReady()
+						}
+					}
+					else
+					{
+					emitevent specReady()
+					}
+				}
+				else if (rp.rows[0].ux1 == REQ_ICONS)
+				{
+				int ndx = 0
+				for (int i = 0; i < expInfo.variants.arrayLength; i++)
+					{
+					if (expInfo.variants[i].icon != null)
+						{
+						PixelMap pix = loadImagePNG(rp.rows[ndx].content)
+						variants[i].icon = pix
+						ndx ++
+						}
+					}
+
+				emitevent specReady()
+				}
+				else if (rp.rows[0].ux1 == REQ_TRACKS)
+				{
+				loadLayout = true
+				responsePackage = rp
+				}
+			}
+		}
+	
+	WH Experience:getExperienceSize()
+		{
+		return new WH(expInfo.variants[layoutChoice].width, expInfo.variants[layoutChoice].height)
+		}
+
+	VariantInfo[] Experience:getVariants()
+		{
+		return variants
+		}
+	
+	OpMode Experience:getMode()
+		{
+		return new OpMode(expInfo.mode, expInfo.mode_param)
+		}
+	
+	ExperienceStats Experience:getStats()
+		{
+		ExperienceStats result = new ExperienceStats(clone variant.misses)
+		for (int i = 0; i < variant.misses.arrayLength; i++)
+			{
+			variant.misses[i] = 0
+			}
+		return result
+		}
+	
+	void Experience:loadVariant(char name[], char style[], opt int offloadLayers, char offloadHost[], int offloadPort, int renderLayers)
+		{
+		for (int k = 0; k < expInfo.variants.arrayLength; k++)
+			{
+			if (expInfo.variants[k].name == name && (style == null || expInfo.variants[k].style == null || expInfo.variants[k].style == style))
+				{
+				if (variant == null || k != layoutChoice)
+					{
+					//TODO: check that this isn't an exact match for our current choice, of variant, offload, and render volume
+					loaded = false
+					layoutChoice = k
+
+					renderSpec = new RenderSpec(offloadLayers, renderLayers, offloadHost, offloadPort)
+					if (offloadHost == null) renderSpec.host = uri
+					
+					//out.println("requesting layout")
+					requestLayout(expInfo.variants[layoutChoice])
+					}
+				break
+				}
+			}
+		}
+	
+	void Experience:showVariant()
+		{
+		variant.firstShow = true
+		}
+	
+	char[] getLayerOptions(ScreenNode sn)
+		{
+		//NOTE "choice" will layer become an array of ints, so we can make a list of options
+		char result[] = "/$(sn.layer.name)|$(sn.layer.optionNames[sn.layer.choice].string)"
+
+		for (int i = 0; i < sn.sub.arrayLength; i++)
+			{
+			result = new char[](result, getLayerOptions(sn.sub[i]))
+			}
+		
+		return result
+		}
+	
+	ScreenNode createOffloadNode(FlowRender renderer, VariantSpec vi, RenderSpec spec)
+		{
+		//create the offload track, to wrap however many screen nodes are being offloaded
+		if (spec.offload > variant.graph.arrayLength)
+			{
+			throw new Exception("more offload layers requested than layers in the experience")
+			}
+
+		ScreenNode offload = new ScreenNode()
+		Rect screenRect = new Rect(0, 0, rectExp.width, rectExp.height)
+		Rect trackRect = new Rect(0, 0, rectExp.width, rectExp.height)
+		char fileName[] = specName.rsplit("/")[1].string
+		char expDef[] = "$(vi.name)/$(vi.style)/$(spec.offload)"
+		for (int i = 0; i < spec.offload; i++)
+			{
+			expDef = new char[](expDef, getLayerOptions(variant.graph[i]))
+			offload.sub = new ScreenNode[](offload.sub, variant.graph[i])
+			}
+		
+		//out.println(" -- offload spec is: $(expDef)")
+		
+		char json[] = "{\"requestPre\" : \"psc/show/$fileName\", \"requestPost\" : \"$expDef\", \"w\" : $(screenRect.width), \"h\" : $(screenRect.height), \"fps\" : 25}"
+		offload.node = new ShowNode(new Track:offload(renderer, screenRect, trackRect, uri, json))
+
+		return offload
+		}
+	
+	void Experience:setLayerOptions(LayerInfo li, String options[], int frameIndex)
+		{
+		//locate the layer to change
+		//out.println("selecting option for layer $(li.name)")
+		int index = 0
+		for (int i = 0; i < variants[layoutChoice].layers.arrayLength; i++)
+			{
+			if (variants[layoutChoice].layers[i] === li)
+				{
+				//out.println(" -- layer is index $(i)")
+				index = i
+				break
+				}
+			}
+
+		if (expInfo.variants[layoutChoice].layers[index].type == LayerSpec.T_SOURCE_MULTI)
+			{
+			variant.tracks[index].track = new Transform:multiTrack(null, new Rect(0, 0, rectExp.width, rectExp.height), new Rect(0, 0, rectExp.width, rectExp.height), null, null)
+
+			for (int i = 0; i < expInfo.variants[layoutChoice].layers[index].options.arrayLength; i ++)
+				{
+				if (options.findFirst(String.[string], new String(expInfo.variants[layoutChoice].layers[index].options[i].name)) != null)
+					{
+					Transform tf = variant.tracks[index].track
+					tf.addNode(new ShowNode(variant.layers[index].options[i]))
+					variant.layers[index].options[i].seek(null, frameIndex)
+					}
+				}
+			}
+			else
+			{
+			for (int i = 0; i < expInfo.variants[layoutChoice].layers[index].options.arrayLength; i ++)
+				{
+				if (expInfo.variants[layoutChoice].layers[index].options[i].name == options[0].string)
+					{
+					if (i != variant.layers[index].choice)
+						{
+						//out.println(" -- setting choice to index $(i), from string $(options[0].string)")
+						variant.layers[index].choice = i
+						if (variant.tracks[index] == null) out.println("NULL TRACK at index $(index)")
+						variant.tracks[index].track = variant.layers[index].options[variant.layers[index].choice]
+						variant.tracks[index].track.seek(null, frameIndex)
+						}
+					
+					break
+					}
+				}
+			}
+		
+		//conditioning for on_if layers
+		// - TODO: this doesn't work for T_SOURCE_MULTI layers; we'd need to save the options string array to re-apply the options when the thing gets turned on
+		VariantSpec vn = expInfo.variants[layoutChoice]
+		for (int i = 0; i < vn.layers.arrayLength; i++)
+			{
+			if (vn.layers[i].type != LayerSpec.T_SOURCE_MULTI)
+				{
+				if (vn.layers[i].on_if.arrayLength != 0)
+					{
+					if (!layerOn(vn.layers[i].on_if) && variant.tracks[i].track === variant.layers[i].options[variant.layers[i].choice])
+						{
+						Rect screenRect = new Rect(0, 0, rectExp.width, rectExp.height)
+						Rect trackRect = new Rect(0, 0, rectExp.width, rectExp.height)
+						char baseURI[] = uri
+
+						variant.tracks[i].track = new Track:none(null, screenRect, trackRect, baseURI, null)
+						}
+						else if (variant.tracks[i].track !== variant.layers[i].options[variant.layers[i].choice])
+						{
+						variant.tracks[i].track = variant.layers[i].options[variant.layers[i].choice]
+						variant.tracks[i].track.seek(null, frameIndex)
+						}
+					}
+				}
+			}
+		
+		//recompute offload configuration, if applicable
+		if (renderSpec != null && renderSpec.offload != 0 && variant.ready)
+			{
+			//TODO: check that there's actually a change relevant to the offloaded portion
+			ScreenNode offload = createOffloadNode(null, expInfo.variants[layoutChoice], renderSpec)
+			offload.node.track.seek(null, frameIndex)
+			variant.screenNodes[0] = offload
+			}
+		}
+
+	ResourceInfo Experience:resource(FlowRender renderer, int frameIndex, opt int endIndex)
+		{
+		if (loadLayout)
+			{
+			setLayout(renderer, expInfo.variants[layoutChoice], responsePackage, frameIndex)
+			loadLayout = false
+			out.println("variant '$(expInfo.variants[layoutChoice].name):$(expInfo.variants[layoutChoice].style)' loaded, graph has $(variant.graph.arrayLength) root nodes")
+			if (expInfo.variants[layoutChoice].width == 0 || expInfo.variants[layoutChoice].height == 0)
+				{
+				out.println(" - WARNING: invalid experience width/height in JSON document of $(expInfo.variants[layoutChoice].width) x expInfo.variants[layoutChoice].height")
+				}
+			
+			/*
+			for (int i = 0; i < variant.graph.arrayLength; i++)
+				{
+				out.println(" - node $(variant.graph[i].layer.name)")
+				}
+			*/
+			
+			//variant.ready = true
+			emitevent variantReady(new VariantID(expInfo.variants[layoutChoice].name, expInfo.variants[layoutChoice].style))
+			}
+			else if (variant.firstShow)
+			{
+			if (renderSpec != null && (renderSpec.offload != 0 || renderSpec.render != 0))
+				{
+				//out.println(" -- rendering graph via renderSpec")
+
+				int i = 0
+				if (renderSpec.offload != 0)
+					{
+					//create the offload track, to wrap however many screen nodes are being offloaded
+					ScreenNode offload = createOffloadNode(renderer, expInfo.variants[layoutChoice], renderSpec)
+					variant.screenNodes = new ScreenNode[](offload)
+					// PSC PoC fix A: start the offload track at this frame, not 0 (the setLayerOptions path already seeks)
+					offload.node.track.seek(null, frameIndex)
+					i = offload.sub.arrayLength
+					}
+				
+				if (renderSpec.render == 0) renderSpec.render = variant.graph.arrayLength
+				
+				for (; i < renderSpec.render; i++)
+					{
+					variant.screenNodes = new ScreenNode[](variant.screenNodes, variant.graph[i])
+					}
+				}
+				else
+				{
+				//out.println(" -- rendering graph directly")
+				variant.screenNodes = variant.graph
+				}
+			
+			variant.misses = new int[variant.screenNodes.arrayLength]
+			
+			variant.firstShow = false
+			variant.ready = true
+			}
+
+		if (variant != null && variant.ready)
+			{
+			if (!init)
+				{
+				surface = new FlowSurface(renderer, new WH(rectExp.width, rectExp.height))
+				scaleExperience()
+				init = true
+				//out.println("EXP::INIT for $(variant.screenNodes.arrayLength) screen nodes")
+				}
+
+			int pending
+			for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+				{
+				bool okr = false
+				if (isset endIndex)
+					okr = variant.screenNodes[i].node.track.resource(renderer, frameIndex, endIndex)
+					else
+					okr = variant.screenNodes[i].node.track.resource(renderer, frameIndex)
+				
+				if (!okr)
+					{
+					pending ++
+					variant.misses[i] ++
+					//out.println("[still waiting for layer $(i)]")
+					}
+					else
+					{
+					//out.println("[got layer $(i) of $(variant.screenNodes.arrayLength)]")
+					}
+				}
+			
+			for (int i = 0; i < variant.audioNodes.arrayLength; i++)
+				{
+				AudioData adt = variant.audioNodes[i].track.resource(frameIndex)
+				bool okr = adt != null
+
+				if (!okr)
+					{
+					pending ++
+					//TODO: stats
+					}
+					else
+					{
+					//we pre-allocate this array at a fixed max size during variant load, and just assigning the cell (it's OK if some cells are null)
+					resInfo.tracks[i] = adt
+					}
+				}
+			
+			//out.println("[pending layers $(pending)]")
+
+			resInfo.ready = pending == 0
+			}
+			else
+			{
+			resInfo.ready = false
+			}
+		
+		return resInfo
+		}
+	
+	void Experience:prepare(FlowRender renderer, int frameIndex)
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.prepare(renderer, frameIndex)
+			}
+		}
+	
+	void Experience:render(FlowCanvas canvas)
+		{
+		canvas.pushSurface(surface, surfacePos, 0, 0, 0, rectScreenFit.width, rectScreenFit.height)
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.render(canvas)
+			}
+		canvas.popSurface()
+		}
+	
+	// PSC pair: like render, but only screen nodes first..last-1 (render == renderRange(canvas, 0, all))
+	void Experience:renderRange(FlowCanvas canvas, int first, int last, opt bool onWindow)
+		{
+		if (last > variant.screenNodes.arrayLength) last = variant.screenNodes.arrayLength
+		bool direct = isset onWindow && onWindow && surfacePos.x == 0 && surfacePos.y == 0 && rectScreenFit.width == rectExp.width && rectScreenFit.height == rectExp.height
+		if (!direct) canvas.pushSurface(surface, surfacePos, 0, 0, 0, rectScreenFit.width, rectScreenFit.height)
+		for (int i = first; i < last; i++)
+			{
+			variant.screenNodes[i].node.track.render(canvas)
+			}
+		if (!direct) canvas.popSurface()
+		}
+
+	void Experience:seek(FlowRender renderer, int frameIndex)
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.seek(renderer, frameIndex)
+			}
+		}
+	
+	void Experience:batchInit(int length)
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.batchInit(length)
+			}
+		}
+	
+	void Experience:batchPrepPre(FlowRender renderer, int length)
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.batchPrepPre(renderer, length)
+			}
+		}
+	
+	void Experience:batchPrepPost(int indexStart, int indexEnd)
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.batchPrepPost(indexStart, indexEnd)
+			}
+		}
+	
+	void Experience:batchRenderFrame(FlowCanvas canvas, int frameIndex)
+		{
+		canvas.pushSurface(surface, surfacePos, 0, 0, 0, rectScreen.width, rectScreen.height)
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			variant.screenNodes[i].node.track.batchRenderFrame(canvas, frameIndex)
+			}
+		canvas.popSurface()
+		}
+
+	bool Experience:finished()
+		{
+		for (int i = 0; i < variant.screenNodes.arrayLength; i++)
+			{
+			if (variant.screenNodes[i].node.track.finished()) return true
+			}
+		
+		return false
+		}
+	}

@@ -14,8 +14,8 @@ use rust_server::lib_http as http;
 use rust_server::lib_main_state as main_state;
 use rust_server::lib_main_state::ServerState;
 use rust_server::lib_segment::{
-    LookupMode, OffloadError, SegmentLookup, fetch_offload, offload_cache_add, prefetch_task,
-    segment_lookup,
+    Fetched, LookupMode, OffloadError, SegmentLookup, fetch_segment, finish_psc, offload_cache_add,
+    prefetch_task, segment_lookup,
 };
 use rust_server::lib_server_main as sm;
 use rust_server::lib_util as util;
@@ -113,16 +113,17 @@ async fn serve_offload<P: blb::LoadBalancerPolicy + 'static>(
     }
 }
 
-/// Renders `path` on a site and sends it to the client; with a leader, the followers and the
-/// cache get the segment before this client's transfer.
+/// Renders `path` on a site (through the partial segment cache when on: plain / pair / rebuild)
+/// and sends it to the client; with a leader, the followers and the cache get the segment
+/// before this client's transfer; a pair's sub is stored after it.
 async fn render_and_send<P: blb::LoadBalancerPolicy + 'static>(
     mut client_stream: TcpStream,
     state: &Arc<ServerState<P>>,
     path: &str,
     leader: Option<Leader<'_, Arc<Vec<u8>>>>,
 ) -> io::Result<()> {
-    let segment = match fetch_offload(state, path).await? {
-        Ok(segment) => segment,
+    let Fetched { segment, psc } = match fetch_segment(state, path).await? {
+        Ok(fetched) => fetched,
         Err(OffloadError { site, err }) => {
             // the leader is dropped when this returns: its followers answer 502
             return sm::reply_gateway_error(&mut client_stream, site, path, err).await;
@@ -141,6 +142,8 @@ async fn render_and_send<P: blb::LoadBalancerPolicy + 'static>(
         segment.site, segment.total_ms, path
     );
     util::log_message(&message);
+    // the viewer has the segment: now the sub to disk (never delays the client)
+    finish_psc(state, psc).await;
     Ok(())
 }
 

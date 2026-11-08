@@ -30,6 +30,18 @@ OBM_PREFETCH=0
 OBM_PREFETCH_WINDOW_S=30
 OBM_PREFETCH_HOLD_S=30
 
+# ---- Partial segment cache (main server): store cap in MiB, 0 = off (own budget). On a segment cache miss
+# a request can be cut after root k: a popular cut that saves >= HEAVY s is created by a one-pass pair
+# ('<k>*<n>': the viewer gets the full, the bottom sub is stored), later requests sharing that bottom are
+# rebuilt from it ('<k>+<n>', sub pushed to the site). OBM_PSC_HEAVY_S has NO default and is not set here:
+# set it per run (0.5 / 1 / 2), the main server refuses to start with PSC on and no HEAVY.
+# THR = requests for the cut in WINDOW s before it is created; PICK smallest | save; POLICY lru | lfu.
+OBM_PSC_MB=0
+OBM_PSC_THR=2
+OBM_PSC_WINDOW_S=600
+OBM_PSC_PICK=smallest
+OBM_PSC_POLICY=lfu
+
 # ---- Asset cache (on every offload site, per site): cap in MiB, 0 = off; policy lru | lfu
 # 50 MB ~ half a site's assets per run; LFU ~3 pts more file hits than LRU there (temp/asset_cache_sim.py)
 OBM_ASSET_CACHE_MB=0

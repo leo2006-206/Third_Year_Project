@@ -23,7 +23,7 @@ COPY --chmod=755 target/release/main_server /usr/local/bin/main_server
 # 4. Cost model for the mct policy (stat_predict/export.py output) and work lookup table for mct_lookup
 #    (stat_predict/lookup_table.py output); rebuild the image after re-exporting.
 #    Override the paths with OBM_COST_COEF / OBM_COST_FEATURES / OBM_COST_LOOKUP (e.g. a mounted newer export)
-COPY stat_predict/coef.csv stat_predict/features.csv stat_predict/lookup.csv /app/stat_predict/
+COPY stat_predict/coef.csv stat_predict/features.csv stat_predict/lookup.csv stat_predict/psc_cuts.csv /app/stat_predict/
 
 # 5. Copy entrypoint script for clean SIGINT / Ctrl+C handling
 COPY --chmod=755 servers_container/main_server/entrypoint.sh /usr/local/bin/entrypoint.sh
