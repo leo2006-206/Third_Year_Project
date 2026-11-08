@@ -9,6 +9,6 @@
 #   delay_ms:    netem delay on all site traffic incl. asset downloads (near 30 / far 60), 0 = none
 #   jitter_ms:   netem jitter (normal distribution) around delay_ms, 0 = none
 id,port,decoding,composition,encoding,cpu,memory,delay_ms,jitter_ms
-rs1,7010,gpu,gpu,cpu,4,2,60,6
-rs2,7020,gpu,llvmpipe,cpu,8,2,60,6
-rs3,7030,gpu,cpu,cpu,2,2,60,6
+rs1,7010,gpu,gpu,cpu,4,2.5,60,6
+rs2,7020,gpu,llvmpipe,cpu,8,2.5,60,6
+rs3,7030,gpu,cpu,cpu,2,2.5,60,6

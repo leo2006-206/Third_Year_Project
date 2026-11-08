@@ -572,9 +572,10 @@ component provides App requires io.Output out, data.StringUtil stringUtil, data.
 							}
 
 						reqHandled ++
-						// PSC pair: Dana keeps ~0.5 GB more resident after a pair (allocator retention) -> recycle right after it
-						if (pairK > 0) reqHandled = 10
-						if (opMode == M_LISTEN && reqHandled >= 10 && requests.getLength() == 0 && pending.getLength() == 0)
+						// Memory (11-08 memprobe): each request keeps ~60-300 MB (container anon) + a render needs up to ~0.5 GB more
+						// (pair up to ~1 GB) -> recycle after 3 requests, and right after every PSC pair (restart ~0.2 s, hidden when queue empty)
+						if (pairK > 0) reqHandled = 3
+						if (opMode == M_LISTEN && reqHandled >= 3 && requests.getLength() == 0 && pending.getLength() == 0)
 							{
 							out.println(" -- handled $(reqHandled) requests, queue empty, recycling Dana worker...")
 							quit = true
