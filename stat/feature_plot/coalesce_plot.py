@@ -15,5 +15,5 @@ Default output stat/feature_plot/coalesce_<run dir name>.png.
 from feature_breakdown import main
 
 if __name__ == "__main__":
-    main(["C", "P"], "Coalescing", "coalesce", __doc__,
-         names={"C": "C\n(reactive)", "P": "P\n(proactive,\nmerged prefetch)"})
+    main(["C", "P", "SlruP", "CP"], "Coalescing", "coalesce", __doc__,
+         names={"C": "C\n(reactive)", "P": "P\n(proactive,\nmerged prefetch)", "SlruP": "SlruP\n(Slru + P)", "CP": "CP\n(C + P)"})

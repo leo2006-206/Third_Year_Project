@@ -91,6 +91,17 @@ def hit_entries(s, kind):
                         f"({100 * r['pf_read'] / r['pf_issue']:.0f}%)")
             out.append((bar, txt))
             continue
+        if kind == "psc":
+            plain = ", ".join(f"{c[10:].replace('_', ' ')} {r[c]:.0f}" for c in s.columns
+                              if c.startswith("psc_plain_") and r[c] > 0)
+            txt = (f"{short(bar)}: rebuild {r['psc_rebuild']:.0f} / {r['psc_elig']:.0f} eligible = "
+                   f"{100 * r['psc_hit']:.0f}% hit (failed {np.nan_to_num(r.get('psc_rebuild_failed', 0)):.0f}); create "
+                   f"{r['psc_create']:.0f} (stored {r['psc_stored']:.0f}, {r['psc_used_mb']:.0f} MB); plain: {plain}"
+                   f"\n      site service vs none same kind: rebuild {r['psc_rebuild_svc']:.2f} vs "
+                   f"{r['psc_rebuild_full']:.2f} s, pair create {r['psc_create_svc']:.2f} vs "
+                   f"{r['psc_create_full']:.2f} s -> net {r['psc_net_s']:+.0f} site s per run")
+            out.append((bar, txt))
+            continue
         if kind == "segment":
             hit, miss, unit, ratio, byte = r["n_hit"], r["n"] - r["n_hit"], "req", r["seg_req"], r["seg_byte"]
         else:
@@ -110,8 +121,12 @@ HIT_COLS = 2  # hit entries per row (4 segment caches = 2 rows; 11-07: one row c
 HIT_DY = 0.04  # row height of the hit entries, figure height fraction
 
 
+def hit_dy(kind):
+    return 0.07 if kind == "psc" else HIT_DY  # psc entries have 2 lines
+
+
 def hit_cols(kind):
-    return 1 if kind == "coalesce" else HIT_COLS  # coalesce entries are long: one per row
+    return 1 if kind in ("coalesce", "psc") else HIT_COLS  # long entries: one per row
 
 
 def hit_rows(s, kind):
@@ -121,16 +136,17 @@ def hit_rows(s, kind):
 def draw_hit_line(fig, s, kind, x0=0.05, y_last=None):
     """[Honest] The hit entries at the figure bottom, HIT_COLS per row (last row at y_last, rows
     stacked upwards so they never reach the tick labels), each after a square of its bar colour."""
-    y_last = y_last or (0.11 if kind == "coalesce" else 0.075)  # footer 4 / 2 lines
+    y_last = y_last or {"coalesce": 0.11, "psc": 0.115}.get(kind, 0.075)  # footer 4 / 3 / 2 lines
     sq = 0.009  # square side, figure width fraction
     h = sq * fig.bbox.width / fig.bbox.height
     rows, cols = hit_rows(s, kind), hit_cols(kind)
     for k, (bar, txt) in enumerate(hit_entries(s, kind)):
-        x, y = x0 + (k % cols) * 0.47, y_last + (rows - 1 - k // cols) * HIT_DY
+        x, y = x0 + (k % cols) * 0.47, y_last + (rows - 1 - k // cols) * hit_dy(kind)
         colour, _ = bar_colour(bar)
         fig.patches.append(matplotlib.patches.Rectangle((x, y - h / 2), sq, h, color=colour,
                                                        transform=fig.transFigure, figure=fig))
-        fig.text(x + sq * 1.6, y, txt, ha="left", va="center", fontsize=FS_TICK + 1,
+        fig.text(x + sq * 1.6, y, txt, ha="left", va="center",
+                 fontsize=FS_TICK + (-1 if kind == "psc" else 1),
                  color=INK, fontweight="bold")
 
 
@@ -195,12 +211,16 @@ def plot(s, title, out, feature_name, kind, names):
                         "left work / asset: + prefetch renders' site work / asset per client request "
                         "(main log '[PREFETCH] done'; their queue + net not split, left out)\n"
                         "right = client latency only (a prefetch's render time is inside its "
-                        "followers' wait)"}[kind]
+                        "followers' wait)",
+            "psc": "PSC = partial segment cache: create = pair render (full + sub of the first k roots), rebuild = "
+                   "full from a stored sub; hit = rebuild / eligible (kinds with a cut);\n"
+                   "site service = work + asset + net measured on that run's create / rebuild rows vs the mean of "
+                   "the same kind (path without time) in mct none; net = sum of both deltas (< 0 = saved)"}[kind]
     fig.text(0.01, 0.01, f"{unit}\nstatus 200 requests, body "
              "left out; mean over runs (" + ", ".join(f"{short(b)} {int(n)}" for b, n in s["runs"].items())
              + "), whisker = std over runs (2+ runs only)", ha="left", fontsize=FS_TICK - 2, color=MUTED)
     fig.subplots_adjust(left=0.05, right=0.99, top=0.88,
-                        bottom=0.12 + (0.05 if kind == "coalesce" else 0.02) + HIT_DY * hit_rows(s, kind),
+                        bottom=0.12 + {"coalesce": 0.05, "psc": 0.065}.get(kind, 0.02) + hit_dy(kind) * hit_rows(s, kind),
                         wspace=0.14)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
@@ -216,11 +236,11 @@ def print_table(s, title, kind):
     print("\n".join(t for _, t in hit_entries(s, kind)))
     names = [g.split("\n")[0].split(" (")[0].replace(" ", "") for g, _ in G]
     rank = total.rank(method="first").astype(int)
-    print(f"{'bar':8}" + "".join(f"{n:>13}" for n in names) + f"{'sd':>8}{'rank':>6}"
+    print(f"{'bar':12}" + "".join(f"{n:>13}" for n in names) + f"{'sd':>8}{'rank':>6}"
           + "".join(f"{n + ' %':>15}" for n in names))
     for bar in s.index:
         sec = [s.loc[bar, [f"all_{c}" for c in cols]].sum() for _, cols in G]
-        print(f"{short(bar):8}" + "".join(f"{v:>13.2f}" for v in sec) + f"{s.loc[bar, 'sd']:>8.2f}"
+        print(f"{short(bar):12}" + "".join(f"{v:>13.2f}" for v in sec) + f"{s.loc[bar, 'sd']:>8.2f}"
               + f"{rank[bar]:>6}" + "".join(f"{100 * v:>14.0f}%" for v in rel[bar]))
     if kind == "coalesce":
         ext = extra(s, base, kind)
@@ -236,6 +256,18 @@ def print_table(s, title, kind):
                       f"{100 * (rel[bar][ai] + ext[bar][ai]):.0f}%); site work total "
                       f"{r['all_work'] * r['n'] + r['pf_work_s']:.0f} s (none "
                       f"{s.loc[base, 'all_work'] * s.loc[base, 'n']:.0f} s)")
+    if kind == "psc":
+        cols = ["psc_elig", "psc_create", "psc_stored", "psc_rebuild", "psc_hit", "psc_used_mb",
+                "psc_rebuild_svc", "psc_rebuild_full", "psc_model_save", "psc_create_svc", "psc_create_full",
+                "psc_rebuild_delta_s", "psc_create_delta_s", "psc_net_s"]
+        cols += [c for c in s.columns if c.startswith("psc_plain_") or c == "psc_rebuild_failed"]
+        cols += [f"psc_share_{k}" for k in ("create", "rebuild", "plain", "nocut")]
+        t = s.loc[s.index[1:], [c for c in cols if c in s.columns]].copy()
+        t.index = [short(b) for b in t.index]
+        t.columns = [c[4:] for c in t.columns]
+        print("PSC per bar: counts per run; svc = measured site service s (work+asset+net) of rebuild / "
+              "create rows, full = same kind in none; model_save = mean predicted save of rebuilds (log); "
+              "delta / net = site s per run vs none (< 0 = saved)\n" + t.T.round(2).to_string())
     print("sd = std over runs of the total (nan = 1 run); rank 1 = lowest total (badges on the plot)"
           + ("; followerwait % = of none's total" if kind == "coalesce" else ""))
 

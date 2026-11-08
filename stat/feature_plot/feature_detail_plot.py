@@ -151,8 +151,76 @@ def run_metrics(csv: Path) -> dict:
     r["pf_work_s"] = sum(int(w) for w, _ in done) / 1000
     r["pf_asset_s"] = sum(int(a) for _, a in done) / 1000
     r["pf_work"], r["pf_asset"] = r["pf_work_s"] / len(df), r["pf_asset_s"] / len(df)
-    if not (main_log.exists() and "Segment cache ON" in main_log.read_text(errors="replace")):
+    if not (main_log.exists() and "Segment cache ON" in log):
         r["seg_req"] = r["seg_byte"] = np.nan  # off: no bar, not 0 %
+    if "PSC ON" in log:
+        r |= psc_metrics(csv, df, log)
+    return r
+
+
+PSC_DECISION = re.compile(r"\[PSC\] (create k=\d+|rebuild k=\d+|rebuild failed|plain \| [^|]+?) \|.*?(/offload/\S+)\s*$")
+PSC_ROLES = ["create", "rebuild", "plain", "nocut"]
+
+
+def seg_kind(path: str) -> str:
+    """[Honest] Path without its time window: '/offload/show/f1.json/10/20/1280/...' -> 'f1.json/1280/...'."""
+    p = path.split("/")
+    return "/".join(p[3:4] + p[6:])
+
+
+def psc_roles(df: pd.DataFrame, log: str) -> tuple[pd.Series, Counter]:
+    """[Honest] Per csv row (status 200 rows of df): its PSC decision from the main log ('create' /
+    'rebuild' / 'plain' / 'nocut' = kind without a cut, never logged) + counts of every decision
+    incl. 'rebuild failed' and each plain reason. Mapping: the k-th decision for a path = the k-th
+    request of that path by send time (checked 11-08 on all 24 sitefix PSC runs: counts match)."""
+    from urllib.parse import unquote
+    dec, n = defaultdict(list), Counter()
+    for line in log.splitlines():
+        m = PSC_DECISION.search(line)
+        if not m:
+            continue
+        d = m[1].split(" k=")[0]
+        n["plain: " + d.split("| ", 1)[1].strip() if d.startswith("plain") else d] += 1
+        dec[unquote(m[2])].append("plain" if d.startswith("plain") else d)
+    role = pd.Series("nocut", index=df.index)
+    for path, rows in df.sort_values("send_epoch_ms").groupby("path", sort=False):
+        ds = [d for d in dec.get(path, []) if d != "rebuild failed"]  # failed = 502, not in df
+        for i, d in zip(rows.index, ds):
+            role[i] = d
+    return role, n
+
+
+def psc_metrics(csv: Path, df: pd.DataFrame, log: str) -> dict:
+    """[Dishonest I/O] Partial segment cache numbers of one run: decisions (create / stored /
+    rebuild / rebuild failed / plain reasons), hit = rebuild / eligible (= logged decisions; kinds
+    without a cut never reach PSC), and the MEASURED site service (work + asset + net, s) of
+    rebuild and create rows vs the mean of the same kind (path without time window) in this
+    directory's <policy>_none_*.csv runs -> saved per rebuild, extra per pair create, net site s."""
+    role, n = psc_roles(df, log)
+    r = {"psc_" + k.replace(" ", "_").replace(":", ""): v for k, v in n.items()}
+    r["psc_stored"] = log.count("[PSC] stored ")
+    r["psc_elig"] = sum(v for k, v in n.items())
+    r["psc_hit"] = n["rebuild"] / r["psc_elig"] if r["psc_elig"] else np.nan
+    svc = (df["work_ms"] + df["asset_ms"] + df["net_ms"]) / 1000
+    policy = csv.name.split("_", 1)[0]
+    base = [pd.read_csv(f) for f in sorted(csv.parent.glob(f"{policy}_none_*.csv"))]
+    base = pd.concat(base) if base else pd.DataFrame(columns=df.columns)
+    base = base[base["status"] == 200]
+    full = ((base["work_ms"] + base["asset_ms"] + base["net_ms"]) / 1000).groupby(base["path"].map(seg_kind)).mean()
+    kind = df["path"].map(seg_kind)
+    for k in ("rebuild", "create"):
+        on = (role == k) & kind.isin(full.index)
+        r[f"psc_{k}_svc"] = svc[on].mean() if on.any() else np.nan  # measured, this run
+        r[f"psc_{k}_full"] = kind[on].map(full).mean() if on.any() else np.nan  # same kinds in none
+        r[f"psc_{k}_matched"] = int(on.sum())
+        r[f"psc_{k}_delta_s"] = (svc[on] - kind[on].map(full)).sum()  # site s vs none, all rows
+    r["psc_net_s"] = r["psc_rebuild_delta_s"] + r["psc_create_delta_s"]  # < 0 = PSC saved site time
+    model = [float(x) for x in re.findall(r"\[PSC\] rebuild k=\d+ \| full \S+ s rebuild \S+ s save (\S+) s", log)]
+    r["psc_model_save"] = np.mean(model) if model else np.nan
+    used = re.findall(r"\[PSC\] stored \d+ B \(used (\d+) B\)", log)
+    r["psc_used_mb"] = max(map(int, used)) / 2**20 if used else 0.0
+    for k in PSC_ROLES:
+        r[f"psc_share_{k}"] = (role == k).mean()
     return r
 
 
@@ -276,7 +344,8 @@ def plot(s: pd.DataFrame, title: str, out: Path):
     fig.text(0.01, 0.01, "mean over runs ("
              + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
              + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6lru/B8lru/B8lfu = segment cache, Alru/Alfu = asset "
-             "cache, C = coalescing, P = prefetch",
+             "cache, C = coalescing, P = prefetch, PSC<heavy><small|save> = partial segment cache; "
+             "pairs SlruP, SlfuAlfu, CP = both features on",
              ha="left", fontsize=FS_TICK - 3, color=MUTED)
     fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.11)
     out.parent.mkdir(parents=True, exist_ok=True)

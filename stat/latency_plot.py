@@ -75,6 +75,12 @@ FEATURE_STYLE = {
     "Alfu": ("#b9770e", False),
     "C": ("#b0306a", False),
     "P": ("#e27fa9", False),
+    "SlruP": ("#8e5a8a", False),  # pair (old site)
+    "PSC1small": ("#0f6b6b", False),  # partial segment cache: teal family (11-08)
+    "PSC0.5small": ("#3a9e9e", False),
+    "PSC0.5save": ("#86cccc", False),
+    "SlfuAlfu": ("#5a3a7a", False),  # pairs (fixed site, 11-08)
+    "CP": ("#7a1f4c", False),
 }
 
 
