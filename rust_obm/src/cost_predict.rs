@@ -10,6 +10,11 @@
 //!
 //! `predict` returns machine-neutral seconds (reference machine om): the machine factor and the
 //! network / asset / queue time are the load balancer's job.
+//!
+//! Partial segment cache (PSC) paths (count token, path part 10): the sub `<k>` and the rebuild
+//! `<k>+<n>` have their own features.csv rows (stat_predict/export.py) -> `predict`. The one-pass
+//! pair `<k>*<n>` has no row: `predict_pair` = decode + render + encode of the full `<n>` row + one
+//! more encode of the sub `<k>` row.
 
 use std::collections::HashMap;
 use std::io;
@@ -178,6 +183,37 @@ impl CostPredictor {
         Some(full_segment * x[self.seg_frac])
     }
 
+    /// [Honest] Predicted work (s) of a PSC one-pass PAIR request (count token `<k>*<n>`) on `site`:
+    /// the site decodes and renders the full request once and encodes twice, so
+    /// decode + render + encode of the full (`<n>` row) + encode of the sub (`<k>` row), scaled by the
+    /// full's seg_frac (machine-neutral, like `predict`). None if the path is not a valid pair, a row
+    /// is missing, or the site's backends have no model.
+    pub fn predict_pair(&self, path: &str, site: &OffloadSite) -> Option<f64> {
+        let (full_path, sub_path) = pair_paths(path)?;
+        let full = self.row(&full_path)?;
+        let sub = self.row(&sub_path)?;
+        let (decode, render, encode) = backend_names(&site.config);
+        let enc = format!("{render}+{encode}");
+        let one_pass = self.stage_time(Stage::Decode, decode, full)?
+            + self.stage_time(Stage::Render, render, full)?
+            + self.stage_time(Stage::Encode, &enc, full)?
+            + self.stage_time(Stage::Encode, &enc, sub)?;
+        Some(one_pass * full[self.seg_frac])
+    }
+
+    /// [Honest] Feature row of `path` (as written, else percent-decoded).
+    fn row(&self, path: &str) -> Option<&Vec<f64>> {
+        self.features
+            .get(path)
+            .or_else(|| self.features.get(&percent_decode(path)))
+    }
+
+    /// [Honest] One stage's time (s, whole segment) for the feature row `x`, None if no model.
+    fn stage_time(&self, stage: Stage, backend: &str, x: &[f64]) -> Option<f64> {
+        let m = self.models.get(&(stage, backend.to_string()))?;
+        Some(m.a + m.beta.iter().map(|(i, b)| b * x[*i]).sum::<f64>())
+    }
+
     /// Number of request paths with features.
     pub fn len(&self) -> usize {
         self.features.len()
@@ -204,6 +240,22 @@ pub(crate) fn backend_names(cfg: &Config) -> (&'static str, &'static str, &'stat
         Encode::Gpu => "gpu",
     };
     (decode, render, encode)
+}
+
+/// [Honest] A pair path's (full path, sub path): count token `<k>*<n>` (path part 10, 1 <= k < n)
+/// replaced by `<n>` and by `<k>`; None if the path is not a pair.
+fn pair_paths(path: &str) -> Option<(String, String)> {
+    const COUNT: usize = 10;
+    let mut parts: Vec<&str> = path.split('/').collect();
+    let (k, n) = parts.get(COUNT)?.split_once('*')?;
+    let (k_num, n_num) = (k.parse::<u32>().ok()?, n.parse::<u32>().ok()?);
+    if k_num == 0 || k_num >= n_num {
+        return None;
+    }
+    parts[COUNT] = n;
+    let full = parts.join("/");
+    parts[COUNT] = k;
+    Some((full, parts.join("/")))
 }
 
 /// [Honest] Parses CSV fields as finite f64.
@@ -342,6 +394,72 @@ mod tests {
         );
     }
 
+    const PAIR_FEATURES: &str = "n_video,chroma_frac,video_frac,seg_frac,path\n\
+                                 2,1,1,1,/offload/show/x.json/0/10/1280/720/main/landscape/2/bg|calm/fg|key\n\
+                                 1,0,0.5,1,/offload/show/x.json/0/10/1280/720/main/landscape/1/bg|calm/fg|key\n\
+                                 2,1,1,0.4,/offload/show/x.json/80/90/1280/720/main/landscape/2/bg|calm/fg|key\n\
+                                 1,0,0.5,0.4,/offload/show/x.json/80/90/1280/720/main/landscape/1/bg|calm/fg|key\n";
+
+    #[test]
+    fn test_predict_pair_adds_sub_encode() {
+        let p = CostPredictor::from_csv(COEF, PAIR_FEATURES).unwrap();
+        let pair = "/offload/show/x.json/0/10/1280/720/main/landscape/1*2/bg|calm/fg|key";
+        // full: decode 1.1 + render 3.2 + encode 2.0; sub encode 1.5 + 0.5*0.5 = 1.75
+        assert!(approx(p.predict_pair(pair, &site(Render::Gpu)), 6.3 + 1.75));
+        // cpu render 5 + 4, encode cpu+cpu 1 for both
+        assert!(approx(
+            p.predict_pair(pair, &site(Render::Cpu)),
+            1.1 + 9.0 + 1.0 + 1.0
+        ));
+        // last (short) segment: scaled by the full's seg_frac
+        let short = "/offload/show/x.json/80/90/1280/720/main/landscape/1*2/bg|calm/fg|key";
+        assert!(approx(
+            p.predict_pair(short, &site(Render::Gpu)),
+            8.05 * 0.4
+        ));
+        // percent-encoded tokens
+        let encoded = "/offload/show/x.json/0/10/1280/720/main/landscape/1*2/bg%7Ccalm/fg%7Ckey";
+        assert!(approx(p.predict_pair(encoded, &site(Render::Gpu)), 8.05));
+    }
+
+    #[test]
+    fn test_predict_pair_none() {
+        let p = CostPredictor::from_csv(COEF, PAIR_FEATURES).unwrap();
+        let base = "/offload/show/x.json/0/10/1280/720/main/landscape";
+        let gpu = site(Render::Gpu);
+        // not a pair: plain count, rebuild token
+        assert_eq!(
+            p.predict_pair(&format!("{base}/2/bg|calm/fg|key"), &gpu),
+            None
+        );
+        assert_eq!(
+            p.predict_pair(&format!("{base}/1+2/bg|calm/fg|key"), &gpu),
+            None
+        );
+        // invalid cuts: k >= n, k = 0, not numbers
+        for bad in ["2*2", "3*2", "0*2", "x*2", "1*", "*2"] {
+            assert_eq!(
+                p.predict_pair(&format!("{base}/{bad}/bg|calm/fg|key"), &gpu),
+                None,
+                "{bad}"
+            );
+        }
+        // sub row missing (no '<1>' row for this combination) / no llvmpipe model
+        assert_eq!(
+            p.predict_pair(&format!("{base}/1*2/bg|calm/fg|other"), &gpu),
+            None
+        );
+        assert_eq!(
+            p.predict_pair(
+                &format!("{base}/1*2/bg|calm/fg|key"),
+                &site(Render::Llvmpipe)
+            ),
+            None
+        );
+        // the old API does not know pair paths (unchanged)
+        assert_eq!(p.predict(&format!("{base}/1*2/bg|calm/fg|key"), &gpu), None);
+    }
+
     /// The exported model in stat_predict/ (skipped if not exported yet).
     #[test]
     fn test_load_exported_model() {
@@ -354,5 +472,27 @@ mod tests {
         let gpu = p.predict(forecast, &site(Render::Gpu)).unwrap();
         let cpu = p.predict(forecast, &site(Render::Cpu)).unwrap();
         assert!(gpu > 1.0 && cpu > gpu, "gpu {gpu}, cpu {cpu}");
+
+        // PSC rows (export.py psc_rows): sub '<k>', rebuild '<k>+<n>', pair from both
+        let f1 = |count: &str| {
+            format!(
+                "/offload/show/f1_full.json/0/10/1280/720/race/landscape/{count}/race|race/driver|Off/track|off/drivers|Sam"
+            )
+        };
+        let gpu_site = site(Render::Gpu);
+        let full = p.predict(&f1("4"), &gpu_site).unwrap();
+        let sub = p.predict(&f1("3"), &gpu_site).unwrap();
+        let rebuild = p.predict(&f1("3+4"), &gpu_site).unwrap();
+        let pair = p.predict_pair(&f1("3*4"), &gpu_site).unwrap();
+        // the model sees the drivers overlay as ~free: sub == full here (measured: it is not)
+        assert!(
+            sub <= full && rebuild < full,
+            "full {full} sub {sub} rebuild {rebuild}"
+        );
+        // pair = full + one encode (gpu+cpu encode a ~1.6 s)
+        assert!(
+            pair - full > 1.0 && pair - full < 3.0,
+            "pair {pair} full {full}"
+        );
     }
 }

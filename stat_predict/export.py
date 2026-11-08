@@ -5,6 +5,12 @@ Exports the cost model for the Rust load balancer (rust_obm/src/cost_predict.rs)
   stat_predict/coef.csv      stage,backend,a,<feature...>     one row per (stage, backend) stage model
   stat_predict/features.csv  <feature...>,path               one row per request path (segment included)
 
+PSC (partial segment cache) rows, for every valid cut of every kind x segment (cuts: stat_predict/psc_cuts.py):
+  '<k>'   sub segment = roots 0..k-1 only (features of the partial request, as before)
+  '<k>+<n>' rebuild = roots k..n-1 drawn over the cached sub (rebuild_features: full minus sub + one full-frame video)
+  '<k>*<n>' pair has NO row: its cost = decode + render + encode of the full + encode of the sub, computed in Rust
+            (CostPredictor::predict_pair) from the full row and the '<k>' row.
+
 In a real deployment features are extracted when an (unseen) request arrives; for the experiments
 they are precomputed here for every BBC and synthetic request kind, every segment of the show, plus
 every path that appears in the sequences and measurements. `path` is the last column so Rust can split
@@ -20,6 +26,7 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from features import ALL, FPS, SEG_S, features, load_json, parse_request  # noqa: E402
 from model import STAGES, CostModel  # noqa: E402
+from psc_cuts import cut_rows  # noqa: E402
 
 ROOT = HERE.parent
 
@@ -46,6 +53,48 @@ def all_paths() -> list[str]:
     return sorted(paths)
 
 
+# bitrate of a cached sub segment as a decode input of the rebuild (approx., same as temp/psc_study)
+CACHED_MBPS = 2.048
+
+
+def with_count(path: str, token: str) -> str:
+    """[Honest] the same request with another count token (path part 10), e.g. '3' or '3+4'."""
+    p = path.split("/")
+    p[10] = token
+    return "/".join(p)
+
+
+def rebuild_features(full: dict, sub: dict) -> dict:
+    """[Honest] features of a '<k>+<n>' rebuild: the full request minus the sub's layers, plus the cached sub as one
+    full-frame video layer (decoded at CACHED_MBPS); segment length and output size stay the full's."""
+    rec = {f: full[f] - sub[f] for f in full}
+    for f in ("seg_frac", "out_mpix"):
+        rec[f] = full[f]
+    rec["n_video"] += 1
+    rec["dec_mpix"] += full["out_mpix"]
+    rec["dec_mbps"] += CACHED_MBPS
+    rec["n_layers"] += 1
+    rec["disp_frac"] += 1.0
+    rec["video_frac"] = min(1.0, rec["video_frac"] + 1.0)
+    return rec
+
+
+def psc_rows() -> dict[str, dict]:
+    """[Dishonest I/O] path -> features of every sub '<k>' and rebuild '<k>+<n>' path (kinds x segments x valid cuts)."""
+    rows: dict[str, dict] = {}
+    for kinds in [ROOT / "servers_benchmark/request_kind.txt", ROOT / "syn_video/request_kind_syn.txt"]:
+        for kind in filter(None, (line.strip() for line in kinds.read_text().splitlines())):
+            cuts = cut_rows(kind)
+            for seg in segment_paths(kind) if cuts else []:
+                full = features(seg)
+                for c in cuts:
+                    sub_path = with_count(seg, str(c["k"]))
+                    sub = features(sub_path)
+                    rows[sub_path] = sub
+                    rows[with_count(seg, f"{c['k']}+{c['n']}")] = rebuild_features(full, sub)
+    return rows
+
+
 def main():
     model = CostModel.load(Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "model_all_runs.json")
     feats = list(dict.fromkeys(f for fs in STAGES.values() for f in fs))
@@ -55,6 +104,7 @@ def main():
             stage, backend = key.split("|")
             fh.write(",".join([stage, backend, f"{c['a']:.6g}"] + [f"{c.get(f, 0.0):.6g}" for f in feats]) + "\n")
     rows, skipped = 0, 0
+    done: set[str] = set()
     with (HERE / "features.csv").open("w") as fh:
         fh.write(",".join(ALL + ["path"]) + "\n")
         for p in all_paths():
@@ -65,7 +115,15 @@ def main():
                 continue
             fh.write(",".join(f"{f[k]:.6g}" for k in ALL) + "," + p + "\n")
             rows += 1
-    print(f"coef.csv: {len(model.coef)} stage models; features.csv: {rows} paths ({skipped} skipped); "
+            done.add(p)
+        psc = psc_rows()
+        for p, f in psc.items():
+            if p not in done:  # a sub path may also be a measured / sequence path
+                fh.write(",".join(f"{f[k]:.6g}" for k in ALL) + "," + p + "\n")
+                rows += 1
+    n_sub = sum(1 for p in psc if "+" not in p.split("/")[10])
+    print(f"coef.csv: {len(model.coef)} stage models; features.csv: {rows} paths ({skipped} skipped; "
+          f"PSC {n_sub} sub + {len(psc) - n_sub} rebuild paths); "
           f"machine factor (for the load balancer, not exported): {model.machine_factor}")
 
 
