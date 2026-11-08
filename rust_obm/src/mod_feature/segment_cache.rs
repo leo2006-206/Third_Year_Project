@@ -63,7 +63,7 @@ impl SegmentCache {
         }
     }
 
-    /// For the startup line, e.g. "45 MB, lru" or "bins lower 30 MB, upper 15 MB, threshold 6 s"
+    /// For the startup line, e.g. "45 MB, lru" or "bins lower 30 MB, upper 15 MB, threshold 6 s, lru"
     pub fn describe(&self) -> String {
         match self {
             Self::Single { cache, mb } => format!("{mb} MB, {}", cache.policy()),
@@ -71,10 +71,11 @@ impl SegmentCache {
                 lower_mb,
                 upper_mb,
                 threshold_s,
-                ..
-            } => {
-                format!("bins lower {lower_mb} MB, upper {upper_mb} MB, threshold {threshold_s} s")
-            }
+                cache,
+            } => format!(
+                "bins lower {lower_mb} MB, upper {upper_mb} MB, threshold {threshold_s} s, {}",
+                cache.policy()
+            ),
         }
     }
 }

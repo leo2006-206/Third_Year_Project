@@ -271,6 +271,8 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
         }
         (false, true) => {
             let threshold_s = util::env_parse::<f64>("OBM_BIN_CACHE_THRESHOLD_S")?.unwrap_or(6.0);
+            let policy =
+                util::env_parse::<CachePolicy>("OBM_BIN_CACHE_POLICY")?.unwrap_or(CachePolicy::Lru);
             let dir = std::env::var("OBM_BIN_CACHE_DIR")
                 .unwrap_or_else(|_| "/tmp/obm_cache/bin".to_string());
             let dir = Path::new(&dir);
@@ -280,6 +282,7 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
                 lower_mb << 20,
                 upper_mb << 20,
                 threshold_s,
+                policy,
             )
             .map_err(|e| io::Error::new(e.kind(), format!("bin cache {}: {e}", dir.display())))?;
             Ok(Some(SegmentCache::Bin {

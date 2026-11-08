@@ -104,7 +104,7 @@ def hit_entries(s, kind):
     return out
 
 
-HIT_COLS = 2  # hit entries per row (4 segment caches = 2 rows; 11-07: one row clipped B6 / B8)
+HIT_COLS = 2  # hit entries per row (4 segment caches = 2 rows; 11-07: one row clipped B6 / B8, now B6lru / B8lru)
 
 
 HIT_DY = 0.04  # row height of the hit entries, figure height fraction

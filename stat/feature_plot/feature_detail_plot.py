@@ -2,7 +2,7 @@
 """
 What each feature (cache) changes, for one sequence directory: mct with no feature vs mct + one
 feature (runs <policy>_<label>_<N>.csv; labels Slru / Slfu = single segment cache lru / lfu,
-B6 / B8 = 2 cost bins with threshold 6 / 8 s at the main server, Alru / Alfu = asset cache at
+B6lru / B8lru / B8lfu = 2 cost bins with threshold 6 / 8 s (lru / lfu) at the main server, Alru / Alfu = asset cache at
 every site, C = coalescing, P = prefetch).
 
 Usage:
@@ -16,7 +16,7 @@ queue / work / asset / net = 0), <base>_main.log ('[CACHE] added ... to lower|up
 main server). Status 200 requests only. Every number is the mean over the runs of that bar.
 
 Figure (default stat/feature_plot/feature_detail_<run dir name>.png): the common comparison, one
-stacked bar per run type (mct, mct+Slru, mct+B6, mct+Alru, mct+Alfu, ...) = mean time per request over all
+stacked bar per run type (mct, mct+Slru, mct+B6lru, mct+Alru, mct+Alfu, ...) = mean time per request over all
 requests (a hit counts 0): site queue / central wait / work / asset + net. Per-feature detail
 (% of no feature, hit / miss) -> segment_plot.py, asset_plot.py.
 Prints tables: time per request (all / sent to a site), hit ratios, per-site share / queue / asset.
@@ -244,7 +244,7 @@ def bar_colour(bar):
 
 
 def short(bar: str) -> str:
-    """[Honest] Tick / legend label: the policy is in the title -> 'mct' -> 'none', 'mct+B8' -> 'B8'."""
+    """[Honest] Tick / legend label: the policy is in the title -> 'mct' -> 'none', 'mct+B8lru' -> 'B8lru'."""
     return "none" if "+" not in bar else bar.split("+", 1)[1]
 
 
@@ -275,7 +275,7 @@ def plot(s: pd.DataFrame, title: str, out: Path):
                  color=INK)
     fig.text(0.01, 0.01, "mean over runs ("
              + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
-             + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6/B8 = segment cache, Alru/Alfu = asset "
+             + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6lru/B8lru/B8lfu = segment cache, Alru/Alfu = asset "
              "cache, C = coalescing, P = prefetch",
              ha="left", fontsize=FS_TICK - 3, color=MUTED)
     fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.11)

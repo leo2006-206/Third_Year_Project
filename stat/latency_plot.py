@@ -64,12 +64,13 @@ OTHER = ("#c3c2b7", False)  # a policy not listed above
 # feature bars '<policy>+<label>': segment caches purple (single darker, bins lighter), asset
 # caches amber (lru lighter, lfu darker), in-flight features rose (coalescing C darker, prefetch P
 # lighter); order = bar order after the plain policy bars. Labels: S<policy> = single segment cache,
-# B<threshold s> = bin cache, A<policy> = asset cache.
+# B<threshold s><policy> = bin cache (B6lru, B8lru, B8lfu), A<policy> = asset cache.
 FEATURE_STYLE = {
     "Slru": ("#6b3fa0", False),
     "Slfu": ("#4a2675", False),
-    "B6": ("#b28ad9", False),
-    "B8": ("#d2b8ec", False),
+    "B6lru": ("#b28ad9", False),
+    "B8lru": ("#d2b8ec", False),
+    "B8lfu": ("#8f63c4", False),
     "Alru": ("#e8b74a", False),
     "Alfu": ("#b9770e", False),
     "C": ("#b0306a", False),

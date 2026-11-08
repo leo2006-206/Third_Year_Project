@@ -9,13 +9,14 @@
 OBM_SEGMENT_CACHE_MB=0
 OBM_SEGMENT_CACHE_POLICY=lru
 
-# ---- Bin cache (2 LRU bins split by cost), 0 + 0 = off. Same feature as the segment cache:
+# ---- Bin cache (2 bins split by cost, policy lru | lfu for both), 0 + 0 = off. Same feature as the segment cache:
 # only one of the two may be on, the main server refuses to start otherwise.
 # cost = (asset_ms + work_ms / render factor gpu 1, llvmpipe 1.33, cpu 4.6) / 1000, in seconds
 # lower bin: cost < threshold, upper bin: cost >= threshold
 OBM_BIN_CACHE_LOWER_MB=0
 OBM_BIN_CACHE_UPPER_MB=0
 OBM_BIN_CACHE_THRESHOLD_S=6
+OBM_BIN_CACHE_POLICY=lru
 
 # ---- Request coalescing (main server): 1 = on, 0 = off. Identical requests in flight at the same
 # time share one render (followers: worker 'coalesce'). Independent of the segment cache.
@@ -33,10 +34,12 @@ OBM_PREFETCH_HOLD_S=30
 # ---- Partial segment cache (main server): store cap in MiB, 0 = off (own budget). On a segment cache miss
 # a request can be cut after root k: a popular cut that saves >= HEAVY s is created by a one-pass pair
 # ('<k>*<n>': the viewer gets the full, the bottom sub is stored), later requests sharing that bottom are
-# rebuilt from it ('<k>+<n>', sub pushed to the site). OBM_PSC_HEAVY_S has NO default and is not set here:
-# set it per run (0.5 / 1 / 2), the main server refuses to start with PSC on and no HEAVY.
+# rebuilt from it ('<k>+<n>', sub pushed to the site). HEAVY_S = minimum save (s per reuse) for a cut to be
+# created; runs try 0.5 / 1 / 2 (override per run in the shell, the shell wins). The main server itself has no
+# built-in default: started without this file and with PSC on, it refuses to start until HEAVY is given.
 # THR = requests for the cut in WINDOW s before it is created; PICK smallest | save; POLICY lru | lfu.
 OBM_PSC_MB=0
+OBM_PSC_HEAVY_S=1
 OBM_PSC_THR=2
 OBM_PSC_WINDOW_S=600
 OBM_PSC_PICK=smallest

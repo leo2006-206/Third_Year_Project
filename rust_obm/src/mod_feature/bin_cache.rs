@@ -22,7 +22,7 @@ impl std::fmt::Display for Bin {
     }
 }
 
-/// Two LRU caches (PolicyCache, Lru) split by cost: segments that cost less than `threshold_s` to make go to the
+/// Two caches (PolicyCache, both with the same policy: lru or lfu) split by cost: segments that cost less than `threshold_s` to make go to the
 /// lower cache, the rest to the upper one. Cost = asset time + work time / render factor, in
 /// seconds; the factor turns work on a slow renderer into gpu-equivalent work. Asset loading is
 /// not divided: it does not depend on the renderer.
@@ -42,6 +42,7 @@ impl BinCache {
         lower_cap: usize,
         upper_cap: usize,
         threshold_s: f64,
+        policy: CachePolicy,
     ) -> io::Result<Self> {
         if !(threshold_s.is_finite() && threshold_s > 0.0) {
             return Err(io::Error::new(
@@ -56,10 +57,15 @@ impl BinCache {
             ));
         }
         Ok(Self {
-            lower_cache: PolicyCache::new(lower_path, lower_cap, CachePolicy::Lru)?,
-            upper_cache: PolicyCache::new(upper_path, upper_cap, CachePolicy::Lru)?,
+            lower_cache: PolicyCache::new(lower_path, lower_cap, policy)?,
+            upper_cache: PolicyCache::new(upper_path, upper_cap, policy)?,
             threshold_s,
         })
+    }
+
+    /// [Honest] Eviction policy of both bins.
+    pub fn policy(&self) -> CachePolicy {
+        self.lower_cache.policy()
     }
 
     /// Cost in seconds of making this segment again, in gpu-equivalent time.
@@ -167,11 +173,39 @@ mod test {
     fn test_new_rejects_bad_input() {
         let dir = test_dir("bad");
         for bad in [0.0, -1.0, f64::NAN, f64::INFINITY] {
-            let err = BinCache::new(dir.join("lo"), dir.join("hi"), 10, 10, bad).err();
+            let err = BinCache::new(
+                dir.join("lo"),
+                dir.join("hi"),
+                10,
+                10,
+                bad,
+                CachePolicy::Lru,
+            )
+            .err();
             assert_eq!(err.map(|e| e.kind()), Some(io::ErrorKind::InvalidInput));
         }
-        let err = BinCache::new(dir.join("same"), dir.join("same"), 10, 10, 6.0).err();
+        let err = BinCache::new(
+            dir.join("same"),
+            dir.join("same"),
+            10,
+            10,
+            6.0,
+            CachePolicy::Lru,
+        )
+        .err();
         assert_eq!(err.map(|e| e.kind()), Some(io::ErrorKind::InvalidInput));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn test_policy_applies_to_both_bins() {
+        let dir = test_dir("policy");
+        for policy in [CachePolicy::Lru, CachePolicy::Lfu] {
+            let cache = BinCache::new(dir.join("lo"), dir.join("hi"), 10, 10, 6.0, policy).unwrap();
+            assert_eq!(cache.policy(), policy);
+            assert_eq!(cache.lower_cache.policy(), policy);
+            assert_eq!(cache.upper_cache.policy(), policy);
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 
@@ -185,7 +219,15 @@ mod test {
     #[test]
     fn test_routes_by_cost_and_gets_from_both() {
         let dir = test_dir("route");
-        let cache = BinCache::new(dir.join("lo"), dir.join("hi"), 100, 100, 6.0).unwrap();
+        let cache = BinCache::new(
+            dir.join("lo"),
+            dir.join("hi"),
+            100,
+            100,
+            6.0,
+            CachePolicy::Lru,
+        )
+        .unwrap();
 
         let cheap = cache.add(&feedback(1000, 2000), &GPU, "cheap", &[1; 4]); // 3 s
         let dear = cache.add(&feedback(2000, 5000), &GPU, "dear", &[2; 8]); // 7 s
@@ -204,7 +246,15 @@ mod test {
     #[test]
     fn test_key_not_cached_in_both_bins() {
         let dir = test_dir("both");
-        let cache = BinCache::new(dir.join("lo"), dir.join("hi"), 100, 100, 6.0).unwrap();
+        let cache = BinCache::new(
+            dir.join("lo"),
+            dir.join("hi"),
+            100,
+            100,
+            6.0,
+            CachePolicy::Lru,
+        )
+        .unwrap();
 
         let added = cache.add(&feedback(1000, 2000), &GPU, "a", &[0; 4]);
         assert_eq!(added.unwrap(), Bin::Lower);
