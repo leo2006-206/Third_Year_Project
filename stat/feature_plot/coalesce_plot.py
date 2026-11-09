@@ -5,7 +5,7 @@ prefetch = proactive: after segments k-1, k of a show + combo it renders k+1 ahe
 for it follow the prefetch). Labels without runs are skipped.
 
 Usage: stat/feature_plot/coalesce_plot.py <run dir> [--policy mct] [--out PNG]
-  e.g. stat/feature_plot/coalesce_plot.py stat/seed2042/run_a1.2_c2
+  e.g. stat/feature_plot/coalesce_plot.py stat/pre-sitefix/seed2042/run_a1.2_c2
 Left: queue (site queue + central wait) / work / asset + net / follower wait / total as % of no
 feature (100 %; follower wait has no % - it is 0 without C / P).
 Right: mean time per request stacked (follower = its whole latency as 'follower wait').

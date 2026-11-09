@@ -56,7 +56,7 @@ def all_paths(kind_files: list[Path] = KIND_FILES, extra: bool = True) -> list[s
             paths.update(segment_paths(k))
     if not extra:
         return sorted(paths)
-    for f in list((ROOT / "servers_benchmark/sequences").glob("seq_a*_case*.csv")) + list((ROOT / "stat" / "seed2037").glob("run_*/*.csv")) \
+    for f in list((ROOT / "servers_benchmark/sequences").glob("seq_a*_case*.csv")) + list((ROOT / "stat" / "pre-sitefix" / "seed2037").glob("run_*/*.csv")) \
             + [ROOT / "stat/timings/syn_timings.csv"]:
         with f.open() as fh:
             paths.update(row["path"] for row in csv.DictReader(fh))

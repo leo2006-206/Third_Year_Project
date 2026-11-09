@@ -118,7 +118,7 @@ These match the measurements: chroma costs a similar fixed ~3–4 s per screen o
 (CPU readback), scaling is almost free on the GPU but expensive in software, and encode is cheaper on
 the cpu backend.
 
-## In-situ replay data (`stat/seed2037/run_*`)
+## In-situ replay data (`stat/pre-sitefix/seed2037/run_*`)
 
 5,559 requests measured inside the busy cluster during the replays (gpu 3,081, llvm 1,682, cpu 796),
 every segment, stage times from the same Dana timers as calibration.

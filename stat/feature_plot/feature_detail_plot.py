@@ -7,7 +7,7 @@ every site, C = coalescing, P = prefetch).
 
 Usage:
   stat/feature_plot/feature_detail_plot.py <run dir> [--policy mct] [--out PNG]
-  e.g. stat/feature_plot/feature_detail_plot.py stat/seed2042/run_a1.2_c2
+  e.g. stat/feature_plot/feature_detail_plot.py stat/pre-sitefix/seed2042/run_a1.2_c2
 
 Inputs per run: <base>.csv (one row per request; a segment cache hit has worker 'cache' and
 queue / work / asset / net = 0), <base>_main.log ('[CACHE] added ... to lower|upper' and
