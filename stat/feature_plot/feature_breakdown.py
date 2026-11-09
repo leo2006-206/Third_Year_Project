@@ -22,6 +22,7 @@ import numpy as np
 
 from feature_detail_plot import (PARTS, bar_colour, finish, load, rank_badges, short, stacked,
                                  INK, MUTED, SURF)
+from latency_plot import single  # importable: feature_detail_plot puts stat/ on sys.path
 
 FS_TITLE, FS_LABEL, FS_TICK, FS_VALUE = 18, 14, 12, 11
 # left panel groups: (label, part columns summed)
@@ -281,6 +282,7 @@ def main(labels, feature_name, prefix, doc, names=None):
     ap.add_argument("--policy", default="mct")
     ap.add_argument("--out", type=Path)
     args = ap.parse_args()
+    assert all(single(l) for l in labels), f"family plots take single features only: {labels}"
     s = load(args.run_dir, args.policy)
     keep = [args.policy] + [f"{args.policy}+{l}" for l in labels]
     s = s.loc[[b for b in keep if b in s.index]]

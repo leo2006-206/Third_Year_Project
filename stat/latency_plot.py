@@ -82,6 +82,15 @@ FEATURE_STYLE = {
     "SlfuAlfu": ("#5a3a7a", False),  # pairs (fixed site, 11-08)
     "CP": ("#7a1f4c", False),
 }
+# Per-sequence feature plots show SINGLE-feature runs only (user 11-09); pair / multi-feature runs
+# (two features on at once) are analysed separately (stat/feature_plot/feature_summary.py).
+PAIRS = ("SlruP", "SlfuAlfu", "CP")
+SINGLES = tuple(f for f in FEATURE_STYLE if f not in PAIRS)
+
+
+def single(label: str) -> bool:
+    """[Honest] True if a feature label is one known single feature (unknown labels -> False)."""
+    return label in SINGLES
 
 
 def run_stats(csv: Path) -> dict:
@@ -102,7 +111,7 @@ def load(run_dir: Path, features=None, policy=None) -> pd.DataFrame:
     """[Dishonest I/O] One row per run: policy, run, the four statistics, fail.
     features None = no-feature runs only; [] = also every feature run; [labels] = also those.
     A feature run's 'policy' is '<policy>+<label>'. policy keeps only that policy's runs."""
-    rows = []
+    rows, skipped = [], set()
     pattern = RUN_FILE if features is None else FEATURE_FILE
     for csv in sorted(run_dir.glob("*.csv")):
         m = pattern.match(csv.name)
@@ -111,8 +120,13 @@ def load(run_dir: Path, features=None, policy=None) -> pd.DataFrame:
         feat = m.groupdict().get("features", "none")
         if feat != "none" and features and feat not in features:
             continue
+        if feat != "none" and not single(feat):  # pair / multi-feature run: not in these plots
+            skipped.add(feat)
+            continue
         name = m["policy"] if feat == "none" else f"{m['policy']}+{feat}"
         rows.append({"policy": name, "run": int(m["run"]), **run_stats(csv)})
+    if skipped:
+        print(f"skipped non-single feature runs: {', '.join(sorted(skipped))}")
     return pd.DataFrame(rows)
 
 

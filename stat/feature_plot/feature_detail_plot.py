@@ -35,7 +35,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # stat/ for latency_plot
-from latency_plot import FEATURE_FILE, FEATURE_STYLE, OTHER, style
+from latency_plot import FEATURE_FILE, FEATURE_STYLE, OTHER, single, style
 
 SITES = ["om1", "om2", "om3", "rs1", "rs2", "rs3"]
 # answered by the main server without a render of its own: segment cache hit, follower of a real
@@ -225,14 +225,20 @@ def psc_metrics(csv: Path, df: pd.DataFrame, log: str) -> dict:
 
 
 def load(run_dir: Path, policy: str) -> pd.DataFrame:
-    """[Dishonest I/O] Per bar ('mct', 'mct+Slru', ...): mean over its runs of every metric."""
-    rows = []
+    """[Dishonest I/O] Per bar ('mct', 'mct+Slru', ...): mean over its runs of every metric.
+    Single-feature runs only (latency_plot.SINGLES); pair runs are skipped and listed."""
+    rows, skipped = [], set()
     for csv in sorted(run_dir.glob(f"{policy}_*.csv")):
         m = FEATURE_FILE.match(csv.name)
         if not m or m["policy"] != policy:
             continue
+        if m["features"] != "none" and not single(m["features"]):  # pairs: analysed separately
+            skipped.add(m["features"])
+            continue
         name = policy if m["features"] == "none" else f"{policy}+{m['features']}"
         rows.append({"bar": name, **run_metrics(csv)})
+    if skipped:
+        print(f"skipped non-single feature runs: {', '.join(sorted(skipped))}")
     if not rows:
         return pd.DataFrame()
     df = pd.DataFrame(rows)
@@ -346,7 +352,7 @@ def plot(s: pd.DataFrame, title: str, out: Path):
              + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
              + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6lru/B8lru/B8lfu = segment cache, Alru/Alfu = asset "
              "cache, C = coalescing, P = prefetch,\nPSC<heavy><small|save> = partial segment cache; "
-             "pairs SlruP, SlfuAlfu, CP = both features on",
+             "single-feature runs only (pairs analysed separately)",
              ha="left", fontsize=FS_TICK - 3, color=MUTED)
     fig.subplots_adjust(left=0.08 * 12 / fig.get_figwidth(), right=0.98, top=0.88,
                         bottom=0.19 if len(s) > 10 else 0.11)

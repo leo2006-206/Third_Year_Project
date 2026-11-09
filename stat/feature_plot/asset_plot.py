@@ -10,4 +10,4 @@ Default output stat/feature_plot/asset_<run dir name>.png.
 from feature_breakdown import main
 
 if __name__ == "__main__":
-    main(["Alru", "Alfu", "SlfuAlfu"], "Asset cache", "asset", __doc__)
+    main(["Alru", "Alfu"], "Asset cache", "asset", __doc__)
