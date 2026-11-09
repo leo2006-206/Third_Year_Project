@@ -203,16 +203,31 @@ fi
 echo "=== Starting Dana Offload Site on internal port 9009 (Decoding: $DECODING, Composition: $COMPOSITION, Encoding: $ENCODING) ==="
 cd /app/obm
 
+# Dana's stdout passes through this filter: on 'recycling' (reply already sent, queue empty) SIGKILL Dana at once.
+# Why (11-09, D97): Dana's own clean exit took up to 2.6-6.6 s on rs (usually < 0.1 s) -> the Rust front's connect
+# window ran out -> 502. Killed exit measured max 0.135 s, 0 failed requests (findings/site_render.md 'DANA KILL ON RECYCLE TEST').
+# One Dana per container, so 'pkill -x dana' hits only it.
+kill_on_recycle() {
+    while IFS= read -r line; do
+        printf '%s\n' "$line"
+        case "$line" in
+            *"recycling Dana worker"*)
+                pkill -KILL -x dana && echo "[Dana Supervisor] recycle: Dana killed (SIGKILL, skip slow exit)" ;;
+        esac
+    done
+}
+
 run_dana_loop() {
     while [ "$SHUTTING_DOWN" != "1" ]; do
         # '|| EXIT_CODE=$?': a crash / OOM kill (non-zero exit) must not end this loop under 'set -e', else the site stays dead
+        # exit code 137 after a recycle = our own SIGKILL (normal)
         EXIT_CODE=0
         if [ "$COMPOSITION" = "gpu" ]; then
             echo "[Dana Supervisor] Launching Dana with VirtualGL on $GPU_CARD..."
-            vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new || EXIT_CODE=$?
+            vglrun -d "$GPU_CARD" dana "${DANA_ARGS[@]}" OffloadSite_new > >(kill_on_recycle) || EXIT_CODE=$?
         else
             echo "[Dana Supervisor] Launching Dana..."
-            dana "${DANA_ARGS[@]}" OffloadSite_new || EXIT_CODE=$?
+            dana "${DANA_ARGS[@]}" OffloadSite_new > >(kill_on_recycle) || EXIT_CODE=$?
         fi
         if [ "$SHUTTING_DOWN" = "1" ]; then
             break

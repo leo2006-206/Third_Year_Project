@@ -321,24 +321,47 @@ async fn fetch_from_dana_inner(
     }
 }
 
-// Connects to Dana, retrying while it is (re)starting
+// Connects to Dana, retrying while it is (re)starting (normal restart ~0.1 s: supervisor kills Dana on 'recycling').
+// Window 30 s (was 100 x 50 ms = 5 s; 11-09 a 6.6 s slow exit on rs -> 502). A wait over 1 s is NOT normal:
+// it is logged as '[DANA SLOW]' (when it passes 1 s, every 5 s after, and at the end) so runs can be checked.
 async fn connect_dana(dana_addr: &str) -> io::Result<TcpStream> {
-    const MAX_RETRIES: usize = 100;
-    const RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(50);
+    use std::time::{Duration, Instant};
+    const WINDOW: Duration = Duration::from_secs(30);
+    const SLOW: Duration = Duration::from_secs(1);
+    const SLOW_EVERY: Duration = Duration::from_secs(5);
+    const RETRY_DELAY: Duration = Duration::from_millis(50);
+    let start = Instant::now();
     let mut attempt = 0;
+    let mut next_slow_log = SLOW;
     loop {
-        match TcpStream::connect(dana_addr).await {
-            Ok(stream) => return Ok(stream),
-            Err(e) if attempt < MAX_RETRIES => {
+        let result = TcpStream::connect(dana_addr).await;
+        let waited = start.elapsed();
+        match result {
+            Ok(stream) => {
+                if waited > SLOW {
+                    eprintln!(
+                        "[DANA SLOW] Dana reachable after {:.2} s ({attempt} retries)",
+                        waited.as_secs_f64()
+                    );
+                }
+                return Ok(stream);
+            }
+            Err(e) if waited < WINDOW => {
                 attempt += 1;
-                eprintln!(
-                    "[offload_server] Dana not reachable (attempt {attempt}/{MAX_RETRIES}): {e}."
-                );
+                if waited >= next_slow_log {
+                    eprintln!(
+                        "[DANA SLOW] Dana not reachable for {:.2} s ({attempt} retries, window {} s): {e}",
+                        waited.as_secs_f64(),
+                        WINDOW.as_secs()
+                    );
+                    next_slow_log += SLOW_EVERY;
+                }
                 smol::Timer::after(RETRY_DELAY).await;
             }
             Err(e) => {
                 eprintln!(
-                    "[offload_server] Dana connection failed after {MAX_RETRIES} attempts: {e}"
+                    "[DANA SLOW] Dana connection FAILED after {:.2} s ({attempt} retries): {e}",
+                    waited.as_secs_f64()
                 );
                 return Err(e);
             }
