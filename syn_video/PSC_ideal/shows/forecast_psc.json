@@ -1,0 +1,196 @@
+{
+    "variants": [
+        {
+            "name": "core",
+            "length_frames": 2075,
+            "width": 1280,
+            "height": 720,
+            "layers": [
+                {
+                    "name": "map",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "anim_img",
+                            "name": "map_colour",
+                            "spec": "assets/forecaster/meta/map_new.json",
+                            "default": true
+                        }
+                    ]
+                },
+                {
+                    "name": "weather",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "anim_img",
+                            "name": "Meteorological",
+                            "spec": "assets/forecaster/meta/weather_osm.json",
+                            "default": true
+                        }
+                    ]
+                },
+                {
+                    "name": "presenter",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "video",
+                            "name": "hearing",
+                            "spec": "assets/forecaster/meta/presenter.json",
+                            "default": true
+                        }
+                    ]
+                },
+                {
+                    "name": "presenter_chroma",
+                    "type": "transform",
+                    "children": 1,
+                    "options": [
+                        {
+                            "type": "chromakey",
+                            "name": "chroma",
+                            "spec": "assets/forecaster/meta/presenter_chroma.json",
+                            "default": true
+                        }
+                    ]
+                },
+                {
+                    "name": "time",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "anim_img",
+                            "name": "time",
+                            "spec": "assets/forecaster/meta/time_osm.json",
+                            "default": true
+                        }
+                    ]
+                },
+                {
+                    "name": "badge_a",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "anim_img",
+                            "name": "A0",
+                            "spec": "assets/psc_ideal/meta/A0.json",
+                            "default": true
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A1",
+                            "spec": "assets/psc_ideal/meta/A1.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A2",
+                            "spec": "assets/psc_ideal/meta/A2.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A3",
+                            "spec": "assets/psc_ideal/meta/A3.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A4",
+                            "spec": "assets/psc_ideal/meta/A4.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A5",
+                            "spec": "assets/psc_ideal/meta/A5.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A6",
+                            "spec": "assets/psc_ideal/meta/A6.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A7",
+                            "spec": "assets/psc_ideal/meta/A7.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A8",
+                            "spec": "assets/psc_ideal/meta/A8.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "A9",
+                            "spec": "assets/psc_ideal/meta/A9.json"
+                        }
+                    ],
+                    "optionSelect": {
+                        "type": "track-listNames",
+                        "icon": "assets/forecaster/icons/ui/weather_toggle.png"
+                    }
+                },
+                {
+                    "name": "badge_b",
+                    "type": "source",
+                    "options": [
+                        {
+                            "type": "anim_img",
+                            "name": "B0",
+                            "spec": "assets/psc_ideal/meta/B0.json",
+                            "default": true
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B1",
+                            "spec": "assets/psc_ideal/meta/B1.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B2",
+                            "spec": "assets/psc_ideal/meta/B2.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B3",
+                            "spec": "assets/psc_ideal/meta/B3.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B4",
+                            "spec": "assets/psc_ideal/meta/B4.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B5",
+                            "spec": "assets/psc_ideal/meta/B5.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B6",
+                            "spec": "assets/psc_ideal/meta/B6.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B7",
+                            "spec": "assets/psc_ideal/meta/B7.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B8",
+                            "spec": "assets/psc_ideal/meta/B8.json"
+                        },
+                        {
+                            "type": "anim_img",
+                            "name": "B9",
+                            "spec": "assets/psc_ideal/meta/B9.json"
+                        }
+                    ],
+                    "optionSelect": {
+                        "type": "track-listNames",
+                        "icon": "assets/forecaster/icons/ui/weather_toggle.png"
+                    }
+                }
+            ],
+            "default": true
+        }
+    ]
+}

@@ -15,10 +15,15 @@ Output stat_predict/psc_cuts.csv, one row per (kind, k):
   sub_id      show/w/h/variant/style/k/<sorted prefix tokens joined by '/'>  (PSC key = sub_id + segment)
   show        show file
 Run: python3 stat_predict/psc_cuts.py
+     python3 stat_predict/psc_cuts.py --kinds FILE [--kinds FILE ..] --out FILE [--asset-root DIR ..]
+       = another kind list to a SEPARATE file (e.g. the ideal-world show: --kinds syn_video/PSC_ideal/request_kind_psc.txt
+         --out stat_predict/psc_ideal/psc_cuts.csv --asset-root syn_video/PSC_ideal); the default output is not touched.
 """
+import argparse
 import csv
 from pathlib import Path
 
+import features
 from features import load_json
 
 HERE = Path(__file__).resolve().parent
@@ -77,9 +82,19 @@ def cut_rows(kind: str) -> list[dict]:
 
 
 def main():
-    kinds = [l.strip() for f in KIND_FILES for l in f.read_text().splitlines() if l.strip().startswith("/offload")]
+    ap = argparse.ArgumentParser(description="PSC cut table (default: BBC + syn kinds -> stat_predict/psc_cuts.csv)")
+    ap.add_argument("--kinds", action="append", type=Path, help="request kind file(s) instead of the default lists")
+    ap.add_argument("--out", type=Path, help="output csv (required with --kinds; default stat_predict/psc_cuts.csv)")
+    ap.add_argument("--asset-root", action="append", type=Path, default=[], help="extra dir with assets/ + shows/")
+    a = ap.parse_args()
+    if a.kinds and not a.out:
+        ap.error("--kinds needs --out (never overwrite the default psc_cuts.csv with another kind list)")
+    features.ASSET_ROOTS.extend(r.resolve() for r in a.asset_root)
+    kind_files = [k.resolve() for k in a.kinds] if a.kinds else KIND_FILES
+    kinds = [l.strip() for f in kind_files for l in f.read_text().splitlines() if l.strip().startswith("/offload")]
     rows = [r for kind in kinds for r in cut_rows(kind)]
-    out = HERE / "psc_cuts.csv"
+    out = a.out.resolve() if a.out else HERE / "psc_cuts.csv"
+    out.parent.mkdir(parents=True, exist_ok=True)
     with out.open("w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=list(rows[0]))
         w.writeheader()

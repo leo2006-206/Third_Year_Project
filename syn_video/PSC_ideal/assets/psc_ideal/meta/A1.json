@@ -1,0 +1,15 @@
+{
+ "speed": 25,
+ "xpan": 0,
+ "ypan": 0,
+ "entities": [
+  {
+   "seg_base": "assets/psc_ideal/meta/A1_seg",
+   "seg_ext": "af",
+   "w": 1280,
+   "h": 720,
+   "frames": 2250,
+   "segment_length_sec": 10
+  }
+ ]
+}

@@ -17,18 +17,26 @@ every path that appears in the sequences and measurements. `path` is the last co
 each line a fixed number of times and keep commas / spaces in the path without quoting.
 
 Usage: stat_predict/export.py [MODEL_JSON]   (default stat_predict/model_all_runs.json)
+       stat_predict/export.py [MODEL_JSON] --kinds FILE [--kinds FILE ..] --out-dir DIR [--asset-root DIR ..]
+         = features.csv for ANOTHER kind list (kinds x segments + PSC rows only; no sequence / measured paths, no coef.csv:
+           the model is the same) written to DIR/features.csv. The default stat_predict/coef.csv + features.csv are not
+           touched. Example (ideal-world fake PSC show): --kinds syn_video/PSC_ideal/request_kind_psc.txt
+           --out-dir stat_predict/psc_ideal --asset-root syn_video/PSC_ideal
 """
+import argparse
 import csv
 import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import features as features_mod  # noqa: E402
 from features import ALL, FPS, SEG_S, features, load_json, parse_request  # noqa: E402
 from model import STAGES, CostModel  # noqa: E402
 from psc_cuts import cut_rows  # noqa: E402
 
 ROOT = HERE.parent
+KIND_FILES = [ROOT / "servers_benchmark/request_kind.txt", ROOT / "syn_video/request_kind_syn.txt"]
 
 
 def segment_paths(kind: str) -> list[str]:
@@ -40,12 +48,14 @@ def segment_paths(kind: str) -> list[str]:
     return [kind.replace("t_start/t_end", f"{i * SEG_S}/{(i + 1) * SEG_S}", 1) for i in range(n_seg)]
 
 
-def all_paths() -> list[str]:
-    """[Dishonest I/O] Request kinds x segments, plus every path in sequences and measurements."""
+def all_paths(kind_files: list[Path] = KIND_FILES, extra: bool = True) -> list[str]:
+    """[Dishonest I/O] Request kinds x segments, plus (extra) every path in sequences and measurements."""
     paths: set[str] = set()
-    for kinds in [ROOT / "servers_benchmark/request_kind.txt", ROOT / "syn_video/request_kind_syn.txt"]:
+    for kinds in kind_files:
         for k in filter(None, (line.strip() for line in kinds.read_text().splitlines())):
             paths.update(segment_paths(k))
+    if not extra:
+        return sorted(paths)
     for f in list((ROOT / "servers_benchmark/sequences").glob("seq_a*_case*.csv")) + list((ROOT / "stat" / "seed2037").glob("run_*/*.csv")) \
             + [ROOT / "stat/timings/syn_timings.csv"]:
         with f.open() as fh:
@@ -79,10 +89,10 @@ def rebuild_features(full: dict, sub: dict) -> dict:
     return rec
 
 
-def psc_rows() -> dict[str, dict]:
+def psc_rows(kind_files: list[Path] = KIND_FILES) -> dict[str, dict]:
     """[Dishonest I/O] path -> features of every sub '<k>' and rebuild '<k>+<n>' path (kinds x segments x valid cuts)."""
     rows: dict[str, dict] = {}
-    for kinds in [ROOT / "servers_benchmark/request_kind.txt", ROOT / "syn_video/request_kind_syn.txt"]:
+    for kinds in kind_files:
         for kind in filter(None, (line.strip() for line in kinds.read_text().splitlines())):
             cuts = cut_rows(kind)
             for seg in segment_paths(kind) if cuts else []:
@@ -96,18 +106,31 @@ def psc_rows() -> dict[str, dict]:
 
 
 def main():
-    model = CostModel.load(Path(sys.argv[1]) if len(sys.argv) > 1 else HERE / "model_all_runs.json")
+    ap = argparse.ArgumentParser(description="export coef.csv + features.csv (default: BBC + syn kinds, in stat_predict/)")
+    ap.add_argument("model", nargs="?", type=Path, default=HERE / "model_all_runs.json")
+    ap.add_argument("--kinds", action="append", type=Path, help="request kind file(s) instead of the default lists")
+    ap.add_argument("--out-dir", type=Path, help="write features.csv here (required with --kinds); no coef.csv")
+    ap.add_argument("--asset-root", action="append", type=Path, default=[], help="extra dir with assets/ + shows/")
+    a = ap.parse_args()
+    if a.kinds and not a.out_dir:
+        ap.error("--kinds needs --out-dir (never overwrite the default features.csv with another kind list)")
+    features_mod.ASSET_ROOTS.extend(r.resolve() for r in a.asset_root)
+    model = CostModel.load(a.model)
+    kind_files = [k.resolve() for k in a.kinds] if a.kinds else KIND_FILES
+    out_dir = a.out_dir.resolve() if a.out_dir else HERE
+    out_dir.mkdir(parents=True, exist_ok=True)
     feats = list(dict.fromkeys(f for fs in STAGES.values() for f in fs))
-    with (HERE / "coef.csv").open("w") as fh:
-        fh.write(",".join(["stage", "backend", "a"] + feats) + "\n")
-        for key, c in sorted(model.coef.items()):
-            stage, backend = key.split("|")
-            fh.write(",".join([stage, backend, f"{c['a']:.6g}"] + [f"{c.get(f, 0.0):.6g}" for f in feats]) + "\n")
+    if not a.out_dir:
+        with (HERE / "coef.csv").open("w") as fh:
+            fh.write(",".join(["stage", "backend", "a"] + feats) + "\n")
+            for key, c in sorted(model.coef.items()):
+                stage, backend = key.split("|")
+                fh.write(",".join([stage, backend, f"{c['a']:.6g}"] + [f"{c.get(f, 0.0):.6g}" for f in feats]) + "\n")
     rows, skipped = 0, 0
     done: set[str] = set()
-    with (HERE / "features.csv").open("w") as fh:
+    with (out_dir / "features.csv").open("w") as fh:
         fh.write(",".join(ALL + ["path"]) + "\n")
-        for p in all_paths():
+        for p in all_paths(kind_files, extra=not a.kinds):
             try:
                 f = features(p)
             except (FileNotFoundError, StopIteration, KeyError, ValueError):
@@ -116,13 +139,14 @@ def main():
             fh.write(",".join(f"{f[k]:.6g}" for k in ALL) + "," + p + "\n")
             rows += 1
             done.add(p)
-        psc = psc_rows()
+        psc = psc_rows(kind_files)
         for p, f in psc.items():
             if p not in done:  # a sub path may also be a measured / sequence path
                 fh.write(",".join(f"{f[k]:.6g}" for k in ALL) + "," + p + "\n")
                 rows += 1
     n_sub = sum(1 for p in psc if "+" not in p.split("/")[10])
-    print(f"coef.csv: {len(model.coef)} stage models; features.csv: {rows} paths ({skipped} skipped; "
+    print(f"{'coef.csv: ' + str(len(model.coef)) + ' stage models; ' if not a.out_dir else ''}"
+          f"{(out_dir / 'features.csv').relative_to(ROOT)}: {rows} paths ({skipped} skipped; "
           f"PSC {n_sub} sub + {len(psc) - n_sub} rebuild paths); "
           f"machine factor (for the load balancer, not exported): {model.machine_factor}")
 
