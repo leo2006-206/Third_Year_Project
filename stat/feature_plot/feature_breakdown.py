@@ -181,10 +181,11 @@ def plot(s, title, out, feature_name, kind, names):
             if G[k][1] == ["follow"]:  # / none's total: no '(-M%)', it is 0 without C / P
                 txt = f"{100 * vi:.0f}%"
             else:
-                txt = (f"{100 * vi:.0f}%" if bar == base
+                txt = (f"{100 * vi:.0f}%" if bar == base or len(s) > 5
                        else f"{100 * vi:.0f}%\n({100 * (vi - 1):+.0f}%)")
-            left.text(xi, vi + top * 0.01, txt, ha="center", va="bottom", fontsize=FS_VALUE - 1,
-                      color=INK)
+            many = len(s) > 5  # 6+ bars: one-line label, vertical (11-09, labels overlapped)
+            left.text(xi, vi + top * 0.01, txt, ha="center", va="bottom",
+                      fontsize=FS_VALUE - (2 if many else 1), color=INK, rotation=90 if many else 0)
     left.axhline(1.0, color=INK, linewidth=1, linestyle="--", zorder=3)
     left.set_xticks(x, [g for g, _ in G], fontsize=FS_TICK)
     left.set_ylim(0, max(1.0, top) * 1.22)

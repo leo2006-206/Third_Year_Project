@@ -329,11 +329,12 @@ def rank_badges(ax, s, ymax):
 
 def plot(s: pd.DataFrame, title: str, out: Path):
     """[Honest] One stacked bar per run type: mean time per request over all requests (hit = 0)."""
-    fig, ax = plt.subplots(figsize=(12, 7.5), facecolor=SURF)
+    fig, ax = plt.subplots(figsize=(max(12, 1.25 * len(s) + 2), 7.5), facecolor=SURF)  # 15+ bars: widen (11-09)
     ymax = s[[f"all_{c}" for c, *_ in PARTS]].sum(axis=1).max() * 1.22  # headroom: legend row
     stacked(ax, s, "all", ymax, s["sd"])
     ticks = [short(b) for b in s.index]
-    ax.set_xticks(np.arange(len(s)), ticks, fontsize=FS_TICK)
+    ax.set_xticks(np.arange(len(s)), ticks, fontsize=FS_TICK,
+                  rotation=25 if len(s) > 10 else 0, ha="right" if len(s) > 10 else "center")
     rank_badges(ax, s, ymax)
     finish(ax, "mean time per request, all requests (segment cache hit = 0 s, C / P follower = "
            "its wait)", "s per request")
@@ -344,10 +345,11 @@ def plot(s: pd.DataFrame, title: str, out: Path):
     fig.text(0.01, 0.01, "mean over runs ("
              + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
              + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6lru/B8lru/B8lfu = segment cache, Alru/Alfu = asset "
-             "cache, C = coalescing, P = prefetch, PSC<heavy><small|save> = partial segment cache; "
+             "cache, C = coalescing, P = prefetch,\nPSC<heavy><small|save> = partial segment cache; "
              "pairs SlruP, SlfuAlfu, CP = both features on",
              ha="left", fontsize=FS_TICK - 3, color=MUTED)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.88, bottom=0.11)
+    fig.subplots_adjust(left=0.08 * 12 / fig.get_figwidth(), right=0.98, top=0.88,
+                        bottom=0.19 if len(s) > 10 else 0.11)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
     print(f"plot -> {out}")
