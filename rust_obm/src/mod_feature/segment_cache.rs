@@ -11,12 +11,12 @@ use crate::mod_load_balancer::config::Config;
 pub enum SegmentCache {
     Single {
         cache: PolicyCache,
-        mb: usize,
+        mib: usize,
     },
     Bin {
         cache: BinCache,
-        lower_mb: usize,
-        upper_mb: usize,
+        lower_mib: usize,
+        upper_mib: usize,
         threshold_s: f64,
     },
 }
@@ -63,17 +63,17 @@ impl SegmentCache {
         }
     }
 
-    /// For the startup line, e.g. "45 MB, lru" or "bins lower 30 MB, upper 15 MB, threshold 6 s, lru"
+    /// For the startup line, e.g. "45 MiB, lru" or "bins lower 30 MiB, upper 15 MiB, threshold 6 s, lru"
     pub fn describe(&self) -> String {
         match self {
-            Self::Single { cache, mb } => format!("{mb} MB, {}", cache.policy()),
+            Self::Single { cache, mib } => format!("{mib} MiB, {}", cache.policy()),
             Self::Bin {
-                lower_mb,
-                upper_mb,
+                lower_mib,
+                upper_mib,
                 threshold_s,
                 cache,
             } => format!(
-                "bins lower {lower_mb} MB, upper {upper_mb} MB, threshold {threshold_s} s, {}",
+                "bins lower {lower_mib} MiB, upper {upper_mib} MiB, threshold {threshold_s} s, {}",
                 cache.policy()
             ),
         }

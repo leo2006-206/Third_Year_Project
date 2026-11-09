@@ -635,7 +635,7 @@ mod test {
                 CutPick::Smallest,
             ),
             store: PolicyCache::new(&dir, 1 << 20, CachePolicy::Lfu).unwrap(),
-            mb: 1,
+            mib: 1,
             cost: CostPredictor::from_csv(COEF, FEATURES).unwrap(),
             ref_site: OffloadSite::new(
                 "ref:0",

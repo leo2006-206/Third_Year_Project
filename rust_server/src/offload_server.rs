@@ -475,8 +475,8 @@ fn main() -> io::Result<()> {
     };
     match asset_cache {
         Some(cache) => println!(
-            "Asset cache ON: {} MB, {}",
-            std::env::var("OBM_ASSET_CACHE_MB").unwrap_or_default(),
+            "Asset cache ON: {} MiB, {}",
+            std::env::var("OBM_ASSET_CACHE_MIB").unwrap_or_default(),
             cache.policy()
         ),
         None => println!("Asset cache OFF"),

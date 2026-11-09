@@ -165,7 +165,7 @@ pub struct ServerState<P: LoadBalancerPolicy> {
 pub struct Psc {
     pub policy: PscPolicy,
     pub store: PolicyCache,
-    pub mb: usize,
+    pub mib: usize,
     pub cost: CostPredictor,
     pub ref_site: OffloadSite,
 }
@@ -176,11 +176,11 @@ impl Psc {
         predict_any(&self.cost, path, &self.ref_site)
     }
 
-    /// For the startup line, e.g. "50 MB lfu, heavy 1 s, thr 2, window 600 s, pick smallest, ..."
+    /// For the startup line, e.g. "50 MiB lfu, heavy 1 s, thr 2, window 600 s, pick smallest, ..."
     pub fn describe(&self) -> String {
         format!(
-            "{} MB {}, {}",
-            self.mb,
+            "{} MiB {}, {}",
+            self.mib,
             self.store.policy(),
             self.policy.describe()
         )
@@ -237,24 +237,27 @@ impl<P: LoadBalancerPolicy> ServerState<P> {
 }
 
 /// [Dishonest I/O] The segment cache from env vars, None = off. Either:
-/// - single cache: OBM_SEGMENT_CACHE_MB (unset / 0 = off), OBM_SEGMENT_CACHE_POLICY lru | lfu
+/// - single cache: OBM_SEGMENT_CACHE_MIB (unset / 0 = off), OBM_SEGMENT_CACHE_POLICY lru | lfu
 ///   (default lru), files in OBM_SEGMENT_CACHE_DIR (default /tmp/obm_cache/segment);
-/// - cost bins: OBM_BIN_CACHE_LOWER_MB + OBM_BIN_CACHE_UPPER_MB (both unset / sum 0 = off; an
-///   unset one is 0 MB), OBM_BIN_CACHE_THRESHOLD_S (default 6.0), files in
+/// - cost bins: OBM_BIN_CACHE_LOWER_MIB + OBM_BIN_CACHE_UPPER_MIB (both unset / sum 0 = off; an
+///   unset one is 0 MiB), OBM_BIN_CACHE_THRESHOLD_S (default 6.0), files in
 ///   OBM_BIN_CACHE_DIR/{lower,upper} (default /tmp/obm_cache/bin).
 ///
 /// Both on is an error: they are the same feature. Folders are emptied at start.
 pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
-    let single_mb = util::env_parse::<usize>("OBM_SEGMENT_CACHE_MB")?.unwrap_or(0);
-    let lower_mb = util::env_parse::<usize>("OBM_BIN_CACHE_LOWER_MB")?.unwrap_or(0);
-    let upper_mb = util::env_parse::<usize>("OBM_BIN_CACHE_UPPER_MB")?.unwrap_or(0);
-    let bin_on = lower_mb + upper_mb > 0;
+    util::refuse_renamed("OBM_SEGMENT_CACHE_MB", "OBM_SEGMENT_CACHE_MIB")?;
+    util::refuse_renamed("OBM_BIN_CACHE_LOWER_MB", "OBM_BIN_CACHE_LOWER_MIB")?;
+    util::refuse_renamed("OBM_BIN_CACHE_UPPER_MB", "OBM_BIN_CACHE_UPPER_MIB")?;
+    let single_mib = util::env_parse::<usize>("OBM_SEGMENT_CACHE_MIB")?.unwrap_or(0);
+    let lower_mib = util::env_parse::<usize>("OBM_BIN_CACHE_LOWER_MIB")?.unwrap_or(0);
+    let upper_mib = util::env_parse::<usize>("OBM_BIN_CACHE_UPPER_MIB")?.unwrap_or(0);
+    let bin_on = lower_mib + upper_mib > 0;
 
-    match (single_mb > 0, bin_on) {
+    match (single_mib > 0, bin_on) {
         (false, false) => Ok(None),
         (true, true) => Err(io::Error::new(
             io::ErrorKind::InvalidInput,
-            "OBM_SEGMENT_CACHE_MB and OBM_BIN_CACHE_*_MB are both set: they are the same \
+            "OBM_SEGMENT_CACHE_MIB and OBM_BIN_CACHE_*_MIB are both set: they are the same \
              feature (segment cache), set only one",
         )),
         (true, false) => {
@@ -262,11 +265,11 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
                 .unwrap_or_else(|_| "/tmp/obm_cache/segment".to_string());
             let policy = util::env_parse::<CachePolicy>("OBM_SEGMENT_CACHE_POLICY")?
                 .unwrap_or(CachePolicy::Lru);
-            let cache = PolicyCache::new(&dir, single_mb << 20, policy)
+            let cache = PolicyCache::new(&dir, single_mib << 20, policy)
                 .map_err(|e| io::Error::new(e.kind(), format!("segment cache dir {dir}: {e}")))?;
             Ok(Some(SegmentCache::Single {
                 cache,
-                mb: single_mb,
+                mib: single_mib,
             }))
         }
         (false, true) => {
@@ -279,16 +282,16 @@ pub fn segment_cache_loader() -> io::Result<Option<SegmentCache>> {
             let cache = BinCache::new(
                 dir.join("lower"),
                 dir.join("upper"),
-                lower_mb << 20,
-                upper_mb << 20,
+                lower_mib << 20,
+                upper_mib << 20,
                 threshold_s,
                 policy,
             )
             .map_err(|e| io::Error::new(e.kind(), format!("bin cache {}: {e}", dir.display())))?;
             Ok(Some(SegmentCache::Bin {
                 cache,
-                lower_mb,
-                upper_mb,
+                lower_mib,
+                upper_mib,
                 threshold_s,
             }))
         }
@@ -326,20 +329,21 @@ pub fn prefetch_loader() -> io::Result<Option<MergedPrefetch>> {
 }
 
 /// [Dishonest I/O] Partial segment cache from env vars, None = off:
-/// OBM_PSC_MB (store budget MiB; unset / 0 = off), OBM_PSC_HEAVY_S (REQUIRED when on, no default:
+/// OBM_PSC_MIB (store budget MiB; unset / 0 = off), OBM_PSC_HEAVY_S (REQUIRED when on, no default:
 /// create only cuts that save at least this, s per reuse, e.g. 0.5 / 1 / 2), OBM_PSC_THR
 /// (default 2 requests in the window), OBM_PSC_WINDOW_S (default 600), OBM_PSC_PICK
 /// (smallest | save, default smallest), OBM_PSC_POLICY (lru | lfu, default lfu), OBM_PSC_DIR
 /// (default /tmp/obm_cache/psc, emptied at start), OBM_PSC_CUTS (default
 /// /app/stat_predict/psc_cuts.csv), cost model from OBM_COST_COEF / OBM_COST_FEATURES.
 pub fn psc_loader() -> io::Result<Option<Psc>> {
-    let mb = util::env_parse::<usize>("OBM_PSC_MB")?.unwrap_or(0);
-    if mb == 0 {
+    util::refuse_renamed("OBM_PSC_MB", "OBM_PSC_MIB")?;
+    let mib = util::env_parse::<usize>("OBM_PSC_MIB")?.unwrap_or(0);
+    if mib == 0 {
         return Ok(None);
     }
     let invalid = |msg: String| io::Error::new(io::ErrorKind::InvalidInput, msg);
     let heavy_s = util::env_parse::<f64>("OBM_PSC_HEAVY_S")?.ok_or_else(|| {
-        invalid("OBM_PSC_MB is set: OBM_PSC_HEAVY_S is required (e.g. 0.5, 1, 2)".into())
+        invalid("OBM_PSC_MIB is set: OBM_PSC_HEAVY_S is required (e.g. 0.5, 1, 2)".into())
     })?;
     if !heavy_s.is_finite() || heavy_s < 0.0 {
         return Err(invalid(format!("OBM_PSC_HEAVY_S={heavy_s}: expected >= 0")));
@@ -361,12 +365,12 @@ pub fn psc_loader() -> io::Result<Option<Psc>> {
         .unwrap_or_else(|_| "/app/stat_predict/psc_cuts.csv".to_string());
     let table = CutTable::load(&cuts)
         .map_err(|e| io::Error::new(e.kind(), format!("PSC cut table {cuts}: {e}")))?;
-    let store = PolicyCache::new(&dir, mb << 20, policy)
+    let store = PolicyCache::new(&dir, mib << 20, policy)
         .map_err(|e| io::Error::new(e.kind(), format!("PSC store dir {dir}: {e}")))?;
     Ok(Some(Psc {
         policy: PscPolicy::new(table, heavy_s, thr, window_s, pick),
         store,
-        mb,
+        mib,
         cost: load_cost_model()?,
         ref_site: OffloadSite::new(
             "psc-ref:0",

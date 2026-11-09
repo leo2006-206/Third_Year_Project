@@ -2,19 +2,19 @@
 # Docker env-file format: no quotes, no spaces around '=', no comment after a value.
 # Read by every run script that sources temp/cluster_lib.sh (run_driver, smoke tests) and by
 # servers_container/main_server/run_sh.sh. A variable already set in the shell wins over this file,
-# e.g. OBM_SEGMENT_CACHE_MB=45 FEATURES=S temp/run_driver.sh 2 0.5 mct
-# Cache on (any MB > 0) needs a FEATURES label for run_driver (e.g. FEATURES=S / B), else it refuses.
+# e.g. OBM_SEGMENT_CACHE_MIB=45 FEATURES=S temp/run_driver.sh 2 0.5 mct
+# Cache caps are MiB (renamed *_MB -> *_MIB 11-09; the old names make the server exit). Cache on (any MiB > 0) needs a FEATURES label for run_driver (e.g. FEATURES=S / B), else it refuses.
 
 # ---- Segment cache (one cache on the main server): cap in MiB, 0 = off; policy lru | lfu
-OBM_SEGMENT_CACHE_MB=0
+OBM_SEGMENT_CACHE_MIB=0
 OBM_SEGMENT_CACHE_POLICY=lru
 
 # ---- Bin cache (2 bins split by cost, policy lru | lfu for both), 0 + 0 = off. Same feature as the segment cache:
 # only one of the two may be on, the main server refuses to start otherwise.
 # cost = (asset_ms + work_ms / render factor gpu 1, llvmpipe 1.33, cpu 4.6) / 1000, in seconds
 # lower bin: cost < threshold, upper bin: cost >= threshold
-OBM_BIN_CACHE_LOWER_MB=0
-OBM_BIN_CACHE_UPPER_MB=0
+OBM_BIN_CACHE_LOWER_MIB=0
+OBM_BIN_CACHE_UPPER_MIB=0
 OBM_BIN_CACHE_THRESHOLD_S=6
 OBM_BIN_CACHE_POLICY=lru
 
@@ -38,7 +38,7 @@ OBM_PREFETCH_HOLD_S=30
 # created; runs try 0.5 / 1 / 2 (override per run in the shell, the shell wins). The main server itself has no
 # built-in default: started without this file and with PSC on, it refuses to start until HEAVY is given.
 # THR = requests for the cut in WINDOW s before it is created; PICK smallest | save; POLICY lru | lfu.
-OBM_PSC_MB=0
+OBM_PSC_MIB=0
 OBM_PSC_HEAVY_S=1
 OBM_PSC_THR=2
 OBM_PSC_WINDOW_S=600
@@ -46,8 +46,8 @@ OBM_PSC_PICK=smallest
 OBM_PSC_POLICY=lfu
 
 # ---- Asset cache (on every offload site, per site): cap in MiB, 0 = off; policy lru | lfu
-# 50 MB ~ half a site's assets per run; LFU ~3 pts more file hits than LRU there (temp/asset_cache_sim.py)
-OBM_ASSET_CACHE_MB=0
+# 50 MiB ~ half a site's assets per run; LFU ~3 pts more file hits than LRU there (temp/asset_cache_sim.py)
+OBM_ASSET_CACHE_MIB=0
 OBM_ASSET_CACHE_POLICY=lfu
 
 # ---- Policy knobs

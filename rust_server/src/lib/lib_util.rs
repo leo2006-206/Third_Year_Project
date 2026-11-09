@@ -158,6 +158,18 @@ where
         .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, format!("{name}={text:?}: {e}")))
 }
 
+/// Error if the renamed env var `old` is still set (cache caps were `*_MB` but always meant MiB,
+/// renamed `*_MIB` 11-09), so an old script never silently runs with the cache off.
+pub fn refuse_renamed(old: &str, new: &str) -> io::Result<()> {
+    match std::env::var_os(old) {
+        Some(_) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("{old} was renamed to {new} (value in MiB): set {new} instead"),
+        )),
+        None => Ok(()),
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
