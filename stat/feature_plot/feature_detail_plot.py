@@ -146,10 +146,15 @@ def run_metrics(csv: Path) -> dict:
     r["renders"] = len(sent) + r["pf_issue"]  # renders the sites did (real + prefetch)
     # prefetch renders have no csv row: their work / asset from '[PREFETCH] done | site | Tms |
     # work W asset A' (queue + net only known combined -> left out); per client request, as all_*
-    done = re.findall(r"\[PREFETCH\] done \| \S+ \| \d+ms \| work (\d+) asset (\d+)", log)
+    done = re.findall(r"\[PREFETCH\] done \| \S+ \| (\d+)ms \| work (\d+) asset (\d+)", log)
     r["pf_done"] = len(done)
-    r["pf_work_s"] = sum(int(w) for w, _ in done) / 1000
-    r["pf_asset_s"] = sum(int(a) for _, a in done) / 1000
+    r["pf_work_s"] = sum(int(w) for _, w, _ in done) / 1000
+    r["pf_asset_s"] = sum(int(a) for _, _, a in done) / 1000
+    # queue marker (11-09): queue per SITE RENDER = client renders (csv site queue + central wait)
+    # + prefetch renders (log total - work - asset = queue + net, net ~0.2 s), / number of renders
+    pf_q = sum(int(t) - int(w) - int(a) for t, w, a in done) / 1000
+    n_r = len(sent) + len(done)
+    r["q_render"] = ((sent["site_queue"] + sent["wait"]).sum() + pf_q) / n_r if n_r else np.nan
     r["pf_work"], r["pf_asset"] = r["pf_work_s"] / len(df), r["pf_asset_s"] / len(df)
     if not (main_log.exists() and "Segment cache ON" in log):
         r["seg_req"] = r["seg_byte"] = np.nan  # off: no bar, not 0 %
@@ -262,8 +267,9 @@ def print_tables(s: pd.DataFrame, title: str):
     t["all_sd"] = s["sd"]  # std over runs of all_total (error bar), NaN = 1 run
     # rank of all_total, 1 = lowest (badges 1..TOP on the plot)
     t["rank"] = t["all_total"].rank(method="first").astype(int)
+    t["q_render"] = s["q_render"]  # queue per site render (black line on the plot)
     print("mean time per request (s): all = every request (segment hit = 0, C/P follower = its "
-          "wait), sent = sent to a site\n"
+          "wait), sent = sent to a site; q_render = queue per site render (client + prefetch)\n"
           + t.round(2).to_string())
     h = s[[c for c, _ in HITS] + [c for c in s.columns if c.startswith("bin_")] + ["asset_fetches"]]
     print("hit ratio (segment requests / bytes, asset files / bytes), B hits per bin, asset fetches\n"
@@ -333,6 +339,20 @@ def rank_badges(ax, s, ymax):
                 bbox={"boxstyle": "circle,pad=0.25", "fc": "#1b1b1a", "ec": "none"})
 
 
+QUEUE_NOTE = ("BLACK LINE = queue per SITE RENDER (client renders + prefetch renders; prefetch = log total - work - asset, "
+              "incl. net ~0.2 s); bars = per client request (follower / hit = 0 queue)")
+
+
+def queue_marker(ax, s, fs):
+    """[Honest] Queue per site render (s['q_render']) as a black bar-wide line + value on a stacked
+    s-per-request panel (11-09: the bar's queue is per client request, so hits / followers (0 queue)
+    pull it down even when the sites queue longer, e.g. P)."""
+    for i, q in enumerate(s["q_render"]):
+        ax.plot([i - 0.42, i + 0.42], [q, q], color="#1b1b1a", linewidth=2.6, zorder=4)
+        ax.text(i + 0.44, q, f"{q:.1f}", ha="left", va="center", fontsize=fs, color="#1b1b1a",
+                fontweight="bold", zorder=5, bbox={"fc": SURF, "ec": "none", "alpha": 0.85, "pad": 1})
+
+
 def plot(s: pd.DataFrame, title: str, out: Path):
     """[Honest] One stacked bar per run type: mean time per request over all requests (hit = 0)."""
     fig, ax = plt.subplots(figsize=(max(12, 1.25 * len(s) + 2), 7.5), facecolor=SURF)  # 15+ bars: widen (11-09)
@@ -342,20 +362,21 @@ def plot(s: pd.DataFrame, title: str, out: Path):
     ax.set_xticks(np.arange(len(s)), ticks, fontsize=FS_TICK,
                   rotation=25 if len(s) > 10 else 0, ha="right" if len(s) > 10 else "center")
     rank_badges(ax, s, ymax)
+    queue_marker(ax, s, FS_VALUE - 1)
     finish(ax, "mean time per request, all requests (segment cache hit = 0 s, C / P follower = "
            "its wait)", "s per request")
     h, l = ax.get_legend_handles_labels()
     ax.legend(h, l, fontsize=FS_TICK - 1, frameon=False, loc="upper center", ncol=len(h))
     fig.suptitle(f"{s.index[0]} with no feature vs + one feature: {title}", fontsize=FS_TITLE - 2,
                  color=INK)
-    fig.text(0.01, 0.01, "mean over runs ("
+    fig.text(0.01, 0.01, QUEUE_NOTE + "\nmean over runs ("
              + ", ".join(f"{t} {int(n)}" for t, n in zip(ticks, s["runs"]))
              + "), whisker = std over runs (2+ runs only); status 200, body left out\nSlru/Slfu/B6lru/B8lru/B8lfu = segment cache, Alru/Alfu = asset "
              "cache, C = coalescing, P = prefetch,\nPSC<heavy><small|save> = partial segment cache; "
              "single-feature runs only (pairs analysed separately)",
              ha="left", fontsize=FS_TICK - 3, color=MUTED)
     fig.subplots_adjust(left=0.08 * 12 / fig.get_figwidth(), right=0.98, top=0.88,
-                        bottom=0.19 if len(s) > 10 else 0.11)
+                        bottom=0.21 if len(s) > 10 else 0.13)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
     print(f"plot -> {out}")

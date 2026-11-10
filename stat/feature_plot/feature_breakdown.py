@@ -20,7 +20,7 @@ import matplotlib.patches
 import matplotlib.pyplot as plt
 import numpy as np
 
-from feature_detail_plot import (PARTS, bar_colour, finish, load, rank_badges, short, stacked,
+from feature_detail_plot import (PARTS, QUEUE_NOTE, bar_colour, finish, load, queue_marker, rank_badges, short, stacked,
                                  INK, MUTED, SURF)
 from latency_plot import single  # importable: feature_detail_plot puts stat/ on sys.path
 
@@ -137,7 +137,7 @@ def hit_rows(s, kind):
 def draw_hit_line(fig, s, kind, x0=0.05, y_last=None):
     """[Honest] The hit entries at the figure bottom, HIT_COLS per row (last row at y_last, rows
     stacked upwards so they never reach the tick labels), each after a square of its bar colour."""
-    y_last = y_last or {"coalesce": 0.11, "psc": 0.115}.get(kind, 0.075)  # footer 4 / 3 / 2 lines
+    y_last = y_last or {"coalesce": 0.13, "psc": 0.135}.get(kind, 0.095)  # footer +1 line (queue marker)  # footer 4 / 3 / 2 lines
     sq = 0.009  # square side, figure width fraction
     h = sq * fig.bbox.width / fig.bbox.height
     rows, cols = hit_rows(s, kind), hit_cols(kind)
@@ -187,9 +187,19 @@ def plot(s, title, out, feature_name, kind, names):
             many = len(s) > 5  # 6+ bars: one-line label, vertical (11-09, labels overlapped)
             left.text(xi, vi + top * 0.01, txt, ha="center", va="bottom",
                       fontsize=FS_VALUE - (2 if many else 1), color=INK, rotation=90 if many else 0)
+    # queue group -> marker = queue per site render vs none's
+    for j, bar in enumerate(s.index):
+        xi = x[0] - 0.4 + w * (j + 0.5)
+        qr = s.loc[bar, "q_render"] / s.loc[base, "q_render"]
+        left.plot([xi - w * 0.45, xi + w * 0.45], [qr, qr], color="#1b1b1a", linewidth=2.6, zorder=4,
+                  label=None)
+        if bar != base:
+            left.text(xi + w * 0.5, qr, f"{100 * qr:.0f}%", ha="left", va="center",
+                      fontsize=FS_VALUE - 1, color="#1b1b1a", fontweight="bold", zorder=5, bbox={"fc": SURF, "ec": "none", "alpha": 0.85, "pad": 1})
     left.axhline(1.0, color=INK, linewidth=1, linestyle="--", zorder=3)
     left.set_xticks(x, [g for g, _ in G], fontsize=FS_TICK)
-    left.set_ylim(0, max(1.0, top) * 1.22)
+    qmax = (s["q_render"] / s.loc[base, "q_render"]).max()
+    left.set_ylim(0, max(1.0, top, qmax) * 1.22)
     left.yaxis.set_major_formatter(matplotlib.ticker.PercentFormatter(1.0))
     finish(left, f"Each latency part vs {base} with no feature (= 100 %; dashed line)",
            "% of no feature")
@@ -200,6 +210,7 @@ def plot(s, title, out, feature_name, kind, names):
     stacked(right, s, "all", ymax, s["sd"])
     right.set_xticks(np.arange(len(s)), [tick(b) for b in s.index], fontsize=FS_TICK)
     rank_badges(right, s, ymax)
+    queue_marker(right, s, FS_VALUE)  # queue per site render (11-09)
     finish(right, "Mean time per request (s)", "s per request")
     h, l = right.get_legend_handles_labels()
     right.legend(h, l, fontsize=FS_TICK - 1, frameon=False, loc="upper center", ncol=len(h))
@@ -218,11 +229,12 @@ def plot(s, title, out, feature_name, kind, names):
                    "full from a stored sub; hit = rebuild / eligible (kinds with a cut);\n"
                    "site service = work + asset + net measured on that run's create / rebuild rows vs the mean of "
                    "the same kind (path without time) in mct none; net = sum of both deltas (< 0 = saved)"}[kind]
+    unit = QUEUE_NOTE + "\n" + unit
     fig.text(0.01, 0.01, f"{unit}\nstatus 200 requests, body "
              "left out; mean over runs (" + ", ".join(f"{short(b)} {int(n)}" for b, n in s["runs"].items())
              + "), whisker = std over runs (2+ runs only)", ha="left", fontsize=FS_TICK - 2, color=MUTED)
     fig.subplots_adjust(left=0.05, right=0.99, top=0.88,
-                        bottom=0.12 + {"coalesce": 0.05, "psc": 0.065}.get(kind, 0.02) + hit_dy(kind) * hit_rows(s, kind),
+                        bottom=0.145 + {"coalesce": 0.05, "psc": 0.065}.get(kind, 0.02) + hit_dy(kind) * hit_rows(s, kind),
                         wspace=0.14)
     out.parent.mkdir(parents=True, exist_ok=True)
     fig.savefig(out, dpi=140)
@@ -244,6 +256,9 @@ def print_table(s, title, kind):
         sec = [s.loc[bar, [f"all_{c}" for c in cols]].sum() for _, cols in G]
         print(f"{short(bar):12}" + "".join(f"{v:>13.2f}" for v in sec) + f"{s.loc[bar, 'sd']:>8.2f}"
               + f"{rank[bar]:>6}" + "".join(f"{100 * v:>14.0f}%" for v in rel[bar]))
+    print("queue per site render (client + prefetch renders): "
+          + ", ".join(f"{short(b)} {s.loc[b, 'q_render']:.2f} s ({100 * s.loc[b, 'q_render'] / s.loc[base, 'q_render']:.0f}%)"
+                      for b in s.index))
     if kind == "coalesce":
         ext = extra(s, base, kind)
         print("prefetch renders (main log '[PREFETCH] done'; not in the csv): s per client request "
